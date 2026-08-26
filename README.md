@@ -23,11 +23,17 @@ The system will use Go for all backend services and workers. The administrator c
 
 ## Current status
 
-Planning baseline only. Service implementation begins after Phase 1 architecture and requirements sign-off.
+Phase 1 service-boundary and target-definition work is in progress. Service coding begins after its architecture and requirements gates are signed off.
 
 - [Target architecture](docs/ARCHITECTURE.md)
 - [Service catalogue](docs/SERVICE_CATALOGUE.md)
 - [Non-functional requirements](docs/NON_FUNCTIONAL_REQUIREMENTS.md)
+- [Phase 1 service-boundary map](docs/phase-1/SERVICE_BOUNDARY_MAP.md)
+- [Critical state machines](docs/phase-1/STATE_MACHINES.md)
+- [Data classification and retention](docs/phase-1/DATA_CLASSIFICATION_RETENTION.md)
+- [Capacity and SLO model](docs/phase-1/CAPACITY_SLO_MODEL.md)
+- [Migration and coexistence strategy](docs/phase-1/MIGRATION_COEXISTENCE.md)
+- [Threat model](docs/phase-1/THREAT_MODEL.md)
 - [Greenfield backend ADR](docs/adr/0001-go-greenfield-platform.md)
 - [Six-phase programme plan](https://github.com/yazhsab/planext4u-moble/blob/main/docs/PROGRAM_PLAN.md)
 - [Flutter applications](https://github.com/yazhsab/planext4u-moble)
