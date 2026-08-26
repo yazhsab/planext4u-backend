@@ -1,4 +1,6 @@
-# Capacity and SLO model v0.1
+# Capacity and SLO model v1.0
+
+Approval: accepted on 2026-08-26 as the initial sizing and reliability baseline. Production telemetry calibration is a Phase 3 load-gate input, not a Phase 1 blocker.
 
 ## Document baselines
 
@@ -14,9 +16,9 @@
 | MTTD / P1 MTTR | < 5 minutes / < 30 minutes |
 | Mobile cold start / image first paint | <= 2.5 s / <= 1.2 s on agreed reference device/network |
 
-## Workload model to validate in Phase 1
+## Workload calibration model
 
-Traffic inputs are not yet approved. Product/Data must provide current POC registrations, DAU/MAU, peak-hour ratio, home refreshes, searches, feed views, messages, media uploads, order/booking conversion, location pings and report volumes. Capacity tests will then model:
+Until measured telemetry is available, Phase 2 uses the document baselines and synthetic profiles below. Product/Data telemetry must later calibrate DAU/MAU, peak-hour ratio, home refreshes, searches, feed views, messages, media uploads, order/booking conversion, location pings and report volumes. Capacity tests model:
 
 ```text
 peak requests/sec = peak concurrent sessions x actions/session/minute / 60
@@ -57,7 +59,7 @@ location events/sec = online agents / configured ping interval
 - Alerts use multi-window burn rates and link to tested runbooks; raw CPU alone is not a service alert.
 - Financial correctness, duplicate avoidance and reconciliation exceptions are reliability indicators, not only business reports.
 
-## Open inputs
+## Deferred calibration inputs
 
 - Peak city/country distribution and campaign/notification fan-out sizes.
 - Online rider/service-agent count and location frequency by task state.
@@ -65,3 +67,5 @@ location events/sec = online agents / configured ping interval
 - Order, food and service transaction mix plus payment-method split.
 - RPO/RTO by domain and legally required recovery evidence.
 - Reference low-end Android devices and representative Indian network profiles.
+
+These inputs are owned by Platform/Product Data and are due before the Phase 3 performance gate. Missing calibration prevents scale sign-off; it does not change the approved minimum targets above.

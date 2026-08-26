@@ -23,7 +23,7 @@ The system will use Go for all backend services and workers. The administrator c
 
 ## Current status
 
-Phase 1 service-boundary and target-definition work is in progress. Service coding begins after its architecture and requirements gates are signed off.
+Phase 1 architecture and target definition is complete. The approved Phase 2 backlog establishes the Go platform, contracts and staging vertical slice.
 
 - [Target architecture](docs/ARCHITECTURE.md)
 - [Service catalogue](docs/SERVICE_CATALOGUE.md)
@@ -34,6 +34,12 @@ Phase 1 service-boundary and target-definition work is in progress. Service codi
 - [Capacity and SLO model](docs/phase-1/CAPACITY_SLO_MODEL.md)
 - [Migration and coexistence strategy](docs/phase-1/MIGRATION_COEXISTENCE.md)
 - [Threat model](docs/phase-1/THREAT_MODEL.md)
+- [Contract standards](docs/phase-1/CONTRACT_STANDARDS.md)
+- [Security control plan](docs/phase-1/SECURITY_CONTROL_PLAN.md)
+- [Backend test strategy](docs/phase-1/TEST_STRATEGY.md)
+- [Legacy export inventory](docs/phase-1/LEGACY_EXPORT_INVENTORY.md)
+- [Phase 2 executable backlog](docs/phase-1/PHASE_2_BACKLOG.md)
+- [Phase 1 exit review](docs/phase-1/PHASE_1_EXIT_REVIEW.md)
 - [Greenfield backend ADR](docs/adr/0001-go-greenfield-platform.md)
 - [Six-phase programme plan](https://github.com/yazhsab/planext4u-moble/blob/main/docs/PROGRAM_PLAN.md)
 - [Flutter applications](https://github.com/yazhsab/planext4u-moble)

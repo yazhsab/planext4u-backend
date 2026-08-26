@@ -1,6 +1,6 @@
-# Data classification and retention draft v0.1
+# Data classification and retention baseline v1.0
 
-This is an engineering baseline, not legal advice. Legal, Finance, HR/Operations and Security must approve retention periods before Phase 2 storage policies are frozen.
+Approval: accepted on 2026-08-26 as the engineering classification/control baseline. This is not legal advice. Exact statutory retention values remain centrally configurable release-policy inputs; irreversible production purge schedules cannot activate until Legal/Finance/HR-Operations approval.
 
 | Class | Examples | Storage/access baseline | Retention proposal |
 | --- | --- | --- | --- |
@@ -25,7 +25,7 @@ This is an engineering baseline, not legal advice. Legal, Finance, HR/Operations
 - Exports are time-limited, encrypted, watermarked/identified where appropriate and audited.
 - No precise location, KYC, bank, OTP, token or private message content enters general logs or metrics.
 
-## Decisions required
+## Release-policy gates
 
 1. DPDP data-fiduciary/processor roles and consent purposes by feature.
 2. KYC, GST, invoice, settlement and payment statutory retention.
@@ -33,3 +33,5 @@ This is an engineering baseline, not legal advice. Legal, Finance, HR/Operations
 4. Rider/field-officer location and attendance retention with worker-policy review.
 5. Emergency request/medical-adjacent information handling and responder access.
 6. Data residency and future-country separation.
+
+Phase 2 implements the classification tags, ownership, audit, configurable retention engine, legal hold and synthetic-data rules. The gates above must be resolved before the affected production feature or purge schedule activates, but they do not leave Phase 2 storage architecture ambiguous.

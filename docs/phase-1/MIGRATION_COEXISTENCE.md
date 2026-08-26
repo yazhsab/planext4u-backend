@@ -1,4 +1,6 @@
-# Legacy data migration and coexistence strategy v0.1
+# Legacy data migration and coexistence strategy v1.0
+
+Approval: accepted on 2026-08-26. No authorised legacy export has been supplied; migration is therefore disabled until the Phase 6 inventory gate in [Legacy export inventory](LEGACY_EXPORT_INVENTORY.md) is satisfied.
 
 ## Boundary
 

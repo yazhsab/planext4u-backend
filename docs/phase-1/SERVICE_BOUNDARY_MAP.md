@@ -1,6 +1,6 @@
-# Initial service-boundary map v0.1
+# Initial service-boundary map v1.0
 
-These are initial deployable groups for Phase 2, not permanent organisational boundaries. Each service owns its write model, migrations, credentials, SLOs and public contracts. Direct cross-service table access is prohibited.
+Approval: accepted on 2026-08-26 as the 12-deployable Phase 2 baseline. These are initial deployable groups, not permanent organisational boundaries. Each service owns its write model, migrations, credentials, SLOs and public contracts. Direct cross-service table access is prohibited.
 
 | Deployable | Owned capabilities | Primary data | Synchronous dependencies | Published events |
 | --- | --- | --- | --- | --- |
@@ -26,7 +26,7 @@ These are initial deployable groups for Phase 2, not permanent organisational bo
 - Cross-domain workflows use an orchestrated saga or durable process manager with compensating commands.
 - New service splits require evidence: independent scale, security isolation, separate release cadence or organisational ownership.
 
-## Contracts to define before Phase 2
+## Contract families
 
 1. Common error envelope, pagination/cursor, idempotency and correlation headers.
 2. Identity/session/role claims and policy-decision interface.
@@ -36,3 +36,5 @@ These are initial deployable groups for Phase 2, not permanent organisational bo
 6. Order, booking, payment, settlement and assignment command/event schemas.
 7. Audit actor/target/reason/before/after schema.
 8. Event metadata, versioning, partition key, causation/correlation and replay policy.
+
+The binding rules and acceptance gates are approved in [Contract standards](CONTRACT_STANDARDS.md).

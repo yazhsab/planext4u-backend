@@ -1,4 +1,6 @@
-# Threat model v0.1
+# Threat model v1.0
+
+Review status: accepted on 2026-08-26 for Phase 2 architecture. Provider due diligence and penetration testing remain release evidence, not unresolved design decisions.
 
 ## Protected assets
 
@@ -39,11 +41,8 @@
 | Event poisoning/replay | Authenticated producers, schema registry, partition/sequence/idempotency, inbox and DLQ controls | Invalid version, duplicate and replay tests |
 | Migration leakage/corruption | Restricted zone, checksums, encryption, masked rehearsal, deterministic transform and reconciliation | Restore/replay/reject and access-control tests |
 
-## Required Phase 1 security outputs
+## Security-output mapping
 
-- Data-flow diagrams and field-level classification.
-- Abuse-case acceptance tests linked to requirement IDs.
-- IAM/service-account matrix and secret/rotation inventory.
-- External-provider due-diligence and data-processing register.
-- Security logging plan without sensitive payloads.
-- Incident classes, escalation contacts, evidence preservation and breach-response runbook.
+- Data-flow and classification: `ARCHITECTURE.md`, `SERVICE_BOUNDARY_MAP.md`, `DATA_CLASSIFICATION_RETENTION.md`.
+- Abuse-case verification, IAM/service-account baseline, secret inventory, provider register, logging and incident handling: [Security control plan](SECURITY_CONTROL_PLAN.md).
+- Automated abuse, role, webhook, financial, location and migration suites: [Backend test strategy](TEST_STRATEGY.md).

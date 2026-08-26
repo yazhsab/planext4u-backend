@@ -1,4 +1,6 @@
-# Critical state machines v0.1
+# Critical state machines v1.0
+
+Approval: accepted on 2026-08-26 as the server-authoritative lifecycle baseline.
 
 All transitions are server-authorised, idempotent and audited. Clients receive allowed next actions from APIs; they do not infer them from a status string.
 
@@ -99,10 +101,10 @@ DRAFT -> CONSENT_CONFIRMED -> REQUESTED -> TRIAGED -> RESPONDER_OFFERED
 
 Branches: `ESCALATED`, `NO_RESPONDER_AVAILABLE`, `CANCELLED_BY_REQUESTER`, `CLOSED_REFERRED_TO_PUBLIC_EMERGENCY_SERVICE`. The app must never imply guaranteed clinical care; legal/operational policy controls launch.
 
-## Open state decisions
+## Accepted state decisions
 
-- Whether customer confirmation is mandatory before `COMPLETED`, and whether it may block later purchases.
-- POD requirements by value, module and country.
-- Return/chargeback ownership split between payment, commerce and finance.
-- Service reschedule fee/no-show thresholds and timezone semantics.
-- Settlement four-eyes thresholds and correction workflow.
+- Customer confirmation is requested after delivery but auto-completes after a configurable timeout. An unconfirmed prior order never creates a global purchase block; risk policy may require confirmation for selected high-risk transactions.
+- POD policy is configured by country, module and value tier. The API returns required evidence; clients do not infer it.
+- Commerce owns return eligibility/case state, Payment owns provider refund execution/chargebacks, and Wallet/Settlement owns ledger consequences. A durable process manager coordinates them.
+- Service reschedule/no-show fees and cut-offs are versioned country/tenant policies evaluated in the booking service with explicit timezone.
+- Settlement approval always requires fresh MFA; four-eyes applies to every manual payout/adjustment in Phase 2 and may later use approved value thresholds.
