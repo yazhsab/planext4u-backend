@@ -25,6 +25,31 @@ The system will use Go for all backend services and workers. The administrator c
 
 Phase 1 architecture and target definition is complete. The approved Phase 2 backlog establishes the Go platform, contracts and staging vertical slice.
 
+Phase 2 implementation has started with a greenfield Go service template. It
+provides validated typed configuration, structured JSON logging with defensive
+redaction, request correlation, liveness/readiness probes, hardened HTTP
+timeouts and graceful shutdown.
+
+## Local development
+
+Prerequisite: Go 1.25 or newer.
+
+```sh
+make verify
+make run
+```
+
+The default development listener is `:8080`:
+
+- `GET /healthz` reports process liveness.
+- `GET /readyz` reports whether the process is ready to accept traffic.
+
+Supported non-secret environment variables are `SERVICE_NAME`, `APP_ENV`,
+`HTTP_ADDRESS`, `SHUTDOWN_TIMEOUT`, and `LOG_LEVEL`. Secret material must come
+from the environment-specific secret provider introduced in the platform
+infrastructure work; it does not belong in this configuration type or in local
+environment files.
+
 - [Target architecture](docs/ARCHITECTURE.md)
 - [Service catalogue](docs/SERVICE_CATALOGUE.md)
 - [Non-functional requirements](docs/NON_FUNCTIONAL_REQUIREMENTS.md)

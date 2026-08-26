@@ -1,18 +1,12 @@
+.DS_Store
 .idea/
 .vscode/
-.DS_Store
 bin/
-dist/
 coverage/
-tmp/
-vendor/
-*.out
-*.test
-*.env
-*.env.*
+*.coverprofile
+*.log
+
+# Local environment files may contain secrets and must never be committed.
+.env
+.env.*
 !.env.example
-terraform.tfstate
-terraform.tfstate.*
-.terraform/
-*.tfvars
-!*.tfvars.example
