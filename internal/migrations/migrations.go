@@ -16,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-var serviceOrder = []string{"platform", "audit", "catalog", "configuration", "identity", "media", "messaging", "notification"}
+var serviceOrder = []string{"platform", "audit", "catalog", "commerce", "configuration", "identity", "media", "messaging", "notification"}
 
 type Migration struct {
 	Service  string
@@ -105,7 +105,7 @@ func Validate(migrations []Migration) error {
 }
 
 func validateOwnership(migration Migration) error {
-	allSchemas := []string{"identity", "configuration", "catalog", "media", "audit", "messaging", "notification"}
+	allSchemas := []string{"identity", "configuration", "catalog", "commerce", "media", "audit", "messaging", "notification"}
 	for _, schema := range allSchemas {
 		if schema != migration.Service && regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(schema)+`\.`).MatchString(migration.Up) {
 			return fmt.Errorf("migration %s/%06d writes outside its owned schema via %s", migration.Service, migration.Version, schema)

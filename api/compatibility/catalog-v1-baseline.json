@@ -6,6 +6,7 @@
   ],
   "required_properties": {
     "Money": ["amount_minor", "currency"], "Category": ["id", "name", "priority"],
+    "Variant": ["id", "label", "price", "available", "stock_quantity", "max_per_order"],
     "Item": ["id", "category_id", "name", "summary", "price", "available"],
     "CategoryPage": ["items", "has_more", "projection_status", "generated_at"],
     "ItemPage": ["items", "has_more", "projection_status", "generated_at"],

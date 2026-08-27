@@ -81,9 +81,25 @@ func TestBEVSlice001LoginLocationHomeAndCatalog(t *testing.T) {
 	catalog := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/catalog/items?category_id=daily-needs", "", authPayload.Tokens.AccessToken)
 	assertVerticalResponse(t, catalog, http.StatusOK, `"currency":"INR"`, `"name":"Weekly groceries"`)
 
+	cart := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/cart", "", authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, cart, http.StatusOK, `"revision":0`, `"allowed_actions":["BROWSE"]`)
+
+	addHeaders := map[string]string{"Idempotency-Key": "idem-vslice-cart-command-0001", "If-Match": `"0"`}
+	added := verticalRequestWithHeaders(t, client, http.MethodPut, server.URL+"/v1/cart/items/variant-milk-1l", `{"quantity":2}`, authPayload.Tokens.AccessToken, addHeaders)
+	assertVerticalResponse(t, added, http.StatusOK, `"revision":1`, `"amount_minor":13000`, `"CHECKOUT"`)
+	if added.Header.Get("ETag") != `"1"` {
+		t.Fatalf("cart ETag = %q", added.Header.Get("ETag"))
+	}
+
+	replayed := verticalRequestWithHeaders(t, client, http.MethodPut, server.URL+"/v1/cart/items/variant-milk-1l", `{"quantity":2}`, authPayload.Tokens.AccessToken, addHeaders)
+	assertVerticalResponse(t, replayed, http.StatusOK, `"revision":1`)
+	if replayed.Header.Get("X-Idempotent-Replay") != "true" {
+		t.Fatal("cart command was not identified as an idempotent replay")
+	}
+
 	spans := spanRecorder.Ended()
-	if len(spans) != 6 {
-		t.Fatalf("ended spans = %d, want 6", len(spans))
+	if len(spans) != 9 {
+		t.Fatalf("ended spans = %d, want 9", len(spans))
 	}
 	for _, span := range spans {
 		if span.SpanContext().TraceID().String() != verticalSliceTraceID {
@@ -129,6 +145,10 @@ func TestVerticalSliceRejectsUntrustedOrExpiredIdentity(t *testing.T) {
 }
 
 func verticalRequest(t *testing.T, client *http.Client, method, target, body, accessToken string) *http.Response {
+	return verticalRequestWithHeaders(t, client, method, target, body, accessToken, nil)
+}
+
+func verticalRequestWithHeaders(t *testing.T, client *http.Client, method, target, body, accessToken string, headers map[string]string) *http.Response {
 	t.Helper()
 	request, err := http.NewRequest(method, target, bytes.NewBufferString(body))
 	if err != nil {
@@ -141,6 +161,9 @@ func verticalRequest(t *testing.T, client *http.Client, method, target, body, ac
 	request.Header.Set("X-Planext4u-Country", "US")
 	if accessToken != "" {
 		request.Header.Set("Authorization", "Bearer "+accessToken)
+	}
+	for name, value := range headers {
+		request.Header.Set(name, value)
 	}
 	response, err := client.Do(request)
 	if err != nil {

@@ -1,0 +1,18 @@
+{
+  "id": "cart-synthetic-001",
+  "revision": 1,
+  "items": [
+    {
+      "variant_id": "variant-milk-1l", "item_id": "item-milk", "item_name": "Fresh milk", "variant_name": "1 litre",
+      "quantity": 2, "unit_price": {"amount_minor": 6500, "currency": "INR"},
+      "line_total": {"amount_minor": 13000, "currency": "INR"}, "available": true, "price_changed": false
+    }
+  ],
+  "subtotal": {"amount_minor": 13000, "currency": "INR"},
+  "discount": {"amount_minor": 0, "currency": "INR"},
+  "tax": {"amount_minor": 0, "currency": "INR"},
+  "fees": {"amount_minor": 0, "currency": "INR"},
+  "total": {"amount_minor": 13000, "currency": "INR"},
+  "pricing_status": "CURRENT", "allowed_actions": ["BROWSE", "EDIT_ITEMS", "REMOVE_ITEMS", "CHECKOUT"],
+  "updated_at": "2026-08-27T10:00:00Z"
+}

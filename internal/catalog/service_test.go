@@ -73,6 +73,35 @@ func TestServiceabilityRequiresPurposeAndMatchesCountryZone(t *testing.T) {
 	}
 }
 
+func TestProductDetailSnapshotsAreValidatedAndDefensivelyCloned(t *testing.T) {
+	t.Parallel()
+	compare := Money{AmountMinor: 52000, Currency: "INR"}
+	items := []Item{{
+		ID: "item-oil", CategoryID: "daily-needs", Name: "Sesame oil", Summary: "Cold pressed",
+		Price: Money{AmountMinor: 45000, Currency: "INR"}, Available: true, RatingAverage: 4.8, ReviewCount: 12,
+		Specifications: map[string]string{"Origin": "Tamil Nadu"},
+		Variants:       []Variant{{ID: "variant-oil-1l", Label: "1L", Price: Money{AmountMinor: 45000, Currency: "INR"}, CompareAtPrice: &compare, Available: true, StockQuantity: 5, MaxPerOrder: 2}},
+	}}
+	repository, err := NewMemoryRepository(syntheticCategories(), items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, _ := NewService(repository, nil, 15*time.Minute, func() time.Time { return time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC) })
+	first, _, _ := service.Item(context.Background(), "tenant-synthetic", "IN", "item-oil")
+	first.Specifications["Origin"] = "mutated"
+	first.Variants[0].CompareAtPrice.AmountMinor = 1
+	second, _, _ := service.Item(context.Background(), "tenant-synthetic", "IN", "item-oil")
+	if second.Specifications["Origin"] != "Tamil Nadu" || second.Variants[0].CompareAtPrice.AmountMinor != 52000 {
+		t.Fatalf("catalog snapshot was mutated: %#v", second)
+	}
+
+	invalid := items
+	invalid[0].Variants[0].CompareAtPrice = &Money{AmountMinor: 44000, Currency: "INR"}
+	if _, err := NewMemoryRepository(syntheticCategories(), invalid); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("invalid comparison price error = %v", err)
+	}
+}
+
 func syntheticCategories() []Category {
 	return []Category{{ID: "daily-needs", Name: "Daily needs", Priority: 10}, {ID: "home-services", Name: "Home services", Priority: 20}}
 }

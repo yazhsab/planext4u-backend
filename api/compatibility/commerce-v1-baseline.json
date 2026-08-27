@@ -1,0 +1,17 @@
+{
+  "operations": [
+    {"method": "GET", "path": "/v1/cart"},
+    {"method": "PUT", "path": "/v1/cart/items/{variant_id}"},
+    {"method": "DELETE", "path": "/v1/cart/items/{variant_id}"}
+  ],
+  "required_properties": {
+    "Money": ["amount_minor", "currency"],
+    "CartLine": ["variant_id", "item_id", "item_name", "variant_name", "quantity", "unit_price", "line_total", "available", "price_changed"],
+    "Cart": ["id", "revision", "items", "subtotal", "discount", "tax", "fees", "total", "pricing_status", "allowed_actions", "updated_at"],
+    "SetCartItem": ["quantity"]
+  },
+  "enum_values": {
+    "PricingStatus": ["CURRENT", "REPRICED"],
+    "AllowedAction": ["BROWSE", "EDIT_ITEMS", "REMOVE_ITEMS", "CHECKOUT"]
+  }
+}

@@ -39,8 +39,22 @@ func NewMemoryRepository(categories []Category, items []Item) (*MemoryRepository
 	itemIDs := map[string]struct{}{}
 	for _, item := range items {
 		if !safeID(item.ID) || !safeID(item.CategoryID) || strings.TrimSpace(item.Name) == "" ||
-			item.Price.AmountMinor < 0 || len(item.Price.Currency) != 3 {
+			item.Price.AmountMinor < 0 || len(item.Price.Currency) != 3 || item.RatingAverage < 0 || item.RatingAverage > 5 || item.ReviewCount < 0 {
 			return nil, ErrInvalidRequest
+		}
+		variantIDs := map[string]struct{}{}
+		for _, variant := range item.Variants {
+			if !safeID(variant.ID) || strings.TrimSpace(variant.Label) == "" || variant.Price.AmountMinor < 0 || len(variant.Price.Currency) != 3 ||
+				variant.Price.Currency != item.Price.Currency || variant.StockQuantity < 0 || variant.MaxPerOrder < 1 || variant.MaxPerOrder > 999 {
+				return nil, ErrInvalidRequest
+			}
+			if variant.CompareAtPrice != nil && (variant.CompareAtPrice.AmountMinor < variant.Price.AmountMinor || variant.CompareAtPrice.Currency != variant.Price.Currency) {
+				return nil, ErrInvalidRequest
+			}
+			if _, duplicate := variantIDs[variant.ID]; duplicate {
+				return nil, ErrInvalidRequest
+			}
+			variantIDs[variant.ID] = struct{}{}
 		}
 		if _, exists := categoryIDs[item.CategoryID]; !exists {
 			return nil, ErrInvalidRequest
@@ -91,6 +105,19 @@ func cloneItems(values []Item) []Item {
 	result := append([]Item(nil), values...)
 	for index := range result {
 		result[index].SearchTerms = append([]string(nil), result[index].SearchTerms...)
+		result[index].Variants = append([]Variant(nil), result[index].Variants...)
+		for variantIndex := range result[index].Variants {
+			if price := result[index].Variants[variantIndex].CompareAtPrice; price != nil {
+				copyPrice := *price
+				result[index].Variants[variantIndex].CompareAtPrice = &copyPrice
+			}
+		}
+		if result[index].Specifications != nil {
+			result[index].Specifications = make(map[string]string, len(values[index].Specifications))
+			for key, value := range values[index].Specifications {
+				result[index].Specifications[key] = value
+			}
+		}
 	}
 	return result
 }

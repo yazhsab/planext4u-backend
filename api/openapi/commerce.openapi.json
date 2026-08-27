@@ -1,0 +1,93 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Planext4u Commerce Cart API", "version": "1.0.0"},
+  "security": [{"bearerAuth": []}],
+  "paths": {
+    "/v1/cart": {
+      "get": {
+        "operationId": "commerceGetCart",
+        "responses": {
+          "200": {
+            "description": "Server-authoritative current customer cart",
+            "headers": {"ETag": {"schema": {"type": "string"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Cart"}}}
+          },
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/v1/cart/items/{variant_id}": {
+      "parameters": [
+        {"name": "variant_id", "in": "path", "required": true, "schema": {"type": "string", "maxLength": 128}},
+        {"$ref": "#/components/parameters/IdempotencyKey"},
+        {"$ref": "#/components/parameters/IfMatch"}
+      ],
+      "put": {
+        "operationId": "commerceSetCartItem",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SetCartItem"}}}
+        },
+        "responses": {
+          "200": {"description": "Repriced cart", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Cart"}}}},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "delete": {
+        "operationId": "commerceRemoveCartItem",
+        "responses": {
+          "200": {"description": "Repriced cart after removal", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Cart"}}}},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
+    "parameters": {
+      "IdempotencyKey": {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 16, "maxLength": 128}},
+      "IfMatch": {"name": "If-Match", "in": "header", "required": true, "schema": {"type": "string", "description": "Quoted cart revision from the preceding response"}}
+    },
+    "responses": {
+      "Problem": {"description": "Safe standard error", "content": {"application/json": {"schema": {"$ref": "./common.openapi.json#/components/schemas/ErrorEnvelope"}}}}
+    },
+    "schemas": {
+      "Money": {
+        "type": "object", "additionalProperties": false,
+        "required": ["amount_minor", "currency"],
+        "properties": {"amount_minor": {"type": "integer", "format": "int64", "minimum": 0}, "currency": {"type": "string", "pattern": "^[A-Z]{3}$"}}
+      },
+      "PricingStatus": {"type": "string", "enum": ["CURRENT", "REPRICED"]},
+      "AllowedAction": {"type": "string", "enum": ["BROWSE", "EDIT_ITEMS", "REMOVE_ITEMS", "CHECKOUT"]},
+      "CartLine": {
+        "type": "object", "additionalProperties": false,
+        "required": ["variant_id", "item_id", "item_name", "variant_name", "quantity", "unit_price", "line_total", "available", "price_changed"],
+        "properties": {
+          "variant_id": {"type": "string"}, "item_id": {"type": "string"}, "item_name": {"type": "string"}, "variant_name": {"type": "string"},
+          "media_ref": {"type": "string"}, "quantity": {"type": "integer", "minimum": 1, "maximum": 999},
+          "unit_price": {"$ref": "#/components/schemas/Money"}, "line_total": {"$ref": "#/components/schemas/Money"},
+          "available": {"type": "boolean"}, "price_changed": {"type": "boolean"}
+        }
+      },
+      "Cart": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "revision", "items", "subtotal", "discount", "tax", "fees", "total", "pricing_status", "allowed_actions", "updated_at"],
+        "properties": {
+          "id": {"type": "string"}, "revision": {"type": "integer", "format": "int64", "minimum": 0},
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/CartLine"}},
+          "subtotal": {"$ref": "#/components/schemas/Money"}, "discount": {"$ref": "#/components/schemas/Money"},
+          "tax": {"$ref": "#/components/schemas/Money"}, "fees": {"$ref": "#/components/schemas/Money"}, "total": {"$ref": "#/components/schemas/Money"},
+          "pricing_status": {"$ref": "#/components/schemas/PricingStatus"},
+          "allowed_actions": {"type": "array", "items": {"$ref": "#/components/schemas/AllowedAction"}, "uniqueItems": true},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "SetCartItem": {
+        "type": "object", "additionalProperties": false, "required": ["quantity"],
+        "properties": {"quantity": {"type": "integer", "minimum": 1, "maximum": 999}}
+      }
+    }
+  }
+}

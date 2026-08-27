@@ -15,6 +15,16 @@ type Money struct {
 	Currency    string `json:"currency"`
 }
 
+type Variant struct {
+	ID             string `json:"id"`
+	Label          string `json:"label"`
+	Price          Money  `json:"price"`
+	CompareAtPrice *Money `json:"compare_at_price,omitempty"`
+	Available      bool   `json:"available"`
+	StockQuantity  int    `json:"stock_quantity"`
+	MaxPerOrder    int    `json:"max_per_order"`
+}
+
 type Category struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -23,14 +33,21 @@ type Category struct {
 }
 
 type Item struct {
-	ID          string   `json:"id"`
-	CategoryID  string   `json:"category_id"`
-	Name        string   `json:"name"`
-	Summary     string   `json:"summary"`
-	MediaRef    string   `json:"media_ref,omitempty"`
-	Price       Money    `json:"price"`
-	Available   bool     `json:"available"`
-	SearchTerms []string `json:"-"`
+	ID                  string            `json:"id"`
+	CategoryID          string            `json:"category_id"`
+	Name                string            `json:"name"`
+	Summary             string            `json:"summary"`
+	MediaRef            string            `json:"media_ref,omitempty"`
+	Price               Money             `json:"price"`
+	Available           bool              `json:"available"`
+	SellerName          string            `json:"seller_name,omitempty"`
+	VerifiedLocalSeller bool              `json:"verified_local_seller,omitempty"`
+	Description         string            `json:"description,omitempty"`
+	Specifications      map[string]string `json:"specifications,omitempty"`
+	RatingAverage       float64           `json:"rating_average,omitempty"`
+	ReviewCount         int               `json:"review_count,omitempty"`
+	Variants            []Variant         `json:"variants,omitempty"`
+	SearchTerms         []string          `json:"-"`
 }
 
 type Page[T any] struct {

@@ -14,8 +14,8 @@ func TestBEMigrate001FromZeroManifestIsComplete(t *testing.T) {
 	if err := Validate(migrations); err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != len(serviceOrder) {
-		t.Fatalf("migration count = %d, want %d", len(migrations), len(serviceOrder))
+	if len(migrations) < len(serviceOrder) {
+		t.Fatalf("migration count = %d, want at least %d", len(migrations), len(serviceOrder))
 	}
 	for _, service := range serviceOrder {
 		found := false

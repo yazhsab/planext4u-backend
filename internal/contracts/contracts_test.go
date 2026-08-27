@@ -234,6 +234,11 @@ func TestCatalogContractCompatibilityBaseline(t *testing.T) {
 	assertOpenAPICompatibility(t, "api/openapi/catalog.openapi.json", "api/compatibility/catalog-v1-baseline.json")
 }
 
+func TestCommerceContractCompatibilityBaseline(t *testing.T) {
+	t.Parallel()
+	assertOpenAPICompatibility(t, "api/openapi/commerce.openapi.json", "api/compatibility/commerce-v1-baseline.json")
+}
+
 func TestMediaContractCompatibilityBaseline(t *testing.T) {
 	t.Parallel()
 	assertOpenAPICompatibility(t, "api/openapi/media.openapi.json", "api/compatibility/media-v1-baseline.json")
@@ -313,6 +318,24 @@ func TestMediaFixtureIsSyntheticAndTerminal(t *testing.T) {
 	}
 	if !strings.Contains(asset.ID, "synthetic") || asset.State != "READY" {
 		t.Fatalf("media fixture is incomplete: %#v", asset)
+	}
+}
+
+func TestCommerceFixtureUsesIntegerServerTotals(t *testing.T) {
+	t.Parallel()
+	var cart struct {
+		ID       string `json:"id"`
+		Revision int64  `json:"revision"`
+		Total    struct {
+			AmountMinor int64  `json:"amount_minor"`
+			Currency    string `json:"currency"`
+		} `json:"total"`
+	}
+	if err := json.Unmarshal([]byte(generated.CommerceCartFixtureJSON), &cart); err != nil {
+		t.Fatalf("commerce fixture is invalid JSON: %v", err)
+	}
+	if !strings.Contains(cart.ID, "synthetic") || cart.Revision != 1 || cart.Total.AmountMinor != 13000 || cart.Total.Currency != "INR" {
+		t.Fatalf("commerce fixture is incomplete: %#v", cart)
 	}
 }
 
