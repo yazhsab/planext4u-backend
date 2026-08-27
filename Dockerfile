@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.18
-FROM golang:1.25.14-alpine3.23 AS build
+FROM golang:1.27.0-alpine3.23 AS build
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ARG VERSION=dev
