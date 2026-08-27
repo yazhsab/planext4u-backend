@@ -1,0 +1,31 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Planext4u Append-only Audit API", "version": "1.0.0"},
+  "security": [{"bearerAuth": []}],
+  "paths": {
+    "/v1/admin/audit/events": {
+      "post": {"operationId": "auditRecordEvent", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RecordRequest"}}}}, "responses": {"201": {"description": "Appended event", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AuditEntry"}}}}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}}},
+      "get": {"operationId": "auditSearchEvents", "parameters": [{"name": "country", "in": "query", "schema": {"type": "string"}}, {"name": "actor_id", "in": "query", "schema": {"type": "string"}}, {"name": "action", "in": "query", "schema": {"type": "string"}}, {"name": "target_id", "in": "query", "schema": {"type": "string"}}, {"name": "from", "in": "query", "schema": {"type": "string", "format": "date-time"}}, {"name": "to", "in": "query", "schema": {"type": "string", "format": "date-time"}}, {"name": "cursor", "in": "query", "schema": {"type": "string"}}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 200}}], "responses": {"200": {"description": "Tenant-scoped audit page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AuditPage"}}}}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/v1/admin/audit/exports": {
+      "post": {"operationId": "auditExportEvents", "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["reason"], "properties": {"reason": {"type": "string", "minLength": 8, "maxLength": 256}, "country": {"type": "string"}, "action": {"type": "string"}}}}}}, "responses": {"200": {"description": "Fresh-auth protected export", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AuditExport"}}}}, "403": {"$ref": "#/components/responses/Problem"}}}
+    }
+  },
+  "components": {
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
+    "responses": {"Problem": {"description": "Safe standard error", "content": {"application/json": {"schema": {"$ref": "./common.openapi.json#/components/schemas/ErrorEnvelope"}}}}},
+    "schemas": {
+      "AuditOutcome": {"type": "string", "enum": ["SUCCEEDED", "DENIED", "FAILED"]},
+      "Actor": {"type": "object", "additionalProperties": false, "required": ["subject_id", "actor_type"], "properties": {"subject_id": {"type": "string"}, "actor_type": {"type": "string", "enum": ["USER", "SERVICE", "SYSTEM"]}, "ip_prefix": {"type": "string"}}},
+      "Target": {"type": "object", "additionalProperties": false, "required": ["type", "id"], "properties": {"type": {"type": "string"}, "id": {"type": "string"}}},
+      "RecordRequest": {"type": "object", "additionalProperties": false, "required": ["country", "actor", "action", "target", "outcome", "reason_code", "correlation_id", "occurred_at"], "properties": {"country": {"type": "string", "pattern": "^[A-Z]{2}$"}, "actor": {"$ref": "#/components/schemas/Actor"}, "action": {"type": "string"}, "target": {"$ref": "#/components/schemas/Target"}, "outcome": {"$ref": "#/components/schemas/AuditOutcome"}, "reason_code": {"type": "string"}, "correlation_id": {"type": "string"}, "occurred_at": {"type": "string", "format": "date-time"}, "before": {"type": "object", "additionalProperties": true}, "after": {"type": "object", "additionalProperties": true}}},
+      "AuditEntry": {"type": "object", "additionalProperties": false, "required": ["id", "tenant_id", "country", "actor", "action", "target", "outcome", "reason_code", "correlation_id", "occurred_at", "recorded_at", "hash", "sequence"], "properties": {"id": {"type": "string"}, "tenant_id": {"type": "string"}, "country": {"type": "string"}, "actor": {"$ref": "#/components/schemas/Actor"}, "action": {"type": "string"}, "target": {"$ref": "#/components/schemas/Target"}, "outcome": {"$ref": "#/components/schemas/AuditOutcome"}, "reason_code": {"type": "string"}, "correlation_id": {"type": "string"}, "occurred_at": {"type": "string", "format": "date-time"}, "recorded_at": {"type": "string", "format": "date-time"}, "before": {"type": "object", "additionalProperties": true}, "after": {"type": "object", "additionalProperties": true}, "previous_hash": {"type": "string"}, "hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "sequence": {"type": "integer", "format": "int64", "minimum": 1}}},
+      "AuditPage": {"type": "object", "additionalProperties": false, "required": ["entries", "has_more"], "properties": {"entries": {"type": "array", "items": {"$ref": "#/components/schemas/AuditEntry"}}, "next_cursor": {"type": "string"}, "has_more": {"type": "boolean"}}},
+      "AuditExport": {"type": "object", "additionalProperties": false, "required": ["generated_at", "reason", "entries", "chain_valid"], "properties": {"generated_at": {"type": "string", "format": "date-time"}, "reason": {"type": "string"}, "entries": {"type": "array", "items": {"$ref": "#/components/schemas/AuditEntry"}}, "chain_valid": {"type": "boolean"}}}
+    }
+  },
+  "x-planext4u-owner": "audit",
+  "x-planext4u-reviewers": ["security", "privacy", "compliance"],
+  "x-planext4u-classification": "restricted",
+  "x-planext4u-slo-class": "critical"
+}

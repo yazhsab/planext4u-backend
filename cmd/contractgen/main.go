@@ -20,6 +20,7 @@ type fixture struct {
 }
 
 var fixtures = []fixture{
+	{goName: "AuditEntryFixtureJSON", dartName: "auditEntryFixtureJson", path: "api/fixtures/audit_entry.json"},
 	{goName: "BootstrapFixtureJSON", dartName: "bootstrapFixtureJson", path: "api/fixtures/bootstrap.json"},
 	{goName: "CatalogHomeFixtureJSON", dartName: "catalogHomeFixtureJson", path: "api/fixtures/catalog_home.json"},
 	{goName: "DomainEventFixtureJSON", dartName: "domainEventFixtureJson", path: "api/fixtures/domain_event.json"},
@@ -41,6 +42,7 @@ func main() {
 
 func run(root string, check bool) error {
 	for _, contractPath := range []string{
+		"api/openapi/audit.openapi.json",
 		"api/openapi/common.openapi.json",
 		"api/openapi/catalog.openapi.json",
 		"api/openapi/configuration.openapi.json",

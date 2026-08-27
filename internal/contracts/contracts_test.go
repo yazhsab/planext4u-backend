@@ -239,6 +239,26 @@ func TestMediaContractCompatibilityBaseline(t *testing.T) {
 	assertOpenAPICompatibility(t, "api/openapi/media.openapi.json", "api/compatibility/media-v1-baseline.json")
 }
 
+func TestAuditContractCompatibilityBaseline(t *testing.T) {
+	t.Parallel()
+	assertOpenAPICompatibility(t, "api/openapi/audit.openapi.json", "api/compatibility/audit-v1-baseline.json")
+}
+
+func TestAuditFixtureIsSyntheticAndHasIntegrityEvidence(t *testing.T) {
+	t.Parallel()
+	var entry struct {
+		ID       string `json:"id"`
+		Hash     string `json:"hash"`
+		Sequence int64  `json:"sequence"`
+	}
+	if err := json.Unmarshal([]byte(generated.AuditEntryFixtureJSON), &entry); err != nil {
+		t.Fatalf("audit fixture is invalid JSON: %v", err)
+	}
+	if !strings.Contains(entry.ID, "synthetic") || len(entry.Hash) != 64 || entry.Sequence != 1 {
+		t.Fatalf("audit fixture is incomplete: %#v", entry)
+	}
+}
+
 func TestMediaFixtureIsSyntheticAndTerminal(t *testing.T) {
 	t.Parallel()
 	var asset struct {

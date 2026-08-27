@@ -1,0 +1,16 @@
+{
+  "operations": [
+    {"method": "POST", "path": "/v1/admin/audit/events"},
+    {"method": "GET", "path": "/v1/admin/audit/events"},
+    {"method": "POST", "path": "/v1/admin/audit/exports"}
+  ],
+  "required_properties": {
+    "Actor": ["subject_id", "actor_type"],
+    "Target": ["type", "id"],
+    "RecordRequest": ["country", "actor", "action", "target", "outcome", "reason_code", "correlation_id", "occurred_at"],
+    "AuditEntry": ["id", "tenant_id", "country", "actor", "action", "target", "outcome", "reason_code", "correlation_id", "occurred_at", "recorded_at", "hash", "sequence"],
+    "AuditPage": ["entries", "has_more"],
+    "AuditExport": ["generated_at", "reason", "entries", "chain_valid"]
+  },
+  "enum_values": {"AuditOutcome": ["SUCCEEDED", "DENIED", "FAILED"]}
+}

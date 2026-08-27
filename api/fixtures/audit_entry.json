@@ -1,0 +1,15 @@
+{
+  "id": "aud_synthetic_1",
+  "tenant_id": "tenant-synthetic",
+  "country": "IN",
+  "actor": {"subject_id": "admin-synthetic", "actor_type": "USER"},
+  "action": "admin.role.updated",
+  "target": {"type": "customer", "id": "customer-synthetic"},
+  "outcome": "SUCCEEDED",
+  "reason_code": "APPROVED_CHANGE",
+  "correlation_id": "corr-synthetic-audit",
+  "occurred_at": "2026-08-27T09:59:00Z",
+  "recorded_at": "2026-08-27T10:00:00Z",
+  "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sequence": 1
+}
