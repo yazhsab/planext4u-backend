@@ -1,6 +1,6 @@
 GO ?= go
 
-.PHONY: build contract-check contract-generate fmt local-down local-status local-up run test test-integration test-race vet verify
+.PHONY: build contract-check contract-generate fmt local-down local-status local-up run test test-gateway-integration test-integration test-race vet verify
 
 build:
 	$(GO) build ./...
@@ -37,6 +37,9 @@ test:
 
 test-integration:
 	cd tests/integration && DOCKER_AUTH_CONFIG='{"auths":{}}' $(GO) test -tags=integration -count=1 -timeout=10m .
+
+test-gateway-integration:
+	REDIS_TEST_URL="$${REDIS_TEST_URL:-redis://127.0.0.1:63790/0}" $(GO) test -tags=integration -count=1 ./internal/gateway
 
 test-race:
 	$(GO) test -race ./...
