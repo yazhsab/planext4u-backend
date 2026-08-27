@@ -1,0 +1,1 @@
+{"id":"payment-synthetic-001","order_reference":"checkout-synthetic-001","method":"RAZORPAY","status":"PROVIDER_ORDER_CREATED","amount":{"amount_minor":14785,"currency":"INR"},"provider_reference":"provider-synthetic-001","allowed_actions":["CHECK_STATUS","RETRY"],"created_at":"2026-08-27T10:00:00Z","updated_at":"2026-08-27T10:00:00Z"}

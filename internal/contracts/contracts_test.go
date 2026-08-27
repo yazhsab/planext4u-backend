@@ -239,6 +239,11 @@ func TestCommerceContractCompatibilityBaseline(t *testing.T) {
 	assertOpenAPICompatibility(t, "api/openapi/commerce.openapi.json", "api/compatibility/commerce-v1-baseline.json")
 }
 
+func TestTransactionContractCompatibilityBaseline(t *testing.T) {
+	t.Parallel()
+	assertOpenAPICompatibility(t, "api/openapi/transaction.openapi.json", "api/compatibility/transaction-v1-baseline.json")
+}
+
 func TestMediaContractCompatibilityBaseline(t *testing.T) {
 	t.Parallel()
 	assertOpenAPICompatibility(t, "api/openapi/media.openapi.json", "api/compatibility/media-v1-baseline.json")

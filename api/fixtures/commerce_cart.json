@@ -3,7 +3,7 @@
   "revision": 1,
   "items": [
     {
-      "variant_id": "variant-milk-1l", "item_id": "item-milk", "item_name": "Fresh milk", "variant_name": "1 litre",
+      "variant_id": "variant-milk-1l", "item_id": "item-milk", "vendor_id": "vendor-dairy-synthetic-001", "item_name": "Fresh milk", "variant_name": "1 litre",
       "quantity": 2, "unit_price": {"amount_minor": 6500, "currency": "INR"},
       "line_total": {"amount_minor": 13000, "currency": "INR"}, "available": true, "price_changed": false
     }

@@ -80,11 +80,28 @@ func TestCartRejectsUnavailableAndExcessQuantity(t *testing.T) {
 	}
 }
 
+func TestCheckoutPricingUsesLatestServerSnapshotWithoutMutatingCart(t *testing.T) {
+	t.Parallel()
+	provider := syntheticProvider()
+	service, _ := NewService(provider, fixedClock)
+	scope := syntheticScope()
+	stored, _, _ := service.Change(context.Background(), scope, "idem-cart-price-0001", 0, "variant-oil-1l", 2)
+	provider.setPrice("variant-oil-1l", 47500)
+	priced, err := service.Price(context.Background(), scope, stored.Revision)
+	if err != nil || priced.Total.AmountMinor != 95000 || !priced.Items[0].PriceChanged || priced.Revision != stored.Revision {
+		t.Fatalf("priced cart = %#v err=%v", priced, err)
+	}
+	unchanged, _ := service.Get(scope)
+	if unchanged.Total.AmountMinor != 90000 || unchanged.Revision != stored.Revision {
+		t.Fatalf("stored cart mutated = %#v", unchanged)
+	}
+}
+
 func syntheticProvider() *testProvider {
 	return &testProvider{variants: map[string]VariantSnapshot{
-		"variant-oil-1l":      {VariantID: "variant-oil-1l", ItemID: "item-sesame-oil", ItemName: "Cold-pressed sesame oil", VariantName: "1L", UnitPrice: Money{AmountMinor: 45000, Currency: "INR"}, Available: true, Stock: 12, MaxPerOrder: 5},
-		"variant-rice-5kg":    {VariantID: "variant-rice-5kg", ItemID: "item-rice", ItemName: "Local ponni rice", VariantName: "5kg", UnitPrice: Money{AmountMinor: 60000, Currency: "INR"}, Available: true, Stock: 20, MaxPerOrder: 4},
-		"variant-unavailable": {VariantID: "variant-unavailable", ItemID: "item-old", ItemName: "Unavailable item", VariantName: "Standard", UnitPrice: Money{AmountMinor: 1000, Currency: "INR"}, Available: false, Stock: 0, MaxPerOrder: 1},
+		"variant-oil-1l":      {VariantID: "variant-oil-1l", ItemID: "item-sesame-oil", VendorID: "vendor-local-001", ItemName: "Cold-pressed sesame oil", VariantName: "1L", UnitPrice: Money{AmountMinor: 45000, Currency: "INR"}, Available: true, Stock: 12, MaxPerOrder: 5},
+		"variant-rice-5kg":    {VariantID: "variant-rice-5kg", ItemID: "item-rice", VendorID: "vendor-local-002", ItemName: "Local ponni rice", VariantName: "5kg", UnitPrice: Money{AmountMinor: 60000, Currency: "INR"}, Available: true, Stock: 20, MaxPerOrder: 4},
+		"variant-unavailable": {VariantID: "variant-unavailable", ItemID: "item-old", VendorID: "vendor-local-003", ItemName: "Unavailable item", VariantName: "Standard", UnitPrice: Money{AmountMinor: 1000, Currency: "INR"}, Available: false, Stock: 0, MaxPerOrder: 1},
 	}}
 }
 

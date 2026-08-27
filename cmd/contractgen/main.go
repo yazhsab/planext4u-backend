@@ -23,12 +23,16 @@ var fixtures = []fixture{
 	{goName: "AuditEntryFixtureJSON", dartName: "auditEntryFixtureJson", path: "api/fixtures/audit_entry.json"},
 	{goName: "BootstrapFixtureJSON", dartName: "bootstrapFixtureJson", path: "api/fixtures/bootstrap.json"},
 	{goName: "CatalogHomeFixtureJSON", dartName: "catalogHomeFixtureJson", path: "api/fixtures/catalog_home.json"},
+	{goName: "CheckoutQuoteFixtureJSON", dartName: "checkoutQuoteFixtureJson", path: "api/fixtures/checkout_quote.json"},
 	{goName: "CommerceCartFixtureJSON", dartName: "commerceCartFixtureJson", path: "api/fixtures/commerce_cart.json"},
 	{goName: "DomainEventFixtureJSON", dartName: "domainEventFixtureJson", path: "api/fixtures/domain_event.json"},
 	{goName: "IdentityAuthenticationFixtureJSON", dartName: "identityAuthenticationFixtureJson", path: "api/fixtures/identity_authentication.json"},
 	{goName: "MediaAssetFixtureJSON", dartName: "mediaAssetFixtureJson", path: "api/fixtures/media_asset.json"},
 	{goName: "NotificationDeliveryFixtureJSON", dartName: "notificationDeliveryFixtureJson", path: "api/fixtures/notification_delivery.json"},
+	{goName: "OrderFixtureJSON", dartName: "orderFixtureJson", path: "api/fixtures/order.json"},
+	{goName: "PaymentFixtureJSON", dartName: "paymentFixtureJson", path: "api/fixtures/payment.json"},
 	{goName: "ProblemFixtureJSON", dartName: "problemFixtureJson", path: "api/fixtures/problem.json"},
+	{goName: "WalletFixtureJSON", dartName: "walletFixtureJson", path: "api/fixtures/wallet.json"},
 }
 
 func main() {
@@ -53,6 +57,7 @@ func run(root string, check bool) error {
 		"api/openapi/identity.openapi.json",
 		"api/openapi/media.openapi.json",
 		"api/openapi/notification.openapi.json",
+		"api/openapi/transaction.openapi.json",
 		"api/asyncapi/common.asyncapi.json",
 	} {
 		contents, err := os.ReadFile(filepath.Join(root, contractPath))

@@ -63,9 +63,9 @@
       "AllowedAction": {"type": "string", "enum": ["BROWSE", "EDIT_ITEMS", "REMOVE_ITEMS", "CHECKOUT"]},
       "CartLine": {
         "type": "object", "additionalProperties": false,
-        "required": ["variant_id", "item_id", "item_name", "variant_name", "quantity", "unit_price", "line_total", "available", "price_changed"],
+        "required": ["variant_id", "item_id", "vendor_id", "item_name", "variant_name", "quantity", "unit_price", "line_total", "available", "price_changed"],
         "properties": {
-          "variant_id": {"type": "string"}, "item_id": {"type": "string"}, "item_name": {"type": "string"}, "variant_name": {"type": "string"},
+          "variant_id": {"type": "string"}, "item_id": {"type": "string"}, "vendor_id": {"type": "string"}, "item_name": {"type": "string"}, "variant_name": {"type": "string"},
           "media_ref": {"type": "string"}, "quantity": {"type": "integer", "minimum": 1, "maximum": 999},
           "unit_price": {"$ref": "#/components/schemas/Money"}, "line_total": {"$ref": "#/components/schemas/Money"},
           "available": {"type": "boolean"}, "price_changed": {"type": "boolean"}

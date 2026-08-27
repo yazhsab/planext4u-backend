@@ -1,0 +1,147 @@
+package order
+
+import (
+	"errors"
+	"time"
+)
+
+var (
+	ErrInvalidRequest      = errors.New("invalid order request")
+	ErrOrderNotFound       = errors.New("order not found")
+	ErrRevisionConflict    = errors.New("order revision conflict")
+	ErrInvalidTransition   = errors.New("invalid order transition")
+	ErrIdempotencyConflict = errors.New("order idempotency conflict")
+	ErrProofRequired       = errors.New("proof of delivery required")
+	ErrReturnNotFound      = errors.New("return case not found")
+)
+
+type Scope struct {
+	TenantID   string
+	Country    string
+	CustomerID string
+}
+
+type Money struct {
+	AmountMinor int64  `json:"amount_minor"`
+	Currency    string `json:"currency"`
+}
+
+type LineSnapshot struct {
+	VariantID     string `json:"variant_id"`
+	ItemID        string `json:"item_id"`
+	ItemName      string `json:"item_name"`
+	VariantName   string `json:"variant_name"`
+	Quantity      int    `json:"quantity"`
+	UnitPrice     Money  `json:"unit_price"`
+	LineTotal     Money  `json:"line_total"`
+	VendorID      string `json:"vendor_id"`
+	TaxMinor      int64  `json:"tax_minor"`
+	DiscountMinor int64  `json:"discount_minor"`
+}
+
+type AddressSnapshot struct {
+	AddressID  string `json:"address_id"`
+	Label      string `json:"label"`
+	PostalCode string `json:"postal_code"`
+	Locality   string `json:"locality"`
+}
+
+type DeliverySnapshot struct {
+	SlotID      string    `json:"slot_id"`
+	WindowStart time.Time `json:"window_start"`
+	WindowEnd   time.Time `json:"window_end"`
+	Fee         Money     `json:"fee"`
+}
+
+type CheckoutSnapshot struct {
+	CartRevision         int64            `json:"cart_revision"`
+	Lines                []LineSnapshot   `json:"lines"`
+	Address              AddressSnapshot  `json:"address"`
+	Delivery             DeliverySnapshot `json:"delivery"`
+	Subtotal             Money            `json:"subtotal"`
+	Discount             Money            `json:"discount"`
+	Tax                  Money            `json:"tax"`
+	Fees                 Money            `json:"fees"`
+	WalletApplied        Money            `json:"wallet_applied"`
+	Total                Money            `json:"total"`
+	PromotionCode        string           `json:"promotion_code,omitempty"`
+	PricingPolicyVersion string           `json:"pricing_policy_version"`
+	ReservationID        string           `json:"reservation_id"`
+	PaymentID            string           `json:"payment_id"`
+	PaymentMethod        string           `json:"payment_method"`
+}
+
+type Status string
+
+const (
+	StatusPendingPayment               Status = "PENDING_PAYMENT"
+	StatusPlaced                       Status = "PLACED"
+	StatusAccepted                     Status = "ACCEPTED"
+	StatusRejected                     Status = "REJECTED"
+	StatusPacking                      Status = "PACKING"
+	StatusReadyForHandover             Status = "READY_FOR_HANDOVER"
+	StatusAssigned                     Status = "ASSIGNED"
+	StatusPickedUp                     Status = "PICKED_UP"
+	StatusOutForDelivery               Status = "OUT_FOR_DELIVERY"
+	StatusDeliveredPendingConfirmation Status = "DELIVERED_PENDING_CONFIRMATION"
+	StatusCompleted                    Status = "COMPLETED"
+	StatusCancelRequested              Status = "CANCEL_REQUESTED"
+	StatusCancelled                    Status = "CANCELLED"
+	StatusReturnRequested              Status = "RETURN_REQUESTED"
+	StatusReturnApproved               Status = "RETURN_APPROVED"
+	StatusReturnRejected               Status = "RETURN_REJECTED"
+	StatusReturned                     Status = "RETURNED"
+	StatusRefunded                     Status = "REFUNDED"
+)
+
+type TimelineEvent struct {
+	Status    Status    `json:"status"`
+	Actor     string    `json:"actor"`
+	Reason    string    `json:"reason,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Proof struct {
+	PolicyVersion string    `json:"policy_version"`
+	PhotoAssetID  string    `json:"photo_asset_id,omitempty"`
+	RecipientName string    `json:"recipient_name,omitempty"`
+	OTPVerified   bool      `json:"otp_verified"`
+	SignedAt      time.Time `json:"signed_at,omitempty"`
+}
+
+type ReturnLine struct {
+	VariantID string `json:"variant_id"`
+	Quantity  int    `json:"quantity"`
+}
+
+type ReturnCase struct {
+	ID              string       `json:"id"`
+	Status          Status       `json:"status"`
+	Lines           []ReturnLine `json:"lines"`
+	Reason          string       `json:"reason"`
+	RefundAmount    Money        `json:"refund_amount"`
+	RefundReference string       `json:"refund_reference,omitempty"`
+	CreatedAt       time.Time    `json:"created_at"`
+	UpdatedAt       time.Time    `json:"updated_at"`
+}
+
+type Rating struct {
+	Score     int       `json:"score"`
+	Comment   string    `json:"comment,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Order struct {
+	ID             string           `json:"id"`
+	Revision       int64            `json:"revision"`
+	Status         Status           `json:"status"`
+	Snapshot       CheckoutSnapshot `json:"snapshot"`
+	AllowedActions []string         `json:"allowed_actions"`
+	Timeline       []TimelineEvent  `json:"timeline"`
+	Proof          *Proof           `json:"proof,omitempty"`
+	Return         *ReturnCase      `json:"return,omitempty"`
+	Rating         *Rating          `json:"rating,omitempty"`
+	CreatedAt      time.Time        `json:"created_at"`
+	UpdatedAt      time.Time        `json:"updated_at"`
+	scope          Scope
+}

@@ -45,6 +45,60 @@ func (service *Service) Get(scope Scope) (Cart, error) {
 	return cloneCart(value), nil
 }
 
+// Price resolves every cart line against the current server-side catalogue
+// snapshot without mutating the cart. Checkout uses it both when quoting and
+// immediately before placing an order so stale client prices cannot be used.
+func (service *Service) Price(ctx context.Context, scope Scope, expectedRevision int64) (Cart, error) {
+	current, err := service.Get(scope)
+	if err != nil {
+		return Cart{}, err
+	}
+	if current.Revision != expectedRevision {
+		return Cart{}, ErrRevisionConflict
+	}
+	result := cloneCart(current)
+	result.PricingStatus = "CURRENT"
+	result.Subtotal.AmountMinor = 0
+	allAvailable := true
+	for index := range result.Items {
+		line := &result.Items[index]
+		snapshot, resolveErr := service.provider.Resolve(ctx, scope, line.VariantID)
+		if resolveErr != nil || !validSnapshot(snapshot, line.VariantID) {
+			return Cart{}, ErrVariantUnavailable
+		}
+		if snapshot.UnitPrice.Currency != result.Subtotal.Currency {
+			return Cart{}, ErrVariantUnavailable
+		}
+		line.PriceChanged = line.UnitPrice != snapshot.UnitPrice
+		if line.PriceChanged {
+			result.PricingStatus = "REPRICED"
+		}
+		line.ItemID = snapshot.ItemID
+		line.VendorID = snapshot.VendorID
+		line.ItemName = snapshot.ItemName
+		line.VariantName = snapshot.VariantName
+		line.MediaRef = snapshot.MediaRef
+		line.UnitPrice = snapshot.UnitPrice
+		line.LineTotal = Money{AmountMinor: snapshot.UnitPrice.AmountMinor * int64(line.Quantity), Currency: snapshot.UnitPrice.Currency}
+		line.Available = snapshot.Available && line.Quantity <= snapshot.Stock && line.Quantity <= snapshot.MaxPerOrder
+		allAvailable = allAvailable && line.Available
+		result.Subtotal.AmountMinor += line.LineTotal.AmountMinor
+	}
+	result.Total = result.Subtotal
+	result.Discount = Money{Currency: result.Subtotal.Currency}
+	result.Tax = Money{Currency: result.Subtotal.Currency}
+	result.Fees = Money{Currency: result.Subtotal.Currency}
+	result.AllowedActions = allowedActions(len(result.Items), allAvailable)
+	latest, getErr := service.Get(scope)
+	if getErr != nil {
+		return Cart{}, getErr
+	}
+	if latest.Revision != expectedRevision {
+		return Cart{}, ErrRevisionConflict
+	}
+	return result, nil
+}
+
 func (service *Service) Change(ctx context.Context, scope Scope, idempotencyKey string, expectedRevision int64, variantID string, quantity int) (Cart, bool, error) {
 	if !validScope(scope) || !safeID(variantID) || !safeID(idempotencyKey) || len(idempotencyKey) < 16 || expectedRevision < 0 || quantity < 0 || quantity > 999 {
 		return Cart{}, false, ErrInvalidRequest
@@ -126,7 +180,7 @@ func (service *Service) Change(ctx context.Context, scope Scope, idempotencyKey 
 			allAvailable = false
 		}
 		lines = append(lines, CartLine{
-			VariantID: id, ItemID: snapshot.ItemID, ItemName: snapshot.ItemName, VariantName: snapshot.VariantName,
+			VariantID: id, ItemID: snapshot.ItemID, VendorID: snapshot.VendorID, ItemName: snapshot.ItemName, VariantName: snapshot.VariantName,
 			MediaRef: snapshot.MediaRef, Quantity: requested, UnitPrice: snapshot.UnitPrice,
 			LineTotal: Money{AmountMinor: lineAmount, Currency: currency}, Available: available, PriceChanged: priceChanged,
 		})
@@ -164,7 +218,11 @@ func (service *Service) Change(ctx context.Context, scope Scope, idempotencyKey 
 
 func emptyCart(scope Scope, now time.Time) Cart {
 	digest := sha256.Sum256([]byte(scopeKey(scope)))
-	zero := Money{Currency: "INR"}
+	currency := "INR"
+	if scope.Country == "NG" {
+		currency = "NGN"
+	}
+	zero := Money{Currency: currency}
 	return Cart{ID: "cart-" + hex.EncodeToString(digest[:8]), Items: []CartLine{}, Subtotal: zero, Discount: zero, Tax: zero, Fees: zero, Total: zero,
 		PricingStatus: "CURRENT", AllowedActions: []string{"BROWSE"}, UpdatedAt: now}
 }
@@ -185,7 +243,7 @@ func validScope(scope Scope) bool {
 }
 
 func validSnapshot(snapshot VariantSnapshot, expectedID string) bool {
-	return snapshot.VariantID == expectedID && safeID(snapshot.ItemID) && strings.TrimSpace(snapshot.ItemName) != "" && strings.TrimSpace(snapshot.VariantName) != "" &&
+	return snapshot.VariantID == expectedID && safeID(snapshot.ItemID) && safeID(snapshot.VendorID) && strings.TrimSpace(snapshot.ItemName) != "" && strings.TrimSpace(snapshot.VariantName) != "" &&
 		snapshot.UnitPrice.AmountMinor >= 0 && len(snapshot.UnitPrice.Currency) == 3 && snapshot.UnitPrice.Currency == strings.ToUpper(snapshot.UnitPrice.Currency) &&
 		snapshot.Stock >= 0 && snapshot.MaxPerOrder > 0 && snapshot.MaxPerOrder <= 999
 }

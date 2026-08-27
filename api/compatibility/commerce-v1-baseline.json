@@ -6,7 +6,7 @@
   ],
   "required_properties": {
     "Money": ["amount_minor", "currency"],
-    "CartLine": ["variant_id", "item_id", "item_name", "variant_name", "quantity", "unit_price", "line_total", "available", "price_changed"],
+    "CartLine": ["variant_id", "item_id", "vendor_id", "item_name", "variant_name", "quantity", "unit_price", "line_total", "available", "price_changed"],
     "Cart": ["id", "revision", "items", "subtotal", "discount", "tax", "fees", "total", "pricing_status", "allowed_actions", "updated_at"],
     "SetCartItem": ["quantity"]
   },

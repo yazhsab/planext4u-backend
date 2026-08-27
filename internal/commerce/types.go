@@ -29,6 +29,7 @@ type Scope struct {
 type VariantSnapshot struct {
 	VariantID   string
 	ItemID      string
+	VendorID    string
 	ItemName    string
 	VariantName string
 	MediaRef    string
@@ -45,6 +46,7 @@ type SnapshotProvider interface {
 type CartLine struct {
 	VariantID    string `json:"variant_id"`
 	ItemID       string `json:"item_id"`
+	VendorID     string `json:"vendor_id"`
 	ItemName     string `json:"item_name"`
 	VariantName  string `json:"variant_name"`
 	MediaRef     string `json:"media_ref,omitempty"`

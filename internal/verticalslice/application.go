@@ -9,9 +9,14 @@ import (
 	"time"
 
 	"github.com/yazhsab/planext4u-backend/internal/catalog"
+	"github.com/yazhsab/planext4u-backend/internal/checkout"
 	"github.com/yazhsab/planext4u-backend/internal/commerce"
 	"github.com/yazhsab/planext4u-backend/internal/configcms"
 	"github.com/yazhsab/planext4u-backend/internal/gateway"
+	"github.com/yazhsab/planext4u-backend/internal/inventory"
+	"github.com/yazhsab/planext4u-backend/internal/order"
+	"github.com/yazhsab/planext4u-backend/internal/payment"
+	"github.com/yazhsab/planext4u-backend/internal/wallet"
 )
 
 type Config struct {
@@ -40,7 +45,7 @@ func New(config Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	commerceHandler, err := customerCommerceHandler(config.Clock)
+	commerceHandler, transactionHandler, err := customerTransactionHandlers(config.Clock)
 	if err != nil {
 		return nil, err
 	}
@@ -53,9 +58,14 @@ func New(config Config) (http.Handler, error) {
 	upstream.Handle("/v1/serviceability/check", catalogHandler)
 	upstream.Handle("/v1/cart", commerceHandler)
 	upstream.Handle("/v1/cart/", commerceHandler)
+	for _, path := range []string{"/v1/addresses", "/v1/delivery-slots", "/v1/checkout/", "/v1/payments/", "/v1/orders", "/v1/orders/", "/v1/wallet"} {
+		upstream.Handle(path, transactionHandler)
+	}
 
 	gatewayConfig := gateway.DefaultConfig(nil)
 	gatewayConfig.UpstreamHandler = upstream
+	gatewayConfig.AnonymousRoutes["/v1/payments/webhooks/razorpay"] = map[string]struct{}{http.MethodPost: {}}
+	gatewayConfig.AnonymousRoutes["/v1/payments/webhooks/paystack"] = map[string]struct{}{http.MethodPost: {}}
 	gatewayConfig.Readiness = func(context.Context) error { return nil }
 	if config.Readiness != nil {
 		gatewayConfig.Readiness = func(context.Context) error { return config.Readiness() }
@@ -65,7 +75,7 @@ func New(config Config) (http.Handler, error) {
 
 func Route(request *http.Request) string {
 	switch request.URL.Path {
-	case "/healthz", "/readyz", "/health/ready", "/v1/auth/exchange", "/v1/bootstrap", "/v1/home", "/v1/catalog/categories", "/v1/catalog/items", "/v1/catalog/search", "/v1/serviceability/check", "/v1/cart":
+	case "/healthz", "/readyz", "/health/ready", "/v1/auth/exchange", "/v1/bootstrap", "/v1/home", "/v1/catalog/categories", "/v1/catalog/items", "/v1/catalog/search", "/v1/serviceability/check", "/v1/cart", "/v1/addresses", "/v1/delivery-slots", "/v1/checkout/quotes", "/v1/checkout/orders", "/v1/orders", "/v1/wallet", "/v1/payments/webhooks/razorpay", "/v1/payments/webhooks/paystack":
 		return request.URL.Path
 	default:
 		if strings.HasPrefix(request.URL.Path, "/v1/catalog/items/") {
@@ -73,6 +83,18 @@ func Route(request *http.Request) string {
 		}
 		if strings.HasPrefix(request.URL.Path, "/v1/cart/items/") {
 			return "/v1/cart/items/{variant_id}"
+		}
+		if strings.HasPrefix(request.URL.Path, "/v1/payments/") {
+			return "/v1/payments/{payment_id}"
+		}
+		if strings.HasPrefix(request.URL.Path, "/v1/orders/") {
+			parts := strings.Split(strings.Trim(request.URL.Path, "/"), "/")
+			if len(parts) == 3 {
+				return "/v1/orders/{order_id}"
+			}
+			if len(parts) == 4 {
+				return "/v1/orders/{order_id}/" + parts[3]
+			}
 		}
 		return "unmatched"
 	}
@@ -88,17 +110,64 @@ func (snapshots syntheticCommerceSnapshots) Resolve(_ context.Context, _ commerc
 	return value, nil
 }
 
-func customerCommerceHandler(clock func() time.Time) (http.Handler, error) {
+func customerTransactionHandlers(clock func() time.Time) (http.Handler, http.Handler, error) {
 	service, err := commerce.NewService(syntheticCommerceSnapshots{
-		"variant-milk-1l":          {VariantID: "variant-milk-1l", ItemID: "item-milk", ItemName: "Fresh milk", VariantName: "1 litre", UnitPrice: commerce.Money{AmountMinor: 6500, Currency: "INR"}, Available: true, Stock: 50, MaxPerOrder: 10},
-		"variant-groceries-weekly": {VariantID: "variant-groceries-weekly", ItemID: "item-groceries", ItemName: "Weekly groceries", VariantName: "Essential bundle", UnitPrice: commerce.Money{AmountMinor: 120000, Currency: "INR"}, Available: true, Stock: 20, MaxPerOrder: 3},
-		"variant-sesame-oil-500ml": {VariantID: "variant-sesame-oil-500ml", ItemID: "item-sesame-oil", ItemName: "Cold-pressed sesame oil", VariantName: "500ml", UnitPrice: commerce.Money{AmountMinor: 24000, Currency: "INR"}, Available: true, Stock: 24, MaxPerOrder: 5},
-		"variant-sesame-oil-1l":    {VariantID: "variant-sesame-oil-1l", ItemID: "item-sesame-oil", ItemName: "Cold-pressed sesame oil", VariantName: "1L", UnitPrice: commerce.Money{AmountMinor: 45000, Currency: "INR"}, Available: true, Stock: 12, MaxPerOrder: 5},
+		"variant-milk-1l":          {VariantID: "variant-milk-1l", ItemID: "item-milk", VendorID: "vendor-dairy-001", ItemName: "Fresh milk", VariantName: "1 litre", UnitPrice: commerce.Money{AmountMinor: 6500, Currency: "INR"}, Available: true, Stock: 50, MaxPerOrder: 10},
+		"variant-groceries-weekly": {VariantID: "variant-groceries-weekly", ItemID: "item-groceries", VendorID: "vendor-mart-001", ItemName: "Weekly groceries", VariantName: "Essential bundle", UnitPrice: commerce.Money{AmountMinor: 120000, Currency: "INR"}, Available: true, Stock: 20, MaxPerOrder: 3},
+		"variant-sesame-oil-500ml": {VariantID: "variant-sesame-oil-500ml", ItemID: "item-sesame-oil", VendorID: "vendor-foods-001", ItemName: "Cold-pressed sesame oil", VariantName: "500ml", UnitPrice: commerce.Money{AmountMinor: 24000, Currency: "INR"}, Available: true, Stock: 24, MaxPerOrder: 5},
+		"variant-sesame-oil-1l":    {VariantID: "variant-sesame-oil-1l", ItemID: "item-sesame-oil", VendorID: "vendor-foods-001", ItemName: "Cold-pressed sesame oil", VariantName: "1L", UnitPrice: commerce.Money{AmountMinor: 45000, Currency: "INR"}, Available: true, Stock: 12, MaxPerOrder: 5},
 	}, clock)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return commerce.NewHandler(service)
+	commerceHandler, err := commerce.NewHandler(service)
+	if err != nil {
+		return nil, nil, err
+	}
+	inventoryService, err := inventory.NewService([]inventory.SeedStock{
+		{Scope: inventory.Scope{TenantID: syntheticTenant, Country: "IN"}, VariantID: "variant-milk-1l", Quantity: 50},
+		{Scope: inventory.Scope{TenantID: syntheticTenant, Country: "IN"}, VariantID: "variant-groceries-weekly", Quantity: 20},
+		{Scope: inventory.Scope{TenantID: syntheticTenant, Country: "IN"}, VariantID: "variant-sesame-oil-500ml", Quantity: 24},
+		{Scope: inventory.Scope{TenantID: syntheticTenant, Country: "IN"}, VariantID: "variant-sesame-oil-1l", Quantity: 12},
+	}, clock)
+	if err != nil {
+		return nil, nil, err
+	}
+	walletService, err := wallet.NewService(clock, wallet.RewardPolicy{DailyDeviceCap: 100, Cooldown: time.Minute})
+	if err != nil {
+		return nil, nil, err
+	}
+	walletScope := wallet.Scope{TenantID: syntheticTenant, Country: "IN", CustomerID: "customer-synthetic-001"}
+	if _, _, err = walletService.Credit(walletScope, "synthetic-wallet-seed-0001", "WELCOME_REWARD", "synthetic-launch-001", 25000, clock().UTC().AddDate(1, 0, 0)); err != nil {
+		return nil, nil, err
+	}
+	providerSecret := []byte("synthetic-provider-secret-32-bytes-minimum")
+	paymentService, err := payment.NewService(clock, map[payment.Method][]byte{payment.MethodRazorpay: providerSecret, payment.MethodPaystack: providerSecret})
+	if err != nil {
+		return nil, nil, err
+	}
+	orderService, err := order.NewService(clock)
+	if err != nil {
+		return nil, nil, err
+	}
+	now := clock().UTC()
+	checkoutService, err := checkout.NewService(checkout.Dependencies{Cart: service, Inventory: inventoryService, Wallet: walletService, Payment: paymentService, Orders: orderService}, checkout.Configuration{
+		Addresses: []checkout.Address{{ID: "address-home-001", Label: "Home", PostalCode: "600001", Locality: "Chennai", TenantID: syntheticTenant, Country: "IN", CustomerID: "customer-synthetic-001"}},
+		Slots: []checkout.DeliverySlot{
+			{ID: "slot-standard-001", Country: "IN", WindowStart: now.Add(24 * time.Hour), WindowEnd: now.Add(28 * time.Hour), Fee: checkout.Money{AmountMinor: 3000, Currency: "INR"}, Capacity: 100},
+			{ID: "slot-express-001", Country: "IN", WindowStart: now.Add(2 * time.Hour), WindowEnd: now.Add(4 * time.Hour), Fee: checkout.Money{AmountMinor: 9000, Currency: "INR"}, Capacity: 25},
+		},
+		Promotions: []checkout.Promotion{{Code: "LOCAL10", Country: "IN", MinimumSubtotal: 10000, DiscountBasisPts: 1000, MaximumDiscount: 10000, StartsAt: now.Add(-24 * time.Hour), EndsAt: now.AddDate(0, 1, 0)}},
+		Policies:   []checkout.PricingPolicy{{Version: "pricing-2026-01", Country: "IN", TaxBasisPoints: 500, PlatformFeeMinor: 500, WalletPointValueMinor: 1, WalletMode: checkout.WalletHybrid, QuoteTTL: 10 * time.Minute, ReservationTTL: 15 * time.Minute}},
+	}, clock)
+	if err != nil {
+		return nil, nil, err
+	}
+	transactionHandler, err := checkout.NewHandler(checkoutService)
+	if err != nil {
+		return nil, nil, err
+	}
+	return commerceHandler, transactionHandler, nil
 }
 
 func configurationHandler(clock func() time.Time) (http.Handler, error) {

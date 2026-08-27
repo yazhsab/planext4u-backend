@@ -144,6 +144,44 @@ func TestVerticalSliceRejectsUntrustedOrExpiredIdentity(t *testing.T) {
 	assertVerticalResponse(t, expired, http.StatusUnauthorized, `"code":"AUTHENTICATION_EXPIRED"`)
 }
 
+func TestBEVSlicePhase3CheckoutCODOrderAndWallet(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 27, 10, 30, 0, 0, time.UTC)
+	application, err := New(Config{SigningKey: []byte("synthetic-staging-key-32-bytes-minimum-value"), Clock: func() time.Time { return now }, Logger: slog.New(slog.NewJSONHandler(io.Discard, nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(application)
+	t.Cleanup(server.Close)
+	client := server.Client()
+	authentication := verticalRequest(t, client, http.MethodPost, server.URL+"/v1/auth/exchange", `{"provider":"local","provider_token":"synthetic-customer","device_id":"device-phase3-e2e-001","country":"IN"}`, "")
+	var authPayload struct {
+		Tokens struct {
+			AccessToken string `json:"access_token"`
+		} `json:"tokens"`
+	}
+	decodeVerticalJSON(t, authentication, &authPayload)
+	added := verticalRequestWithHeaders(t, client, http.MethodPut, server.URL+"/v1/cart/items/variant-milk-1l", `{"quantity":2}`, authPayload.Tokens.AccessToken, map[string]string{"Idempotency-Key": "idem-phase3-cart-0001", "If-Match": `"0"`})
+	assertVerticalResponse(t, added, http.StatusOK, `"revision":1`)
+	addresses := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/addresses", "", authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, addresses, http.StatusOK, `"id":"address-home-001"`)
+	slots := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/delivery-slots", "", authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, slots, http.StatusOK, `"id":"slot-standard-001"`, `"id":"slot-express-001"`)
+	quoted := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/checkout/quotes", `{"cart_revision":1,"address_id":"address-home-001","delivery_slot_id":"slot-standard-001","promotion_code":"LOCAL10","wallet_points":1000}`, authPayload.Tokens.AccessToken, map[string]string{"Idempotency-Key": "idem-phase3-quote-0001"})
+	assertVerticalResponse(t, quoted, http.StatusCreated, `"promotion_code":"LOCAL10"`, `"PLACE_ORDER"`, `"RAZORPAY"`, `"COD"`)
+	var quote struct {
+		ID string `json:"id"`
+	}
+	decodeVerticalJSON(t, quoted, &quote)
+	placedBody, _ := json.Marshal(map[string]string{"quote_id": quote.ID, "payment_method": "COD"})
+	placed := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/checkout/orders", string(placedBody), authPayload.Tokens.AccessToken, map[string]string{"Idempotency-Key": "idem-phase3-place-0001"})
+	assertVerticalResponse(t, placed, http.StatusCreated, `"state":"COMMITTED"`, `"status":"PLACED"`, `"method":"COD"`)
+	orders := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/orders", "", authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, orders, http.StatusOK, `"status":"PLACED"`, `"pricing_policy_version":"pricing-2026-01"`)
+	wallet := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/wallet", "", authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, wallet, http.StatusOK, `"balance":24000`, `"category":"CHECKOUT_REDEMPTION"`)
+}
+
 func verticalRequest(t *testing.T, client *http.Client, method, target, body, accessToken string) *http.Response {
 	return verticalRequestWithHeaders(t, client, method, target, body, accessToken, nil)
 }
