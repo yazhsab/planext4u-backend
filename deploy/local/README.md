@@ -14,6 +14,22 @@ make test-integration
 make local-down
 ```
 
+Service-owned schemas and the migration ledger can be installed with a
+file-mounted local connection secret:
+
+```sh
+umask 077
+mkdir -p .local/migrations
+echo 'postgres://planext4u_local:local-only-password@127.0.0.1:54320/planext4u_local?sslmode=disable' > .local/migrations/database.url
+make migrate-local
+make test-migrations-integration
+```
+
+Production and staging create a distinct LOGIN role per service and grant only
+its matching `planext4u_<service>_runtime` group. See
+`docs/phase-2/SERVICE_OWNED_MIGRATIONS.md`; local passwords below are synthetic
+and must never be promoted.
+
 `make local-up` builds and waits for every dependency to become healthy. The
 default host endpoints are:
 

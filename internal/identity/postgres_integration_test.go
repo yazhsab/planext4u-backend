@@ -39,6 +39,13 @@ func TestPostgresIdentityLifecycleAndConcurrentReuse(t *testing.T) {
 		defer cleanupCancel()
 		_, _ = pool.Exec(cleanupContext, `DROP SCHEMA IF EXISTS identity CASCADE`)
 	})
+	rolesMigration, err := os.ReadFile("../../migrations/platform/000001_service_roles.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, string(rolesMigration)); err != nil {
+		t.Fatalf("apply service role migration: %v", err)
+	}
 	migration, err := os.ReadFile("../../migrations/identity/000001_identity.up.sql")
 	if err != nil {
 		t.Fatal(err)

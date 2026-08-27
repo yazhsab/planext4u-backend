@@ -1,6 +1,6 @@
 GO ?= go
 
-.PHONY: build contract-check contract-generate fmt identity-schema-local local-down local-status local-up run run-identity test test-gateway-integration test-identity-integration test-integration test-race vet verify
+.PHONY: build contract-check contract-generate fmt identity-schema-local local-down local-service-logins local-status local-up migration-check migrate-local run run-identity test test-gateway-integration test-identity-integration test-integration test-migrations-integration test-race vet verify
 
 build:
 	$(GO) build ./...
@@ -26,6 +26,9 @@ local-down:
 local-status:
 	docker compose -f deploy/local/compose.yaml ps
 
+local-service-logins:
+	docker compose -f deploy/local/compose.yaml exec -T postgres psql -v ON_ERROR_STOP=1 -U planext4u_local -d planext4u_local < deploy/local/create-service-logins.sql
+
 local-up:
 	docker compose -f deploy/local/compose.yaml up -d --build --wait
 
@@ -36,7 +39,15 @@ run-identity:
 	$(GO) run ./cmd/identity
 
 identity-schema-local:
-	docker compose -f deploy/local/compose.yaml exec -T postgres psql -v ON_ERROR_STOP=1 -U planext4u_local -d planext4u_local < migrations/identity/000001_identity.up.sql
+	MIGRATION_DATABASE_URL_FILE=.local/identity/database.url $(GO) run ./cmd/migrate -service platform
+	MIGRATION_DATABASE_URL_FILE=.local/identity/database.url $(GO) run ./cmd/migrate -service identity
+
+migration-check:
+	$(GO) run ./cmd/migrationcheck
+
+migrate-local:
+	MIGRATION_DATABASE_URL_FILE=.local/migrations/database.url $(GO) run ./cmd/migrate -service all
+	$(MAKE) local-service-logins
 
 test:
 	$(GO) test ./...
@@ -52,10 +63,13 @@ test-identity-integration:
 	IDENTITY_DATABASE_TEST_URL="$${IDENTITY_DATABASE_TEST_URL:-postgres://planext4u_local:local-only-password@127.0.0.1:54320/planext4u_local?sslmode=disable}" $(GO) test -tags=integration -count=1 -coverprofile=coverage/identity.out ./internal/identity
 	$(GO) run ./cmd/coveragecheck -profile coverage/identity.out -min 80
 
+test-migrations-integration:
+	MIGRATION_DATABASE_TEST_URL="$${MIGRATION_DATABASE_TEST_URL:-postgres://planext4u_local:local-only-password@127.0.0.1:54320/planext4u_local?sslmode=disable}" $(GO) test -tags=integration -count=1 ./internal/migrations
+
 test-race:
 	$(GO) test -race ./...
 
 vet:
 	$(GO) vet ./...
 
-verify: fmt contract-check vet test test-race build
+verify: fmt contract-check migration-check vet test test-race build

@@ -1,4 +1,7 @@
-CREATE SCHEMA IF NOT EXISTS identity;
+CREATE SCHEMA IF NOT EXISTS identity AUTHORIZATION planext4u_identity_owner;
+ALTER SCHEMA identity OWNER TO planext4u_identity_owner;
+REVOKE ALL ON SCHEMA identity FROM PUBLIC;
+SET ROLE planext4u_identity_owner;
 
 CREATE TABLE identity.identities (
     id text PRIMARY KEY,
@@ -121,3 +124,8 @@ CREATE INDEX security_events_session_time_idx
 COMMENT ON COLUMN identity.refresh_tokens.digest IS 'HMAC-SHA256 only; plaintext refresh tokens are prohibited.';
 COMMENT ON COLUMN identity.sessions.device_id IS 'Confidential platform device identifier; never emit to general logs or API responses.';
 COMMENT ON TABLE identity.security_events IS 'Identity-local append-only evidence; privileged audit export is owned by the audit service.';
+
+GRANT USAGE ON SCHEMA identity TO planext4u_identity_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA identity TO planext4u_identity_runtime;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA identity TO planext4u_identity_runtime;
+RESET ROLE;
