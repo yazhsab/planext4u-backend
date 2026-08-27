@@ -24,4 +24,12 @@ Applying these files creates billable cloud resources and AWS accounts. A platfo
 5. Configure GitHub `staging` and `production` environments with required reviewers, no self-review, protected branches and no administrator bypass. Store only role ARNs, region, cluster/service names, ECR repository and smoke URL as environment variables.
 6. Run `make infra-check`; archive the signed plan and approval record before apply.
 
+The delivery workflow remains safely dormant until the repository variable
+`DELIVERY_ENABLED=true` is set. Each protected environment requires these
+non-secret variables: `AWS_ARTIFACT_ROLE_ARN`, `AWS_DEPLOY_ROLE_ARN`,
+`AWS_REGION`, `ECR_REPOSITORY`, `ECS_CLUSTER`, and `SMOKE_URL`. Set
+`ENABLE_GITHUB_ATTESTATIONS=true` only when the GitHub plan supports private
+repository attestations; Sigstore keyless image and SBOM signing is always
+performed when delivery is enabled.
+
 Official operating guidance: [Terraform S3 locking and permissions](https://developer.hashicorp.com/terraform/language/backend/s3), [Terraform sensitive-state controls](https://developer.hashicorp.com/terraform/language/manage-sensitive-data), [AWS Terraform provider practices](https://docs.aws.amazon.com/prescriptive-guidance/latest/terraform-aws-provider-best-practices/), and [GitHub deployment environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments).

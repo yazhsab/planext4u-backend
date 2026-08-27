@@ -1,0 +1,4 @@
+* @yazhsab
+/.github/workflows/ @yazhsab
+/infra/ @yazhsab
+/scripts/deploy-ecs.sh @yazhsab

@@ -2,6 +2,8 @@ module github.com/yazhsab/planext4u-backend
 
 go 1.25.0
 
+toolchain go1.25.14
+
 require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/redis/go-redis/v9 v9.22.0

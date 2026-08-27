@@ -107,6 +107,34 @@ func TestBEInfra001DeploymentRequiresDigestAndRollbackEvidence(t *testing.T) {
 	}
 }
 
+func TestBEInfra001WorkflowsPinActionsAndAvoidStaticCloudKeys(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{"../../.github/workflows/backend-ci.yml", "../../.github/workflows/backend-delivery.yml"} {
+		contents := readFile(t, path)
+		for _, line := range strings.Split(contents, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if !strings.HasPrefix(trimmed, "uses:") {
+				continue
+			}
+			parts := strings.Split(strings.Fields(trimmed)[1], "@")
+			if len(parts) != 2 || len(parts[1]) != 40 {
+				t.Errorf("%s has an action that is not pinned to a full commit: %s", path, trimmed)
+			}
+		}
+		for _, forbidden := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "secrets.AWS_"} {
+			if strings.Contains(contents, forbidden) {
+				t.Errorf("%s contains forbidden static AWS credential marker %q", path, forbidden)
+			}
+		}
+	}
+	delivery := readFile(t, "../../.github/workflows/backend-delivery.yml")
+	for _, marker := range []string{"id-token: write", "cosign sign", "cosign attest", "environment:", "./scripts/deploy-ecs.sh", "if: always()"} {
+		if !strings.Contains(delivery, marker) {
+			t.Errorf("delivery workflow is missing %q", marker)
+		}
+	}
+}
+
 func assertMarkers(t *testing.T, path string, markers []string) {
 	t.Helper()
 	contents := readFile(t, path)

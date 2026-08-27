@@ -33,7 +33,8 @@ and validated AWS Terraform foundations.
 
 ## Local development
 
-Prerequisite: Go 1.25 or newer.
+Prerequisite: Go 1.25.14 or newer. The module toolchain directive prevents
+builds with earlier vulnerable Go 1.25 patch releases.
 
 ```sh
 make verify
