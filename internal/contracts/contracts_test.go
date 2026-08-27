@@ -46,6 +46,15 @@ type compatibilityBaseline struct {
 	} `json:"asyncapi"`
 }
 
+type openAPICompatibilityBaseline struct {
+	Operations []struct {
+		Method string `json:"method"`
+		Path   string `json:"path"`
+	} `json:"operations"`
+	RequiredProperties map[string][]string `json:"required_properties"`
+	EnumValues         map[string][]string `json:"enum_values"`
+}
+
 func TestBEContract001CompatibilityBaseline(t *testing.T) {
 	t.Parallel()
 
@@ -128,6 +137,91 @@ func TestGeneratedFixturesAreSyntheticAndStructurallyValid(t *testing.T) {
 	if !strings.HasPrefix(event.CorrelationID, "corr-synthetic-") {
 		t.Fatalf("domain event fixture correlation is not synthetic: %q", event.CorrelationID)
 	}
+
+	var authentication struct {
+		IdentityID string   `json:"identity_id"`
+		TenantID   string   `json:"tenant_id"`
+		Roles      []string `json:"roles"`
+		Tokens     struct {
+			AccessToken  string `json:"access_token"`
+			RefreshToken string `json:"refresh_token"`
+		} `json:"tokens"`
+	}
+	if err := json.Unmarshal([]byte(generated.IdentityAuthenticationFixtureJSON), &authentication); err != nil {
+		t.Fatalf("identity authentication fixture is invalid JSON: %v", err)
+	}
+	if !strings.Contains(authentication.IdentityID, "synthetic") ||
+		!strings.Contains(authentication.TenantID, "synthetic") ||
+		len(authentication.Roles) != 1 || authentication.Roles[0] != "CUSTOMER" ||
+		!strings.Contains(authentication.Tokens.AccessToken, "synthetic") ||
+		!strings.Contains(authentication.Tokens.RefreshToken, "synthetic") {
+		t.Fatalf("identity authentication fixture is incomplete or not synthetic: %#v", authentication)
+	}
+}
+
+func TestIdentityContractCompatibilityBaseline(t *testing.T) {
+	t.Parallel()
+	var document openAPIDocument
+	readJSON(t, "api/openapi/identity.openapi.json", &document)
+	if document.OpenAPI != "3.1.0" {
+		t.Fatalf("identity OpenAPI version = %q, want 3.1.0", document.OpenAPI)
+	}
+	var baseline openAPICompatibilityBaseline
+	readJSON(t, "api/compatibility/identity-v1-baseline.json", &baseline)
+	for _, operation := range baseline.Operations {
+		methods, exists := document.Paths[operation.Path]
+		if !exists {
+			t.Errorf("breaking change: identity path %s was removed", operation.Path)
+			continue
+		}
+		if _, exists := methods[strings.ToLower(operation.Method)]; !exists {
+			t.Errorf("breaking change: identity operation %s %s was removed", operation.Method, operation.Path)
+		}
+	}
+	assertRequiredProperties(t, "identity OpenAPI", document.Components.Schemas, baseline.RequiredProperties)
+	for schemaName, requiredValues := range baseline.EnumValues {
+		current, exists := document.Components.Schemas[schemaName]
+		if !exists {
+			t.Errorf("breaking change: identity enum schema %s was removed", schemaName)
+			continue
+		}
+		for _, requiredValue := range requiredValues {
+			if !contains(current.Enum, requiredValue) {
+				t.Errorf("breaking change: identity enum %s removed value %s", schemaName, requiredValue)
+			}
+		}
+	}
+}
+
+func TestIdentityContractSecurityMetadata(t *testing.T) {
+	t.Parallel()
+	var document map[string]any
+	readJSON(t, "api/openapi/identity.openapi.json", &document)
+	paths := document["paths"].(map[string]any)
+	for _, path := range []string{"/v1/auth/exchange", "/v1/auth/refresh", "/v1/auth/revoke"} {
+		operation := paths[path].(map[string]any)["post"].(map[string]any)
+		security, exists := operation["security"].([]any)
+		if !exists || len(security) != 0 {
+			t.Errorf("anonymous operation %s must explicitly declare empty security", path)
+		}
+	}
+	components := document["components"].(map[string]any)
+	schemas := components["schemas"].(map[string]any)
+	exchangeProperties := schemas["ExchangeRequest"].(map[string]any)["properties"].(map[string]any)
+	if _, exists := exchangeProperties["role"]; exists {
+		t.Fatal("provider exchange contract allows a client-requested role")
+	}
+	tokenProperties := schemas["TokenPair"].(map[string]any)["properties"].(map[string]any)
+	for _, field := range []string{"access_token", "refresh_token"} {
+		property := tokenProperties[field].(map[string]any)
+		if property["x-planext4u-sensitive"] != true {
+			t.Errorf("TokenPair.%s is not marked sensitive", field)
+		}
+	}
+	reviewers := document["x-planext4u-reviewers"].([]any)
+	if !containsAny(reviewers, "security") || !containsAny(reviewers, "privacy") {
+		t.Fatalf("identity reviewers = %v", reviewers)
+	}
 }
 
 func assertRequiredProperties(
@@ -163,6 +257,15 @@ func readJSON(t *testing.T, relativePath string, target any) {
 }
 
 func contains(values []string, candidate string) bool {
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAny(values []any, candidate string) bool {
 	for _, value := range values {
 		if value == candidate {
 			return true

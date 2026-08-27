@@ -32,6 +32,12 @@ client -> correlation/security headers -> IP rate limit -> bounded body
 Resource ownership and current permissions are intentionally not evaluated at
 the gateway. Those checks belong to the service that owns the resource.
 
+The exact `POST /v1/auth/exchange`, `POST /v1/auth/refresh` and
+`POST /v1/auth/revoke` routes are anonymous upstream routes. They still pass the
+anonymous/IP limiter, body bound, timeout, correlation and header-stripping
+pipeline. Other methods, path prefixes and suffixes remain authenticated, and
+no empty or client-supplied trusted identity header is forwarded.
+
 ## Rate and request controls
 
 - Anonymous/IP and authenticated-principal limits are separate gates.

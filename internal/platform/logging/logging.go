@@ -14,10 +14,13 @@ var sensitiveKeyFragments = []string{
 	"apikey",
 	"authorization",
 	"cookie",
+	"device",
+	"digest",
 	"email",
 	"passcode",
 	"password",
 	"phone",
+	"provider_subject",
 	"secret",
 	"token",
 }

@@ -5,6 +5,7 @@ bin/
 coverage/
 *.coverprofile
 *.log
+.local/
 
 # Local environment files may contain secrets and must never be committed.
 .env

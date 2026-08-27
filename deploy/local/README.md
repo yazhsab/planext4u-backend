@@ -27,6 +27,31 @@ default host endpoints are:
 | Object console | `http://localhost:9001` |
 | Synthetic providers | `http://localhost:18081` |
 
-The Testcontainers suite starts isolated dependencies on random ports and does
-not rely on the long-lived Compose project. This prevents local developer state
-from making integration results pass accidentally.
+The identity service uses explicit secret files and never commits local keys.
+Create a private `.local/identity` directory, apply the schema once, then run
+the service:
+
+```sh
+umask 077
+mkdir -p .local/identity
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out .local/identity/jwt-private.pem
+openssl rand -hex 32 > .local/identity/refresh-hmac.key
+echo 'postgres://planext4u_local:local-only-password@127.0.0.1:54320/planext4u_local?sslmode=disable' > .local/identity/database.url
+make identity-schema-local
+APP_ENV=development HTTP_ADDRESS=:8083 \
+DATABASE_URL_FILE=.local/identity/database.url \
+PROVIDER_BASE_URL=http://127.0.0.1:18081 \
+TENANT_ID=tenant_synthetic_001 ALLOWED_COUNTRIES=IN,GB \
+JWT_ISSUER=http://identity.local JWT_AUDIENCE=planext4u-mobile \
+JWT_KEY_ID=identity-local-01 JWT_PRIVATE_KEY_FILE=.local/identity/jwt-private.pem \
+REFRESH_HMAC_KEY_FILE=.local/identity/refresh-hmac.key make run-identity
+```
+
+`make test-identity-integration` applies and removes only the `identity` schema
+inside the disposable local database, then exercises real transactional refresh
+rotation, reuse revocation, profile concurrency, consent evidence and ownership
+denials. Do not point that target at a shared or non-local database.
+
+The broader Testcontainers suite starts isolated dependencies on random ports.
+The identity integration target instead uses the explicitly configured local
+PostgreSQL URL and resets only its owned schema.

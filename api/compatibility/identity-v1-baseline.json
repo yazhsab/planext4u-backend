@@ -1,0 +1,102 @@
+{
+  "operations": [
+    {
+      "method": "POST",
+      "path": "/v1/auth/exchange"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/auth/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/auth/revoke"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/me"
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/me"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/me/sessions"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/me/sessions/{session_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/me/consents"
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/me/consents/{purpose}"
+    }
+  ],
+  "required_properties": {
+    "ExchangeRequest": [
+      "provider",
+      "provider_token",
+      "device_id",
+      "country"
+    ],
+    "TokenPair": [
+      "access_token",
+      "access_expires_at",
+      "refresh_token",
+      "refresh_expires_at",
+      "token_type"
+    ],
+    "Authentication": [
+      "identity_id",
+      "tenant_id",
+      "country",
+      "tokens",
+      "profile",
+      "roles",
+      "session"
+    ],
+    "Profile": [
+      "display_name",
+      "locale",
+      "time_zone",
+      "version",
+      "updated_at"
+    ],
+    "Session": [
+      "id",
+      "device_reference",
+      "country",
+      "authenticated_at",
+      "last_seen_at",
+      "expires_at",
+      "current"
+    ],
+    "Consent": [
+      "evidence_id",
+      "purpose",
+      "granted",
+      "policy_version",
+      "recorded_at",
+      "version"
+    ]
+  },
+  "enum_values": {
+    "Role": [
+      "CUSTOMER",
+      "VENDOR",
+      "RIDER",
+      "ADMIN"
+    ],
+    "ConsentPurpose": [
+      "ANALYTICS",
+      "MARKETING",
+      "LOCATION_SERVICEABILITY",
+      "LOCATION_DELIVERY"
+    ]
+  }
+}

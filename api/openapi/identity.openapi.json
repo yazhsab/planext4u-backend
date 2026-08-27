@@ -1,0 +1,720 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Planext4u Identity and Customer API",
+    "version": "1.0.0",
+    "description": "Identity-owned provider exchange, platform session, profile and consent contracts. Security and Privacy review is required for changes."
+  },
+  "servers": [
+    {
+      "url": "https://api.staging.planext4u.net"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/v1/auth/exchange": {
+      "post": {
+        "operationId": "identityExchangeProviderToken",
+        "summary": "Verify an approved provider token and create a platform session",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExchangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Platform session created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Authentication"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/auth/refresh": {
+      "post": {
+        "operationId": "identityRefreshSession",
+        "summary": "Atomically rotate a refresh token and issue a new access token",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Session rotated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Authentication"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/auth/revoke": {
+      "post": {
+        "operationId": "identityRevokeByRefreshToken",
+        "summary": "Idempotently revoke the refresh-token session",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "The matching session, if any, is revoked"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "operationId": "identityGetCurrentProfile",
+        "summary": "Get the current identity, roles and profile",
+        "responses": {
+          "200": {
+            "description": "Current profile",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "identityUpdateCurrentProfile",
+        "summary": "Update the current profile with optimistic concurrency",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated profile",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Profile"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/me/sessions": {
+      "get": {
+        "operationId": "identityListCurrentSessions",
+        "summary": "List redacted device sessions owned by the current identity",
+        "responses": {
+          "200": {
+            "description": "Current identity sessions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "sessions"
+                  ],
+                  "properties": {
+                    "sessions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Session"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/me/sessions/{session_id}": {
+      "delete": {
+        "operationId": "identityRevokeOwnedSession",
+        "summary": "Revoke a session owned by the current identity",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SessionID"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Session revoked"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/me/consents": {
+      "get": {
+        "operationId": "identityListCurrentConsents",
+        "summary": "List the latest evidence for each supported consent purpose",
+        "responses": {
+          "200": {
+            "description": "Current consent evidence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "consents"
+                  ],
+                  "properties": {
+                    "consents": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Consent"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/me/consents/{purpose}": {
+      "put": {
+        "operationId": "identityRecordConsentEvidence",
+        "summary": "Append consent grant or withdrawal evidence",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ConsentPurpose"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Consent evidence recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Consent"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "parameters": {
+      "SessionID": {
+        "name": "session_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/SafeIdentifier"
+        }
+      },
+      "ConsentPurpose": {
+        "name": "purpose",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/ConsentPurpose"
+        }
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "Safe standard error envelope",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "./common.openapi.json#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "SafeIdentifier": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[!-~]+$"
+      },
+      "Role": {
+        "type": "string",
+        "enum": [
+          "CUSTOMER",
+          "VENDOR",
+          "RIDER",
+          "ADMIN"
+        ]
+      },
+      "ConsentPurpose": {
+        "type": "string",
+        "enum": [
+          "ANALYTICS",
+          "MARKETING",
+          "LOCATION_SERVICEABILITY",
+          "LOCATION_DELIVERY"
+        ]
+      },
+      "ExchangeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "provider_token",
+          "device_id",
+          "country"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "firebase",
+              "oidc",
+              "local"
+            ]
+          },
+          "provider_token": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 8192,
+            "writeOnly": true
+          },
+          "device_id": {
+            "$ref": "#/components/schemas/SafeIdentifier"
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          }
+        }
+      },
+      "RefreshTokenRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "refresh_token"
+        ],
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "minLength": 40,
+            "maxLength": 128,
+            "writeOnly": true
+          }
+        }
+      },
+      "TokenPair": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "access_token",
+          "access_expires_at",
+          "refresh_token",
+          "refresh_expires_at",
+          "token_type"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "access_expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "refresh_token": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "refresh_expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "token_type": {
+            "type": "string",
+            "const": "Bearer"
+          }
+        }
+      },
+      "Profile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "display_name",
+          "locale",
+          "time_zone",
+          "version",
+          "updated_at"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "en",
+              "ta"
+            ]
+          },
+          "time_zone": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ProfileUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "display_name",
+          "locale",
+          "time_zone"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "en",
+              "ta"
+            ]
+          },
+          "time_zone": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      },
+      "Session": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "device_reference",
+          "country",
+          "authenticated_at",
+          "last_seen_at",
+          "expires_at",
+          "current"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/SafeIdentifier"
+          },
+          "device_reference": {
+            "$ref": "#/components/schemas/SafeIdentifier"
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "authenticated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revoked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Authentication": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "identity_id",
+          "tenant_id",
+          "country",
+          "tokens",
+          "profile",
+          "roles",
+          "session"
+        ],
+        "properties": {
+          "identity_id": {
+            "$ref": "#/components/schemas/SafeIdentifier"
+          },
+          "tenant_id": {
+            "$ref": "#/components/schemas/SafeIdentifier"
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/TokenPair"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/Profile"
+          },
+          "roles": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            }
+          },
+          "session": {
+            "$ref": "#/components/schemas/Session"
+          }
+        }
+      },
+      "MeResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "country",
+          "roles",
+          "profile"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/SafeIdentifier"
+          },
+          "tenant_id": {
+            "$ref": "#/components/schemas/SafeIdentifier"
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            }
+          },
+          "profile": {
+            "$ref": "#/components/schemas/Profile"
+          }
+        }
+      },
+      "ConsentUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "granted",
+          "policy_version"
+        ],
+        "properties": {
+          "granted": {
+            "type": "boolean"
+          },
+          "policy_version": {
+            "$ref": "#/components/schemas/SafeIdentifier"
+          }
+        }
+      },
+      "Consent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_id",
+          "purpose",
+          "granted",
+          "policy_version",
+          "recorded_at",
+          "version"
+        ],
+        "properties": {
+          "evidence_id": {
+            "$ref": "#/components/schemas/SafeIdentifier"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/ConsentPurpose"
+          },
+          "granted": {
+            "type": "boolean"
+          },
+          "policy_version": {
+            "$ref": "#/components/schemas/SafeIdentifier"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  },
+  "x-planext4u-owner": "identity-customer",
+  "x-planext4u-reviewers": [
+    "security",
+    "privacy"
+  ],
+  "x-planext4u-classification": "confidential-pii-and-restricted-secrets",
+  "x-planext4u-slo-class": "critical",
+  "x-planext4u-deprecation-policy": "additive-v1; breaking changes require a new major contract"
+}

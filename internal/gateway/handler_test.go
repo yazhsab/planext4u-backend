@@ -156,6 +156,46 @@ func TestGatewayAuthenticationDenialsUseSafeProblems(t *testing.T) {
 	}
 }
 
+func TestGatewayForwardsOnlyExactAnonymousAuthRoutes(t *testing.T) {
+	t.Parallel()
+
+	captured := make(chan http.Header, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		captured <- request.Header.Clone()
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"accepted":true}`))
+	}))
+	defer upstream.Close()
+	handler := newGatewayTestHandler(t, upstream.URL, fixedVerifier{err: ErrTokenInvalid}, UnlimitedLimiter{}, UnlimitedLimiter{}, time.Second, 1024)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/auth/exchange", strings.NewReader(`{"provider_token":"secret"}`))
+	request.Header.Set("Authorization", "Bearer attacker-value")
+	request.Header.Set("X-Planext4u-Roles", "ADMIN")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("anonymous exchange status = %d body=%s", response.Code, response.Body.String())
+	}
+	upstreamHeader := <-captured
+	if upstreamHeader.Get("Authorization") != "" || upstreamHeader.Get("X-Planext4u-Roles") != "" {
+		t.Fatalf("anonymous route received credential or trusted identity headers: %v", upstreamHeader)
+	}
+
+	wrongMethod := httptest.NewRequest(http.MethodGet, "/v1/auth/exchange", nil)
+	wrongMethodResponse := httptest.NewRecorder()
+	handler.ServeHTTP(wrongMethodResponse, wrongMethod)
+	if wrongMethodResponse.Code != http.StatusUnauthorized || !strings.Contains(wrongMethodResponse.Body.String(), "AUTHENTICATION_REQUIRED") {
+		t.Fatalf("wrong-method response = %d %s", wrongMethodResponse.Code, wrongMethodResponse.Body.String())
+	}
+
+	prefixBypass := httptest.NewRequest(http.MethodPost, "/v1/auth/exchange/extra", nil)
+	prefixResponse := httptest.NewRecorder()
+	handler.ServeHTTP(prefixResponse, prefixBypass)
+	if prefixResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("prefix bypass status = %d", prefixResponse.Code)
+	}
+}
+
 func TestGatewayEnforcesDeclaredAndStreamingBodyLimits(t *testing.T) {
 	t.Parallel()
 

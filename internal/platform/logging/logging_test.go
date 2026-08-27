@@ -19,6 +19,9 @@ func TestNewEmitsJSONAndRedactsSensitiveAttributes(t *testing.T) {
 		"authentication event",
 		"user_email", "person@example.com",
 		"access-token", "secret-value",
+		"device_id", "device-private-value",
+		"refresh_digest", "digest-private-value",
+		"provider_subject", "provider-private-value",
 		"order_id", "order-123",
 	)
 
@@ -32,6 +35,11 @@ func TestNewEmitsJSONAndRedactsSensitiveAttributes(t *testing.T) {
 	}
 	if event["access-token"] != redactedValue {
 		t.Errorf("access-token = %q, want redacted", event["access-token"])
+	}
+	for _, key := range []string{"device_id", "refresh_digest", "provider_subject"} {
+		if event[key] != redactedValue {
+			t.Errorf("%s = %q, want redacted", key, event[key])
+		}
 	}
 	if event["order_id"] != "order-123" {
 		t.Errorf("order_id = %q, want order-123", event["order_id"])

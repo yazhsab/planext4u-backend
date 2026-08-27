@@ -25,10 +25,11 @@ The system will use Go for all backend services and workers. The administrator c
 
 Phase 1 architecture and target definition is complete. The approved Phase 2 backlog establishes the Go platform, contracts and staging vertical slice.
 
-Phase 2 implementation has started with a greenfield Go service template. It
-provides validated typed configuration, structured JSON logging with defensive
-redaction, request correlation, liveness/readiness probes, hardened HTTP
-timeouts and graceful shutdown.
+Phase 2 implementation includes the greenfield Go service template, common
+contracts, deterministic local dependencies, secure gateway, and the identity
+and customer-profile foundation. Identity owns provider exchange, RS256 access
+tokens, rotating opaque refresh tokens, sessions/devices, current roles,
+profiles and append-only consent evidence backed by PostgreSQL.
 
 ## Local development
 
@@ -77,5 +78,7 @@ environment files.
 - [Phase 2 executable backlog](docs/phase-1/PHASE_2_BACKLOG.md)
 - [Phase 1 exit review](docs/phase-1/PHASE_1_EXIT_REVIEW.md)
 - [Greenfield backend ADR](docs/adr/0001-go-greenfield-platform.md)
+- [Gateway foundation](docs/phase-2/GATEWAY_FOUNDATION.md)
+- [Identity/customer foundation](docs/phase-2/IDENTITY_CUSTOMER_FOUNDATION.md)
 - [Six-phase programme plan](https://github.com/yazhsab/planext4u-moble/blob/main/docs/PROGRAM_PLAN.md)
 - [Flutter applications](https://github.com/yazhsab/planext4u-moble)

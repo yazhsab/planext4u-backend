@@ -38,6 +38,7 @@ type Config struct {
 	RequestTimeout   time.Duration
 	MaxRequestBytes  int64
 	PublicPaths      map[string]struct{}
+	AnonymousRoutes  map[string]map[string]struct{}
 	AnonymousLimiter Limiter
 	PrincipalLimiter Limiter
 	Readiness        func(context.Context) error
@@ -51,6 +52,11 @@ func DefaultConfig(upstream *url.URL) Config {
 		PublicPaths: map[string]struct{}{
 			"/healthz": {},
 			"/readyz":  {},
+		},
+		AnonymousRoutes: map[string]map[string]struct{}{
+			"/v1/auth/exchange": {http.MethodPost: {}},
+			"/v1/auth/refresh":  {http.MethodPost: {}},
+			"/v1/auth/revoke":   {http.MethodPost: {}},
 		},
 		AnonymousLimiter: UnlimitedLimiter{},
 		PrincipalLimiter: UnlimitedLimiter{},
@@ -81,6 +87,21 @@ func NewHandler(config Config, verifier Verifier, logger *slog.Logger) (*Handler
 		publicPaths[path] = struct{}{}
 	}
 	config.PublicPaths = publicPaths
+	anonymousRoutes := make(map[string]map[string]struct{}, len(config.AnonymousRoutes))
+	for path, methods := range config.AnonymousRoutes {
+		if !strings.HasPrefix(path, "/") || len(methods) == 0 {
+			return nil, ErrInvalidConfiguration
+		}
+		clonedMethods := make(map[string]struct{}, len(methods))
+		for method := range methods {
+			if method != http.MethodPost {
+				return nil, ErrInvalidConfiguration
+			}
+			clonedMethods[method] = struct{}{}
+		}
+		anonymousRoutes[path] = clonedMethods
+	}
+	config.AnonymousRoutes = anonymousRoutes
 
 	handler := &Handler{config: config, verifier: verifier, logger: logger}
 	proxy := &httputil.ReverseProxy{
@@ -130,6 +151,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	if !handler.readBoundedBody(writer, request) {
 		return
 	}
+	if handler.isAnonymousRoute(request) {
+		handler.forward(writer, request)
+		return
+	}
 
 	token, ok := bearerToken(request.Header.Get("Authorization"))
 	if !ok {
@@ -159,6 +184,19 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	}
 
 	request = request.WithContext(context.WithValue(request.Context(), principalContextKey, principal))
+	handler.forward(writer, request)
+}
+
+func (handler *Handler) isAnonymousRoute(request *http.Request) bool {
+	methods, exists := handler.config.AnonymousRoutes[request.URL.Path]
+	if !exists {
+		return false
+	}
+	_, allowed := methods[request.Method]
+	return allowed
+}
+
+func (handler *Handler) forward(writer http.ResponseWriter, request *http.Request) {
 	requestContext, cancel := context.WithTimeout(request.Context(), handler.config.RequestTimeout)
 	defer cancel()
 	request = request.WithContext(requestContext)
@@ -167,7 +205,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	handler.proxy.ServeHTTP(writer, request)
 	handler.logger.Info(
 		"gateway request",
-		"correlation_id", correlationID,
+		"correlation_id", correlationIDFromContext(request.Context()),
 		"method", request.Method,
 		"path_group", pathGroup(request.URL.Path),
 		"duration_ms", time.Since(started).Milliseconds(),
@@ -278,13 +316,15 @@ func (handler *Handler) rewrite(proxyRequest *httputil.ProxyRequest) {
 	proxyRequest.Out.Header.Del("Authorization")
 	proxyRequest.Out.Header.Del("Cookie")
 	proxyRequest.Out.Header.Set(correlationIDHeader, correlationID)
-	proxyRequest.Out.Header.Set("X-Planext4u-Subject", principal.Subject)
-	proxyRequest.Out.Header.Set("X-Planext4u-Session", principal.SessionID)
-	proxyRequest.Out.Header.Set("X-Planext4u-Tenant", principal.TenantID)
-	proxyRequest.Out.Header.Set("X-Planext4u-Country", principal.Country)
-	proxyRequest.Out.Header.Set("X-Planext4u-Roles", strings.Join(principal.Roles, ","))
-	if principal.DeviceID != "" {
-		proxyRequest.Out.Header.Set("X-Planext4u-Device", principal.DeviceID)
+	if principal.Subject != "" {
+		proxyRequest.Out.Header.Set("X-Planext4u-Subject", principal.Subject)
+		proxyRequest.Out.Header.Set("X-Planext4u-Session", principal.SessionID)
+		proxyRequest.Out.Header.Set("X-Planext4u-Tenant", principal.TenantID)
+		proxyRequest.Out.Header.Set("X-Planext4u-Country", principal.Country)
+		proxyRequest.Out.Header.Set("X-Planext4u-Roles", strings.Join(principal.Roles, ","))
+		if principal.DeviceID != "" {
+			proxyRequest.Out.Header.Set("X-Planext4u-Device", principal.DeviceID)
+		}
 	}
 	if !validTraceparent(proxyRequest.In.Header.Get("traceparent")) {
 		proxyRequest.Out.Header.Del("traceparent")
