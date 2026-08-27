@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -16,6 +17,23 @@ func TestBEInfra001SecurityAndIsolationControls(t *testing.T) {
 	assertMarkers(t, "../../infra/modules/data/main.tf", []string{"manage_master_user_password", "storage_encrypted", "deletion_protection", "aws_secretsmanager_secret", "value provisioned outside Terraform state"})
 	assertMarkers(t, "../../infra/modules/artifacts/main.tf", []string{"image_tag_mutability = \"IMMUTABLE\"", "scan_on_push = true", "encryption_type = \"KMS\""})
 	assertMarkers(t, "../../infra/modules/compute/main.tf", []string{"assign_public_ip = false", "readonlyRootFilesystem", "deployment_circuit_breaker", "aws_wafv2_web_acl", "enable_execute_command"})
+}
+
+func TestBEInfra001RejectsUnrestrictedSecurityGroupEgress(t *testing.T) {
+	t.Parallel()
+	unrestrictedEgress := regexp.MustCompile(`(?s)egress\s*\{[^}]*cidr_blocks\s*=\s*\["0\.0\.0\.0/0"\]`)
+	for _, path := range []string{"../../infra/modules/compute/main.tf", "../../infra/modules/data/main.tf", "../../infra/modules/network/main.tf"} {
+		contents := readFile(t, path)
+		if unrestrictedEgress.MatchString(contents) {
+			t.Errorf("%s contains unrestricted security-group egress", path)
+		}
+	}
+	compute := readFile(t, "../../infra/modules/compute/main.tf")
+	for _, marker := range []string{"Only private application target ports", "public providers require a reviewed egress proxy", "#trivy:ignore:AWS-0053", "ingress is 443-only and the WAF is attached"} {
+		if !strings.Contains(compute, marker) {
+			t.Errorf("compute boundary is missing %q", marker)
+		}
+	}
 }
 
 func TestBEInfra001DeploymentEvidenceAndAutomaticRollback(t *testing.T) {

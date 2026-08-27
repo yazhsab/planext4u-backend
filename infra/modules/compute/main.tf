@@ -109,10 +109,11 @@ resource "aws_security_group" "load_balancer" {
     ipv6_cidr_blocks = ["::/0"]
   }
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "Only private application target ports"
+    from_port   = 8080
+    to_port     = 8099
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
   }
   tags = local.tags
 }
@@ -134,16 +135,18 @@ resource "aws_security_group" "service" {
     cidr_blocks = [var.vpc_cidr]
   }
   egress {
+    description = "Private dependencies and VPC endpoints only; public providers require a reviewed egress proxy"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.vpc_cidr]
   }
   tags = local.tags
 }
 
 resource "aws_lb" "this" {
   name                       = "${var.name}-${var.environment}"
+  #trivy:ignore:AWS-0053 -- Intentional public TLS application edge; ingress is 443-only and the WAF is attached below.
   internal                   = false
   load_balancer_type         = "application"
   security_groups            = [aws_security_group.load_balancer.id]

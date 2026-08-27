@@ -9,7 +9,7 @@ This tree defines a greenfield multi-account AWS baseline. It does not contain a
 - `modules/network` creates three-AZ public/private networking, NAT isolation, VPC flow logs and private AWS endpoints.
 - `modules/data` creates encrypted Aurora PostgreSQL, Valkey, private media storage and empty Secrets Manager containers. RDS manages its own migration password; runtime database URLs, the approved managed NATS JetStream endpoint, and the staging-only synthetic journey signing key are populated by a separate secret-provisioning control so plaintext never enters Terraform state.
 - `modules/artifacts` creates immutable, KMS-encrypted, scan-on-push ECR repositories.
-- `modules/compute` creates private Fargate services, Service Connect discovery, TLS ALB, WAF, least-privilege task roles, deployment rollback and autoscaling.
+- `modules/compute` creates private Fargate services, Service Connect discovery, a deliberate public TLS-only ALB protected by WAF, VPC-only service egress, least-privilege task roles, deployment rollback and autoscaling. Future public payment/provider calls must traverse a separately reviewed allowlisted egress proxy.
 - `modules/delivery_identity` binds short-lived GitHub OIDC identities to the exact repository and protected environment. No static AWS access keys are accepted.
 - `environments/development` and `environments/staging` provide isolated sizing and deletion-protection settings.
 
