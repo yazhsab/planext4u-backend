@@ -1,0 +1,11 @@
+{
+  "categories": [
+    {"id": "daily-needs", "name": "Daily needs", "icon_ref": "media-category-daily", "priority": 10},
+    {"id": "home-services", "name": "Home services", "icon_ref": "media-category-services", "priority": 20}
+  ],
+  "featured_items": [
+    {"id": "item-milk", "category_id": "daily-needs", "name": "Fresh milk", "summary": "One litre", "media_ref": "media-item-milk", "price": {"amount_minor": 6500, "currency": "INR"}, "available": true}
+  ],
+  "projection_status": "FRESH",
+  "generated_at": "2026-08-27T10:00:00Z"
+}

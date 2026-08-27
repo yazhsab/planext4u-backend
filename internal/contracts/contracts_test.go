@@ -229,6 +229,11 @@ func TestConfigurationContractCompatibilityBaseline(t *testing.T) {
 	assertOpenAPICompatibility(t, "api/openapi/configuration.openapi.json", "api/compatibility/configuration-v1-baseline.json")
 }
 
+func TestCatalogContractCompatibilityBaseline(t *testing.T) {
+	t.Parallel()
+	assertOpenAPICompatibility(t, "api/openapi/catalog.openapi.json", "api/compatibility/catalog-v1-baseline.json")
+}
+
 func assertOpenAPICompatibility(t *testing.T, contractPath, baselinePath string) {
 	t.Helper()
 	var document openAPIDocument

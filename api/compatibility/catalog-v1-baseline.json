@@ -1,0 +1,17 @@
+{
+  "operations": [
+    {"method": "GET", "path": "/v1/home"}, {"method": "GET", "path": "/v1/catalog/categories"},
+    {"method": "GET", "path": "/v1/catalog/items"}, {"method": "GET", "path": "/v1/catalog/items/{item_id}"},
+    {"method": "GET", "path": "/v1/catalog/search"}, {"method": "POST", "path": "/v1/serviceability/check"}
+  ],
+  "required_properties": {
+    "Money": ["amount_minor", "currency"], "Category": ["id", "name", "priority"],
+    "Item": ["id", "category_id", "name", "summary", "price", "available"],
+    "CategoryPage": ["items", "has_more", "projection_status", "generated_at"],
+    "ItemPage": ["items", "has_more", "projection_status", "generated_at"],
+    "Home": ["categories", "featured_items", "projection_status", "generated_at"],
+    "GeoPoint": ["latitude", "longitude", "accuracy_metres", "captured_at", "purpose"],
+    "Serviceability": ["serviceable", "reason_code"]
+  },
+  "enum_values": {"ProjectionStatus": ["FRESH", "STALE", "DEGRADED"]}
+}

@@ -1,0 +1,33 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Planext4u Catalog Read and Customer Home API", "version": "1.0.0"},
+  "security": [{"bearerAuth": []}],
+  "paths": {
+    "/v1/home": {"get": {"operationId": "catalogGetCustomerHome", "responses": {"200": {"description": "Customer home projection", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Home"}}}}, "503": {"$ref": "#/components/responses/Problem"}}}},
+    "/v1/catalog/categories": {"get": {"operationId": "catalogListCategories", "responses": {"200": {"description": "Categories", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CategoryPage"}}}}}}},
+    "/v1/catalog/items": {"get": {"operationId": "catalogListItems", "parameters": [{"name": "category_id", "in": "query", "schema": {"type": "string"}}, {"$ref": "#/components/parameters/Cursor"}, {"$ref": "#/components/parameters/Limit"}], "responses": {"200": {"description": "Catalog items", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ItemPage"}}}}, "422": {"$ref": "#/components/responses/Problem"}}}},
+    "/v1/catalog/items/{item_id}": {"get": {"operationId": "catalogGetItem", "parameters": [{"name": "item_id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Catalog item", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Item"}}}}, "404": {"$ref": "#/components/responses/Problem"}}}},
+    "/v1/catalog/search": {"get": {"operationId": "catalogSearch", "parameters": [{"name": "q", "in": "query", "required": true, "schema": {"type": "string", "maxLength": 100}}, {"$ref": "#/components/parameters/Cursor"}, {"$ref": "#/components/parameters/Limit"}], "responses": {"200": {"description": "Search results", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ItemPage"}}}}, "422": {"$ref": "#/components/responses/Problem"}}}},
+    "/v1/serviceability/check": {"post": {"operationId": "catalogCheckServiceability", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GeoPoint"}}}}, "responses": {"200": {"description": "Serviceability decision", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Serviceability"}}}}, "422": {"$ref": "#/components/responses/Problem"}}}}
+  },
+  "components": {
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
+    "parameters": {"Cursor": {"name": "cursor", "in": "query", "schema": {"type": "string", "maxLength": 512}}, "Limit": {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20}}},
+    "responses": {"Problem": {"description": "Safe standard error", "content": {"application/json": {"schema": {"$ref": "./common.openapi.json#/components/schemas/ErrorEnvelope"}}}}},
+    "schemas": {
+      "ProjectionStatus": {"type": "string", "enum": ["FRESH", "STALE", "DEGRADED"]},
+      "Money": {"type": "object", "additionalProperties": false, "required": ["amount_minor", "currency"], "properties": {"amount_minor": {"type": "integer", "format": "int64", "minimum": 0}, "currency": {"type": "string", "pattern": "^[A-Z]{3}$"}}},
+      "Category": {"type": "object", "additionalProperties": false, "required": ["id", "name", "priority"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "icon_ref": {"type": "string"}, "priority": {"type": "integer"}}},
+      "Item": {"type": "object", "additionalProperties": false, "required": ["id", "category_id", "name", "summary", "price", "available"], "properties": {"id": {"type": "string"}, "category_id": {"type": "string"}, "name": {"type": "string"}, "summary": {"type": "string"}, "media_ref": {"type": "string"}, "price": {"$ref": "#/components/schemas/Money"}, "available": {"type": "boolean"}}},
+      "CategoryPage": {"type": "object", "additionalProperties": false, "required": ["items", "has_more", "projection_status", "generated_at"], "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/Category"}}, "has_more": {"type": "boolean"}, "projection_status": {"$ref": "#/components/schemas/ProjectionStatus"}, "generated_at": {"type": "string", "format": "date-time"}}},
+      "ItemPage": {"type": "object", "additionalProperties": false, "required": ["items", "has_more", "projection_status", "generated_at"], "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/Item"}}, "next_cursor": {"type": "string"}, "has_more": {"type": "boolean"}, "projection_status": {"$ref": "#/components/schemas/ProjectionStatus"}, "generated_at": {"type": "string", "format": "date-time"}}},
+      "Home": {"type": "object", "additionalProperties": false, "required": ["categories", "featured_items", "projection_status", "generated_at"], "properties": {"categories": {"type": "array", "items": {"$ref": "#/components/schemas/Category"}}, "featured_items": {"type": "array", "items": {"$ref": "#/components/schemas/Item"}}, "projection_status": {"$ref": "#/components/schemas/ProjectionStatus"}, "generated_at": {"type": "string", "format": "date-time"}}},
+      "GeoPoint": {"type": "object", "additionalProperties": false, "required": ["latitude", "longitude", "accuracy_metres", "captured_at", "purpose"], "properties": {"latitude": {"type": "number", "minimum": -90, "maximum": 90}, "longitude": {"type": "number", "minimum": -180, "maximum": 180}, "accuracy_metres": {"type": "number", "minimum": 0}, "captured_at": {"type": "string", "format": "date-time"}, "purpose": {"type": "string", "const": "LOCATION_SERVICEABILITY"}}},
+      "Serviceability": {"type": "object", "additionalProperties": false, "required": ["serviceable", "reason_code"], "properties": {"serviceable": {"type": "boolean"}, "zone_id": {"type": "string"}, "locality": {"type": "string"}, "reason_code": {"type": "string"}}}
+    }
+  },
+  "x-planext4u-owner": "catalog-discovery-and-edge-bff",
+  "x-planext4u-reviewers": ["product", "security", "privacy"],
+  "x-planext4u-classification": "internal-with-consented-location",
+  "x-planext4u-slo-class": "critical"
+}
