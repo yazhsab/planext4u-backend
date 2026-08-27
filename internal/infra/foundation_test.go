@@ -151,6 +151,12 @@ func TestBEInfra001WorkflowsPinActionsAndAvoidStaticCloudKeys(t *testing.T) {
 			}
 		}
 	}
+	ci := readFile(t, "../../.github/workflows/backend-ci.yml")
+	for _, marker := range []string{"actions: read", "security-events: write", "build-mode: manual", "go build ./..."} {
+		if !strings.Contains(ci, marker) {
+			t.Errorf("CI workflow is missing the explicit CodeQL control %q", marker)
+		}
+	}
 	delivery := readFile(t, "../../.github/workflows/backend-delivery.yml")
 	for _, marker := range []string{"id-token: write", "cosign sign", "cosign attest", "environment:", "./scripts/deploy-ecs.sh", "if: always()"} {
 		if !strings.Contains(delivery, marker) {

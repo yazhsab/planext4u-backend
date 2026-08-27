@@ -145,7 +145,7 @@ resource "aws_security_group" "service" {
 }
 
 resource "aws_lb" "this" {
-  name                       = "${var.name}-${var.environment}"
+  name = "${var.name}-${var.environment}"
   #trivy:ignore:AWS-0053 -- Intentional public TLS application edge; ingress is 443-only and the WAF is attached below.
   internal                   = false
   load_balancer_type         = "application"
