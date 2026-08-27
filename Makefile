@@ -1,6 +1,6 @@
 GO ?= go
 
-.PHONY: build contract-check contract-generate fmt run test test-race vet verify
+.PHONY: build contract-check contract-generate fmt local-down local-status local-up run test test-integration test-race vet verify
 
 build:
 	$(GO) build ./...
@@ -20,11 +20,23 @@ fmt:
 		exit 1; \
 	fi
 
+local-down:
+	docker compose -f deploy/local/compose.yaml down --volumes --remove-orphans
+
+local-status:
+	docker compose -f deploy/local/compose.yaml ps
+
+local-up:
+	docker compose -f deploy/local/compose.yaml up -d --build --wait
+
 run:
 	$(GO) run ./cmd/platform
 
 test:
 	$(GO) test ./...
+
+test-integration:
+	cd tests/integration && DOCKER_AUTH_CONFIG='{"auths":{}}' $(GO) test -tags=integration -count=1 -timeout=10m .
 
 test-race:
 	$(GO) test -race ./...

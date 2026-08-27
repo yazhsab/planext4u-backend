@@ -49,6 +49,12 @@ The default development listener is `:8080`:
 - `GET /healthz` reports process liveness.
 - `GET /readyz` reports whether the process is ready to accept traffic.
 
+The deterministic container platform is documented in
+[`deploy/local/README.md`](deploy/local/README.md). `make local-up` starts and
+health-checks PostgreSQL, Redis, NATS JetStream, object storage and synthetic
+provider adapters; `make test-integration` verifies isolated dependencies with
+Testcontainers.
+
 Supported non-secret environment variables are `SERVICE_NAME`, `APP_ENV`,
 `HTTP_ADDRESS`, `SHUTDOWN_TIMEOUT`, and `LOG_LEVEL`. Secret material must come
 from the environment-specific secret provider introduced in the platform
