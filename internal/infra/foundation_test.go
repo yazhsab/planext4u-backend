@@ -152,7 +152,7 @@ func TestBEInfra001WorkflowsPinActionsAndAvoidStaticCloudKeys(t *testing.T) {
 		}
 	}
 	ci := readFile(t, "../../.github/workflows/backend-ci.yml")
-	for _, marker := range []string{"actions: read", "security-events: write", "build-mode: manual", "go build ./..."} {
+	for _, marker := range []string{"actions: read", "security-events: read", "build-mode: manual", "go build ./...", "upload: false", "Enforce zero CodeQL findings", "Upload CodeQL evidence"} {
 		if !strings.Contains(ci, marker) {
 			t.Errorf("CI workflow is missing the explicit CodeQL control %q", marker)
 		}
