@@ -10,6 +10,7 @@ import (
 	"github.com/yazhsab/planext4u-backend/internal/platform/config"
 	"github.com/yazhsab/planext4u-backend/internal/platform/logging"
 	"github.com/yazhsab/planext4u-backend/internal/platform/server"
+	"github.com/yazhsab/planext4u-backend/internal/platform/telemetry"
 )
 
 var (
@@ -43,7 +44,24 @@ func run() int {
 	)
 	defer stop()
 
-	service := server.New(cfg, logger, version)
+	traceRatio := 1.0
+	if cfg.Environment == config.EnvironmentProduction {
+		traceRatio = 0.10
+	}
+	observability, err := telemetry.Setup(ctx, telemetry.Config{ServiceName: cfg.ServiceName, ServiceVersion: version, Environment: string(cfg.Environment), TraceRatio: traceRatio})
+	if err != nil {
+		logger.Error("initialize telemetry", "error", err)
+		return 1
+	}
+	defer func() {
+		shutdownContext, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+		defer cancel()
+		if err := observability.Shutdown(shutdownContext); err != nil {
+			logger.Warn("flush telemetry", "error", err)
+		}
+	}()
+
+	service := server.New(cfg, logger, version, server.WithTelemetry(observability))
 	logger.Info(
 		"service starting",
 		"service", cfg.ServiceName,

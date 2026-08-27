@@ -36,7 +36,7 @@ func New(writer io.Writer, levelName string) (*slog.Logger, error) {
 	handler := slog.NewJSONHandler(writer, &slog.HandlerOptions{
 		Level: level,
 		ReplaceAttr: func(_ []string, attr slog.Attr) slog.Attr {
-			if isSensitiveKey(attr.Key) {
+			if IsSensitiveKey(attr.Key) {
 				return slog.String(attr.Key, redactedValue)
 			}
 			return attr
@@ -61,7 +61,10 @@ func parseLevel(value string) (slog.Level, error) {
 	}
 }
 
-func isSensitiveKey(key string) bool {
+// IsSensitiveKey centralizes the field-name policy used by logs, traces and
+// metrics. Telemetry callers should still prefer identifiers that are already
+// opaque and low-cardinality.
+func IsSensitiveKey(key string) bool {
 	normalized := strings.NewReplacer("-", "_", ".", "_").Replace(strings.ToLower(key))
 	for _, fragment := range sensitiveKeyFragments {
 		if strings.Contains(normalized, fragment) {

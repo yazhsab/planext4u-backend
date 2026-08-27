@@ -1,0 +1,63 @@
+groups:
+  - name: planext4u-slo-burn
+    rules:
+      - alert: Planext4uAvailabilityFastBurn
+        expr: |
+          ((
+            sum(rate(planext4u_http_server_requests_total{http_response_status_code=~"5.."}[5m])) by (service_name)
+            /
+            sum(rate(planext4u_http_server_requests_total[5m])) by (service_name)
+          ) > 0.0144)
+          and
+          ((
+            sum(rate(planext4u_http_server_requests_total{http_response_status_code=~"5.."}[1h])) by (service_name)
+            /
+            sum(rate(planext4u_http_server_requests_total[1h])) by (service_name)
+          ) > 0.0144)
+        for: 5m
+        labels: {severity: page, slo: availability}
+        annotations:
+          summary: "{{ $labels.service_name }} is rapidly consuming its availability budget"
+          runbook_url: "https://github.com/yazhsab/planext4u-backend/blob/main/docs/runbooks/SLO_ALERTS.md#availability-fast-burn"
+      - alert: Planext4uAvailabilitySlowBurn
+        expr: |
+          ((
+            sum(rate(planext4u_http_server_requests_total{http_response_status_code=~"5.."}[1h])) by (service_name)
+            /
+            sum(rate(planext4u_http_server_requests_total[1h])) by (service_name)
+          ) > 0.006)
+          and
+          ((
+            sum(rate(planext4u_http_server_requests_total{http_response_status_code=~"5.."}[6h])) by (service_name)
+            /
+            sum(rate(planext4u_http_server_requests_total[6h])) by (service_name)
+          ) > 0.006)
+        for: 2h
+        labels: {severity: ticket, slo: availability}
+        annotations:
+          summary: "{{ $labels.service_name }} is steadily consuming its availability budget"
+          runbook_url: "https://github.com/yazhsab/planext4u-backend/blob/main/docs/runbooks/SLO_ALERTS.md#availability-slow-burn"
+      - alert: Planext4uLatencyBudgetBurn
+        expr: |
+          histogram_quantile(0.95, sum(rate(planext4u_http_server_duration_bucket[10m])) by (le, service_name, http_route)) > 0.4
+        for: 15m
+        labels: {severity: page, slo: latency}
+        annotations:
+          summary: "{{ $labels.service_name }} p95 latency exceeds 400 ms"
+          runbook_url: "https://github.com/yazhsab/planext4u-backend/blob/main/docs/runbooks/SLO_ALERTS.md#latency-budget-burn"
+  - name: planext4u-async-health
+    rules:
+      - alert: Planext4uQueueLagHigh
+        expr: histogram_quantile(0.95, sum(rate(planext4u_messaging_queue_lag_bucket[10m])) by (le, service_name, messaging_consumer_name)) > 60
+        for: 15m
+        labels: {severity: page, slo: freshness}
+        annotations:
+          summary: "{{ $labels.messaging_consumer_name }} p95 queue lag exceeds 60 seconds"
+          runbook_url: "https://github.com/yazhsab/planext4u-backend/blob/main/docs/runbooks/SLO_ALERTS.md#queue-lag-high"
+      - alert: Planext4uNotificationProviderFailure
+        expr: sum(rate(planext4u_dependency_requests_total{dependency_name=~"notification-.*",outcome="error"}[10m])) by (service_name, dependency_name) > 1
+        for: 10m
+        labels: {severity: ticket, slo: notification}
+        annotations:
+          summary: "Notification provider {{ $labels.dependency_name }} is failing"
+          runbook_url: "https://github.com/yazhsab/planext4u-backend/blob/main/docs/runbooks/SLO_ALERTS.md#notification-provider-failure"

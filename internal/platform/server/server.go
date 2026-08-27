@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/yazhsab/planext4u-backend/internal/platform/config"
+	"github.com/yazhsab/planext4u-backend/internal/platform/telemetry"
 )
 
 const (
@@ -32,8 +33,22 @@ type Server struct {
 	version    string
 }
 
+type Option func(*serverOptions)
+
+type serverOptions struct {
+	telemetry *telemetry.Telemetry
+}
+
+func WithTelemetry(value *telemetry.Telemetry) Option {
+	return func(options *serverOptions) { options.telemetry = value }
+}
+
 // New builds a server in the not-ready state.
-func New(cfg config.Config, logger *slog.Logger, version string) *Server {
+func New(cfg config.Config, logger *slog.Logger, version string, optionValues ...Option) *Server {
+	options := serverOptions{}
+	for _, option := range optionValues {
+		option(&options)
+	}
 	server := &Server{
 		config:  cfg,
 		logger:  logger,
@@ -44,9 +59,20 @@ func New(cfg config.Config, logger *slog.Logger, version string) *Server {
 	mux.HandleFunc("GET /healthz", server.handleHealth)
 	mux.HandleFunc("GET /readyz", server.handleReadiness)
 
+	var handler http.Handler = server.middleware(mux)
+	if options.telemetry != nil {
+		handler = options.telemetry.HTTPMiddleware(func(request *http.Request) string {
+			switch request.URL.Path {
+			case "/healthz", "/readyz":
+				return request.URL.Path
+			default:
+				return "unmatched"
+			}
+		})(handler)
+	}
 	server.httpServer = &http.Server{
 		Addr:              cfg.HTTPAddress,
-		Handler:           server.middleware(mux),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -154,6 +180,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		recorder := &statusRecorder{ResponseWriter: writer, statusCode: http.StatusOK}
 		started := time.Now()
 		next.ServeHTTP(recorder, request)
+		traceID, spanID := telemetry.TraceContext(request.Context())
 		s.logger.Info(
 			"http request",
 			"request_id", requestID,
@@ -161,6 +188,8 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			"path", request.URL.Path,
 			"status", recorder.statusCode,
 			"duration_ms", time.Since(started).Milliseconds(),
+			"trace_id", traceID,
+			"span_id", spanID,
 		)
 	})
 }

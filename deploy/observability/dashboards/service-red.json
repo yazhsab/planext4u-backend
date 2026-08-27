@@ -1,0 +1,15 @@
+{
+  "title": "Planext4u Service RED and Async Health",
+  "uid": "planext4u-service-red",
+  "schemaVersion": 41,
+  "refresh": "30s",
+  "templating": {"list": [{"name": "service", "type": "query", "query": "label_values(planext4u_http_server_requests_total, service_name)", "includeAll": true}]},
+  "panels": [
+    {"id": 1, "type": "timeseries", "title": "Request rate", "targets": [{"expr": "sum(rate(planext4u_http_server_requests_total{service_name=~\"$service\"}[5m])) by (service_name, http_route)"}]},
+    {"id": 2, "type": "timeseries", "title": "5xx ratio", "targets": [{"expr": "sum(rate(planext4u_http_server_requests_total{service_name=~\"$service\",http_response_status_code=~\"5..\"}[5m])) by (service_name) / sum(rate(planext4u_http_server_requests_total{service_name=~\"$service\"}[5m])) by (service_name)"}]},
+    {"id": 3, "type": "timeseries", "title": "p50 / p95 / p99 latency", "targets": [{"expr": "histogram_quantile(0.50, sum(rate(planext4u_http_server_duration_bucket{service_name=~\"$service\"}[5m])) by (le, service_name))", "legendFormat": "p50 {{service_name}}"}, {"expr": "histogram_quantile(0.95, sum(rate(planext4u_http_server_duration_bucket{service_name=~\"$service\"}[5m])) by (le, service_name))", "legendFormat": "p95 {{service_name}}"}, {"expr": "histogram_quantile(0.99, sum(rate(planext4u_http_server_duration_bucket{service_name=~\"$service\"}[5m])) by (le, service_name))", "legendFormat": "p99 {{service_name}}"}]},
+    {"id": 4, "type": "timeseries", "title": "Active requests", "targets": [{"expr": "sum(planext4u_http_server_active_requests{service_name=~\"$service\"}) by (service_name)"}]},
+    {"id": 5, "type": "timeseries", "title": "Dependency failures", "targets": [{"expr": "sum(rate(planext4u_dependency_requests_total{service_name=~\"$service\",outcome=\"error\"}[5m])) by (service_name, dependency_name)"}]},
+    {"id": 6, "type": "timeseries", "title": "Queue lag p95", "targets": [{"expr": "histogram_quantile(0.95, sum(rate(planext4u_messaging_queue_lag_bucket{service_name=~\"$service\"}[5m])) by (le, service_name, messaging_consumer_name))"}]}
+  ]
+}
