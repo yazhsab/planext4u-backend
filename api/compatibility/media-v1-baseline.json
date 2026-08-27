@@ -1,0 +1,17 @@
+{
+  "operations": [
+    {"method": "POST", "path": "/v1/media/uploads"},
+    {"method": "POST", "path": "/v1/media/{asset_id}/complete"},
+    {"method": "GET", "path": "/v1/media/{asset_id}"},
+    {"method": "DELETE", "path": "/v1/media/{asset_id}"}
+  ],
+  "required_properties": {
+    "PresignRequest": ["purpose", "content_type", "size_bytes", "sha256"],
+    "UploadGrant": ["asset", "upload_url", "headers", "expires_at"],
+    "Asset": ["id", "purpose", "content_type", "size_bytes", "sha256", "state", "created_at", "upload_expires_at", "version"]
+  },
+  "enum_values": {
+    "MediaPurpose": ["AVATAR", "CATALOG_IMAGE", "COMPLETION_PROOF", "IDENTITY_DOCUMENT"],
+    "MediaState": ["PENDING_UPLOAD", "PENDING_SCAN", "READY", "REJECTED", "EXPIRED", "DELETED"]
+  }
+}

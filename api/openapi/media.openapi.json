@@ -1,0 +1,76 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Planext4u Secure Media API", "version": "1.0.0"},
+  "security": [{"bearerAuth": []}],
+  "paths": {
+    "/v1/media/uploads": {
+      "post": {
+        "operationId": "mediaCreateUpload",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PresignRequest"}}}},
+        "responses": {"201": {"description": "Short-lived upload grant", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UploadGrant"}}}}, "422": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/v1/media/{asset_id}/complete": {
+      "post": {
+        "operationId": "mediaCompleteUpload",
+        "parameters": [{"$ref": "#/components/parameters/AssetID"}],
+        "responses": {"200": {"description": "Verified media state", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Asset"}}}}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "410": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/v1/media/{asset_id}": {
+      "get": {
+        "operationId": "mediaGetAsset",
+        "parameters": [{"$ref": "#/components/parameters/AssetID"}],
+        "responses": {"200": {"description": "Owner-scoped media state", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Asset"}}}}, "404": {"$ref": "#/components/responses/Problem"}}
+      },
+      "delete": {
+        "operationId": "mediaDeleteAsset",
+        "parameters": [{"$ref": "#/components/parameters/AssetID"}],
+        "responses": {"204": {"description": "Deleted"}, "404": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
+    "parameters": {"AssetID": {"name": "asset_id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"}}},
+    "responses": {"Problem": {"description": "Safe standard error", "content": {"application/json": {"schema": {"$ref": "./common.openapi.json#/components/schemas/ErrorEnvelope"}}}}},
+    "schemas": {
+      "MediaPurpose": {"type": "string", "enum": ["AVATAR", "CATALOG_IMAGE", "COMPLETION_PROOF", "IDENTITY_DOCUMENT"]},
+      "MediaState": {"type": "string", "enum": ["PENDING_UPLOAD", "PENDING_SCAN", "READY", "REJECTED", "EXPIRED", "DELETED"]},
+      "PresignRequest": {
+        "type": "object", "additionalProperties": false,
+        "required": ["purpose", "content_type", "size_bytes", "sha256"],
+        "properties": {
+          "purpose": {"$ref": "#/components/schemas/MediaPurpose"},
+          "content_type": {"type": "string", "enum": ["image/jpeg", "image/png", "image/webp", "application/pdf"]},
+          "size_bytes": {"type": "integer", "format": "int64", "minimum": 1, "maximum": 15728640},
+          "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+        }
+      },
+      "Asset": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "purpose", "content_type", "size_bytes", "sha256", "state", "created_at", "upload_expires_at", "version"],
+        "properties": {
+          "id": {"type": "string"}, "purpose": {"$ref": "#/components/schemas/MediaPurpose"}, "content_type": {"type": "string"},
+          "size_bytes": {"type": "integer", "format": "int64"}, "sha256": {"type": "string"}, "state": {"$ref": "#/components/schemas/MediaState"},
+          "created_at": {"type": "string", "format": "date-time"}, "upload_expires_at": {"type": "string", "format": "date-time"},
+          "ready_at": {"type": "string", "format": "date-time"}, "rejected_code": {"type": "string"}, "version": {"type": "integer", "format": "int64", "minimum": 1}
+        }
+      },
+      "UploadGrant": {
+        "type": "object", "additionalProperties": false,
+        "required": ["asset", "upload_url", "headers", "expires_at"],
+        "properties": {
+          "asset": {"$ref": "#/components/schemas/Asset"},
+          "upload_url": {"type": "string", "format": "uri", "x-planext4u-sensitive": true},
+          "headers": {"type": "object", "additionalProperties": {"type": "string"}, "x-planext4u-sensitive": true},
+          "expires_at": {"type": "string", "format": "date-time"}
+        }
+      }
+    }
+  },
+  "x-planext4u-owner": "media",
+  "x-planext4u-reviewers": ["security", "privacy"],
+  "x-planext4u-classification": "confidential",
+  "x-planext4u-slo-class": "important"
+}

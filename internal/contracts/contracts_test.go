@@ -234,6 +234,25 @@ func TestCatalogContractCompatibilityBaseline(t *testing.T) {
 	assertOpenAPICompatibility(t, "api/openapi/catalog.openapi.json", "api/compatibility/catalog-v1-baseline.json")
 }
 
+func TestMediaContractCompatibilityBaseline(t *testing.T) {
+	t.Parallel()
+	assertOpenAPICompatibility(t, "api/openapi/media.openapi.json", "api/compatibility/media-v1-baseline.json")
+}
+
+func TestMediaFixtureIsSyntheticAndTerminal(t *testing.T) {
+	t.Parallel()
+	var asset struct {
+		ID    string `json:"id"`
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal([]byte(generated.MediaAssetFixtureJSON), &asset); err != nil {
+		t.Fatalf("media fixture is invalid JSON: %v", err)
+	}
+	if !strings.Contains(asset.ID, "synthetic") || asset.State != "READY" {
+		t.Fatalf("media fixture is incomplete: %#v", asset)
+	}
+}
+
 func assertOpenAPICompatibility(t *testing.T, contractPath, baselinePath string) {
 	t.Helper()
 	var document openAPIDocument
