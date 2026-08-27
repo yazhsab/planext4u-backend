@@ -1,0 +1,196 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "Planext4u Common Event Contracts",
+    "version": "1.0.0",
+    "description": "Shared durable domain-event envelope and audit-event metadata.",
+    "x-owner": "platform-engineering",
+    "x-data-classification": "internal"
+  },
+  "defaultContentType": "application/json",
+  "channels": {
+    "domainEvents": {
+      "address": "planext4u.domain.events",
+      "messages": {
+        "domainEvent": {
+          "$ref": "#/components/messages/DomainEvent"
+        }
+      }
+    },
+    "auditEvents": {
+      "address": "planext4u.audit.events",
+      "messages": {
+        "auditEvent": {
+          "$ref": "#/components/messages/AuditEvent"
+        }
+      }
+    }
+  },
+  "operations": {
+    "consumeDomainEvent": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/domainEvents"
+      }
+    },
+    "consumeAuditEvent": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/auditEvents"
+      }
+    }
+  },
+  "components": {
+    "messages": {
+      "DomainEvent": {
+        "name": "DomainEvent",
+        "title": "Versioned domain fact",
+        "correlationId": {
+          "location": "$message.payload#/correlation_id"
+        },
+        "payload": {
+          "$ref": "#/components/schemas/EventEnvelope"
+        }
+      },
+      "AuditEvent": {
+        "name": "AuditEvent",
+        "title": "Append-only privileged action record",
+        "correlationId": {
+          "location": "$message.payload#/correlation_id"
+        },
+        "payload": {
+          "$ref": "#/components/schemas/AuditEnvelope"
+        }
+      }
+    },
+    "schemas": {
+      "EventEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_id",
+          "event_type",
+          "occurred_at",
+          "producer",
+          "aggregate_type",
+          "aggregate_id",
+          "aggregate_version",
+          "tenant_id",
+          "country",
+          "correlation_id",
+          "causation_id",
+          "traceparent",
+          "classification",
+          "schema_version",
+          "data"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "event_type": {
+            "type": "string",
+            "pattern": "^planext4u\\.[a-z0-9_.]+\\.v[1-9][0-9]*$"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "producer": {
+            "type": "string"
+          },
+          "aggregate_type": {
+            "type": "string"
+          },
+          "aggregate_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "aggregate_version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "correlation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "causation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "traceparent": {
+            "type": "string"
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "PUBLIC",
+              "INTERNAL",
+              "CONFIDENTIAL",
+              "RESTRICTED"
+            ]
+          },
+          "schema_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "AuditEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/EventEnvelope"
+          },
+          {
+            "type": "object",
+            "required": [
+              "actor_id",
+              "action",
+              "outcome",
+              "target_type",
+              "target_id"
+            ],
+            "properties": {
+              "actor_id": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string"
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "SUCCEEDED",
+                  "DENIED",
+                  "FAILED"
+                ]
+              },
+              "target_type": {
+                "type": "string"
+              },
+              "target_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

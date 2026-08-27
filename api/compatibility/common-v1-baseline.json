@@ -1,0 +1,88 @@
+{
+  "openapi": {
+    "operations": [
+      {
+        "method": "get",
+        "path": "/healthz"
+      },
+      {
+        "method": "get",
+        "path": "/readyz"
+      }
+    ],
+    "required_properties": {
+      "ErrorEnvelope": [
+        "error"
+      ],
+      "ErrorDetail": [
+        "code",
+        "message",
+        "correlation_id",
+        "retryable",
+        "field_errors",
+        "details"
+      ],
+      "FieldError": [
+        "field",
+        "code",
+        "message"
+      ],
+      "Money": [
+        "minor_units",
+        "currency"
+      ],
+      "ZonedInstant": [
+        "instant",
+        "timezone"
+      ],
+      "GeoPoint": [
+        "latitude",
+        "longitude",
+        "captured_at",
+        "purpose"
+      ],
+      "PageMetadata": [
+        "has_more"
+      ],
+      "IdempotentCommandMetadata": [
+        "command_id",
+        "idempotency_key",
+        "correlation_id"
+      ]
+    },
+    "enum_values": {
+      "AppRole": [
+        "UNKNOWN",
+        "CUSTOMER",
+        "VENDOR",
+        "RIDER",
+        "ADMIN"
+      ]
+    }
+  },
+  "asyncapi": {
+    "messages": [
+      "DomainEvent",
+      "AuditEvent"
+    ],
+    "required_properties": {
+      "EventEnvelope": [
+        "event_id",
+        "event_type",
+        "occurred_at",
+        "producer",
+        "aggregate_type",
+        "aggregate_id",
+        "aggregate_version",
+        "tenant_id",
+        "country",
+        "correlation_id",
+        "causation_id",
+        "traceparent",
+        "classification",
+        "schema_version",
+        "data"
+      ]
+    }
+  }
+}

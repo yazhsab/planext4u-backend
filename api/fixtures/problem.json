@@ -1,0 +1,16 @@
+{
+  "error": {
+    "code": "LOCATION_NOT_SERVICEABLE",
+    "message": "Choose a location inside a supported service area.",
+    "correlation_id": "corr-synthetic-001",
+    "retryable": false,
+    "field_errors": [
+      {
+        "field": "location_id",
+        "code": "OUTSIDE_SERVICE_AREA",
+        "message": "Select another location."
+      }
+    ],
+    "details": {}
+  }
+}

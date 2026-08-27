@@ -1,0 +1,329 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Planext4u Common HTTP Contracts",
+    "version": "1.0.0",
+    "description": "Shared metadata, errors, pagination, money, time, location, idempotency and health contracts.",
+    "x-owner": "platform-engineering",
+    "x-data-classification": "internal",
+    "x-slo-class": "platform"
+  },
+  "servers": [
+    {
+      "url": "https://api.planext4u.net"
+    }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "getLiveness",
+        "summary": "Report process liveness",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Process is alive",
+            "headers": {
+              "X-Correlation-ID": {
+                "$ref": "#/components/headers/CorrelationID"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "getReadiness",
+        "summary": "Report traffic readiness",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Process is ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Process is not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Platform access token. Actor, tenant, country and role are derived by the server."
+      }
+    },
+    "headers": {
+      "CorrelationID": {
+        "description": "Opaque request correlation identifier.",
+        "schema": {
+          "$ref": "#/components/schemas/CorrelationID"
+        }
+      },
+      "IdempotencyKey": {
+        "description": "Required on retryable commands and scoped to the authenticated actor and operation.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 128
+        }
+      }
+    },
+    "schemas": {
+      "CorrelationID": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "AppRole": {
+        "type": "string",
+        "enum": [
+          "UNKNOWN",
+          "CUSTOMER",
+          "VENDOR",
+          "RIDER",
+          "ADMIN"
+        ]
+      },
+      "FieldError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "code",
+          "message"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "correlation_id",
+          "retryable",
+          "field_errors",
+          "details"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]+$"
+          },
+          "message": {
+            "type": "string"
+          },
+          "correlation_id": {
+            "$ref": "#/components/schemas/CorrelationID"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "field_errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            }
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        }
+      },
+      "PageMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "has_more"
+        ],
+        "properties": {
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 512
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Money": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "minor_units",
+          "currency"
+        ],
+        "properties": {
+          "minor_units": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          }
+        }
+      },
+      "ZonedInstant": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "instant",
+          "timezone"
+        ],
+        "properties": {
+          "instant": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone identifier."
+          }
+        }
+      },
+      "GeoPoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "latitude",
+          "longitude",
+          "captured_at",
+          "purpose"
+        ],
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "accuracy_metres": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "UNKNOWN",
+              "SERVICEABILITY",
+              "DELIVERY",
+              "EMERGENCY"
+            ]
+          }
+        }
+      },
+      "IdempotentCommandMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command_id",
+          "idempotency_key",
+          "correlation_id"
+        ],
+        "properties": {
+          "command_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128
+          },
+          "correlation_id": {
+            "$ref": "#/components/schemas/CorrelationID"
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "service",
+          "version"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "ready",
+              "not_ready"
+            ]
+          },
+          "service": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

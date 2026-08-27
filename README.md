@@ -39,6 +39,11 @@ make verify
 make run
 ```
 
+The reviewed OpenAPI 3.1 and AsyncAPI 3.0 documents under `api/` are the
+contract authority. `make contract-generate` refreshes deterministic Go and
+Dart consumer fixtures; `make contract-check` fails on stale output or a
+breaking change to the checked-in v1 compatibility baseline.
+
 The default development listener is `:8080`:
 
 - `GET /healthz` reports process liveness.
