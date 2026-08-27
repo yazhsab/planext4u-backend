@@ -1,0 +1,18 @@
+{
+  "operations": [
+    {"method": "GET", "path": "/admin/api/v1/session"},
+    {"method": "PUT", "path": "/admin/api/v1/session/country"},
+    {"method": "GET", "path": "/admin/api/v1/audit/events"}
+  ],
+  "required_properties": {
+    "AdminSession": ["subject_id", "display_name", "roles", "capabilities", "allowed_countries", "selected_country", "assurance", "navigation", "csrf_token"],
+    "AdminAssurance": ["mfa_satisfied", "fresh_auth", "auth_time"],
+    "NavigationItem": ["id", "label", "path", "capability"],
+    "CountrySelection": ["country"],
+    "AuditPage": ["entries", "has_more"]
+  },
+  "enum_values": {
+    "AdminRole": ["SUPER_ADMIN", "COUNTRY_ADMIN", "CONTENT_ADMIN", "SUPPORT_ADMIN", "AUDITOR"],
+    "AuditOutcome": ["SUCCEEDED", "DENIED", "FAILED"]
+  }
+}

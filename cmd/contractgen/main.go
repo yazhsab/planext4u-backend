@@ -43,6 +43,7 @@ func main() {
 
 func run(root string, check bool) error {
 	for _, contractPath := range []string{
+		"api/openapi/admin.openapi.json",
 		"api/openapi/audit.openapi.json",
 		"api/openapi/common.openapi.json",
 		"api/openapi/catalog.openapi.json",

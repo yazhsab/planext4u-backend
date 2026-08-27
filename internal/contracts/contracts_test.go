@@ -244,6 +244,28 @@ func TestAuditContractCompatibilityBaseline(t *testing.T) {
 	assertOpenAPICompatibility(t, "api/openapi/audit.openapi.json", "api/compatibility/audit-v1-baseline.json")
 }
 
+func TestAdminContractCompatibilityBaseline(t *testing.T) {
+	t.Parallel()
+	assertOpenAPICompatibility(t, "api/openapi/admin.openapi.json", "api/compatibility/admin-v1-baseline.json")
+}
+
+func TestAdminContractUsesCookieSessionAndCSRF(t *testing.T) {
+	t.Parallel()
+	var document map[string]any
+	readJSON(t, "api/openapi/admin.openapi.json", &document)
+	components := document["components"].(map[string]any)
+	securitySchemes := components["securitySchemes"].(map[string]any)
+	session := securitySchemes["adminSession"].(map[string]any)
+	if session["in"] != "cookie" || session["name"] != "__Host-p4u_admin" {
+		t.Fatalf("admin session must use the secure host-only cookie: %#v", session)
+	}
+	parameters := components["parameters"].(map[string]any)
+	csrf := parameters["CSRFToken"].(map[string]any)
+	if csrf["in"] != "header" || csrf["required"] != true {
+		t.Fatalf("mutations must require a CSRF header: %#v", csrf)
+	}
+}
+
 func TestNotificationContractCompatibilityBaseline(t *testing.T) {
 	t.Parallel()
 	assertOpenAPICompatibility(t, "api/openapi/notification.openapi.json", "api/compatibility/notification-v1-baseline.json")

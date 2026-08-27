@@ -1,0 +1,186 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Planext4u Administrator Shell API",
+    "version": "1.0.0"
+  },
+  "security": [{"adminSession": []}],
+  "paths": {
+    "/admin/api/v1/session": {
+      "get": {
+        "operationId": "adminGetSession",
+        "responses": {
+          "200": {
+            "description": "Current authorized administrator context",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminSession"}}}
+          },
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/admin/api/v1/session/country": {
+      "put": {
+        "operationId": "adminSetCountry",
+        "parameters": [{"$ref": "#/components/parameters/CSRFToken"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CountrySelection"}}}
+        },
+        "responses": {
+          "204": {"description": "Country context changed"},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/admin/api/v1/audit/events": {
+      "get": {
+        "operationId": "adminListAuditEvents",
+        "parameters": [
+          {"name": "actor_id", "in": "query", "schema": {"type": "string", "maxLength": 128}},
+          {"name": "action", "in": "query", "schema": {"type": "string", "maxLength": 128}},
+          {"name": "target_id", "in": "query", "schema": {"type": "string", "maxLength": 128}},
+          {"name": "from", "in": "query", "schema": {"type": "string", "format": "date-time"}},
+          {"name": "to", "in": "query", "schema": {"type": "string", "format": "date-time"}},
+          {"name": "cursor", "in": "query", "schema": {"type": "string"}},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 200}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit events restricted to the session tenant and selected country",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AuditPage"}}}
+          },
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "adminSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-p4u_admin",
+        "description": "Opaque Secure, HttpOnly, SameSite=Strict host-only session cookie"
+      }
+    },
+    "parameters": {
+      "CSRFToken": {
+        "name": "X-CSRF-Token",
+        "in": "header",
+        "required": true,
+        "schema": {"type": "string", "minLength": 32, "maxLength": 256}
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "Safe standard error",
+        "content": {"application/json": {"schema": {"$ref": "./common.openapi.json#/components/schemas/ErrorEnvelope"}}}
+      }
+    },
+    "schemas": {
+      "AdminRole": {
+        "type": "string",
+        "enum": ["SUPER_ADMIN", "COUNTRY_ADMIN", "CONTENT_ADMIN", "SUPPORT_ADMIN", "AUDITOR"]
+      },
+      "AdminAssurance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mfa_satisfied", "fresh_auth", "auth_time"],
+        "properties": {
+          "mfa_satisfied": {"type": "boolean"},
+          "fresh_auth": {"type": "boolean"},
+          "auth_time": {"type": "string", "format": "date-time"}
+        }
+      },
+      "NavigationItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "path", "capability"],
+        "properties": {
+          "id": {"type": "string"},
+          "label": {"type": "string"},
+          "path": {"type": "string"},
+          "capability": {"type": "string"}
+        }
+      },
+      "AdminSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subject_id", "display_name", "roles", "capabilities", "allowed_countries", "selected_country", "assurance", "navigation", "csrf_token"],
+        "properties": {
+          "subject_id": {"type": "string"},
+          "display_name": {"type": "string"},
+          "roles": {"type": "array", "minItems": 1, "items": {"$ref": "#/components/schemas/AdminRole"}},
+          "capabilities": {"type": "array", "items": {"type": "string"}},
+          "allowed_countries": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[A-Z]{2}$"}},
+          "selected_country": {"type": "string", "pattern": "^[A-Z]{2}$"},
+          "assurance": {"$ref": "#/components/schemas/AdminAssurance"},
+          "navigation": {"type": "array", "minItems": 1, "items": {"$ref": "#/components/schemas/NavigationItem"}},
+          "csrf_token": {"type": "string", "minLength": 32, "x-planext4u-sensitive": true}
+        }
+      },
+      "CountrySelection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["country"],
+        "properties": {"country": {"type": "string", "pattern": "^[A-Z]{2}$"}}
+      },
+      "AuditOutcome": {"type": "string", "enum": ["SUCCEEDED", "DENIED", "FAILED"]},
+      "AuditActor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subject_id", "actor_type"],
+        "properties": {
+          "subject_id": {"type": "string"},
+          "actor_type": {"type": "string", "enum": ["USER", "SERVICE", "SYSTEM"]},
+          "ip_prefix": {"type": "string"}
+        }
+      },
+      "AuditTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id"],
+        "properties": {"type": {"type": "string"}, "id": {"type": "string"}}
+      },
+      "AuditEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "tenant_id", "country", "actor", "action", "target", "outcome", "reason_code", "correlation_id", "occurred_at", "recorded_at", "hash", "sequence"],
+        "properties": {
+          "id": {"type": "string"},
+          "tenant_id": {"type": "string"},
+          "country": {"type": "string"},
+          "actor": {"$ref": "#/components/schemas/AuditActor"},
+          "action": {"type": "string"},
+          "target": {"$ref": "#/components/schemas/AuditTarget"},
+          "outcome": {"$ref": "#/components/schemas/AuditOutcome"},
+          "reason_code": {"type": "string"},
+          "correlation_id": {"type": "string"},
+          "occurred_at": {"type": "string", "format": "date-time"},
+          "recorded_at": {"type": "string", "format": "date-time"},
+          "hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "sequence": {"type": "integer", "format": "int64", "minimum": 1}
+        }
+      },
+      "AuditPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entries", "has_more"],
+        "properties": {
+          "entries": {"type": "array", "items": {"$ref": "#/components/schemas/AuditEntry"}},
+          "next_cursor": {"type": "string"},
+          "has_more": {"type": "boolean"}
+        }
+      }
+    }
+  },
+  "x-planext4u-owner": "administrator-experience",
+  "x-planext4u-reviewers": ["security", "privacy", "accessibility"],
+  "x-planext4u-classification": "restricted",
+  "x-planext4u-slo-class": "critical"
+}

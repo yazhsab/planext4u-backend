@@ -15,6 +15,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  admin-web:
+    name: Administrator web verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.15.0
+          cache: npm
+          cache-dependency-path: admin-web/package-lock.json
+      - name: Install locked dependencies
+        working-directory: admin-web
+        run: npm ci
+      - name: Install Chromium test runtime
+        working-directory: admin-web
+        run: npx playwright install --with-deps chromium
+      - name: Verify typed administrator client
+        working-directory: admin-web
+        run: npm run verify
+      - name: Verify desktop and mobile administrator workflows
+        working-directory: admin-web
+        run: npm run test:e2e
+
   verify:
     name: Go verification and SCA
     runs-on: ubuntu-latest

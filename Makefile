@@ -1,9 +1,13 @@
 GO ?= go
+GO_PACKAGES := ./cmd/... ./internal/...
 
-.PHONY: build container-build contract-check contract-generate fmt identity-schema-local infra-check local-down local-service-logins local-status local-up migration-check migrate-local run run-identity test test-gateway-integration test-identity-integration test-integration test-migrations-integration test-race vet verify
+.PHONY: admin-verify build container-build contract-check contract-generate fmt identity-schema-local infra-check local-down local-service-logins local-status local-up migration-check migrate-local run run-identity test test-gateway-integration test-identity-integration test-integration test-migrations-integration test-race vet verify
+
+admin-verify:
+	cd admin-web && npm ci && npm run verify && npm run test:e2e
 
 build:
-	$(GO) build ./...
+	$(GO) build $(GO_PACKAGES)
 
 container-build:
 	docker build --build-arg VERSION=local --build-arg COMMIT="$$(git rev-parse --short HEAD)" --tag planext4u-backend:local .
@@ -16,7 +20,7 @@ contract-generate:
 	$(GO) run ./cmd/contractgen
 
 fmt:
-	@files="$$(gofmt -l .)"; \
+	@files="$$(gofmt -l cmd internal)"; \
 	if [ -n "$$files" ]; then \
 		echo "The following Go files need formatting:"; \
 		echo "$$files"; \
@@ -56,7 +60,7 @@ migrate-local:
 	$(MAKE) local-service-logins
 
 test:
-	$(GO) test ./...
+	$(GO) test $(GO_PACKAGES)
 
 test-integration:
 	cd tests/integration && DOCKER_AUTH_CONFIG='{"auths":{}}' $(GO) test -tags=integration -count=1 -timeout=10m .
@@ -73,9 +77,9 @@ test-migrations-integration:
 	MIGRATION_DATABASE_TEST_URL="$${MIGRATION_DATABASE_TEST_URL:-postgres://planext4u_local:local-only-password@127.0.0.1:54320/planext4u_local?sslmode=disable}" $(GO) test -tags=integration -count=1 ./internal/migrations
 
 test-race:
-	$(GO) test -race ./...
+	$(GO) test -race $(GO_PACKAGES)
 
 vet:
-	$(GO) vet ./...
+	$(GO) vet $(GO_PACKAGES)
 
 verify: fmt contract-check migration-check vet test test-race build

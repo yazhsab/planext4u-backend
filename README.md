@@ -29,7 +29,7 @@ Phase 2 implementation includes the greenfield Go platform, versioned
 contracts, deterministic local dependencies, secure gateway, identity/customer,
 configuration, catalog, media, append-only audit, reliable messaging,
 notification, service-owned PostgreSQL migrations, OpenTelemetry/SLO operations,
-and validated AWS Terraform foundations.
+validated AWS Terraform foundations, and the secure administrator web shell.
 
 ## Local development
 
@@ -40,6 +40,11 @@ builds with earlier vulnerable Go 1.25 patch releases.
 make verify
 make run
 ```
+
+The typed React administrator client lives under `admin-web/`. Run
+`make admin-verify` for strict TypeScript, lint, unit/coverage, production build,
+desktop/mobile Playwright, and accessibility checks. Its browser session is an
+opaque Secure/HttpOnly/SameSite cookie; the browser never stores access tokens.
 
 `make infra-check` validates all Terraform roots with their locked provider
 versions. It requires Terraform 1.13 or newer. `make container-build` builds the
@@ -85,5 +90,6 @@ environment files.
 - [Greenfield backend ADR](docs/adr/0001-go-greenfield-platform.md)
 - [Gateway foundation](docs/phase-2/GATEWAY_FOUNDATION.md)
 - [Identity/customer foundation](docs/phase-2/IDENTITY_CUSTOMER_FOUNDATION.md)
+- [Secure administrator shell](docs/phase-2/SECURE_ADMINISTRATOR_SHELL.md)
 - [Six-phase programme plan](https://github.com/yazhsab/planext4u-moble/blob/main/docs/PROGRAM_PLAN.md)
 - [Flutter applications](https://github.com/yazhsab/planext4u-moble)
