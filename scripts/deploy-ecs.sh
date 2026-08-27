@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 required=(AWS_REGION ECS_CLUSTER ECS_SERVICE CONTAINER_NAME IMAGE_URI DEPLOYMENT_EVIDENCE)
 for variable_name in "${required[@]}"; do
@@ -15,6 +16,10 @@ if [[ ! "$ECS_CLUSTER" =~ ^[A-Za-z0-9_-]{1,255}$ ]] || [[ ! "$ECS_SERVICE" =~ ^[
 fi
 if [[ ! "$IMAGE_URI" =~ @sha256:[a-f0-9]{64}$ ]]; then
   printf 'IMAGE_URI must use an immutable sha256 digest\n' >&2
+  exit 2
+fi
+if [[ "${DEPLOYMENT_ENVIRONMENT:-unknown}" == "staging" && -z "${VERTICAL_SLICE_SMOKE_ORIGIN:-}" ]]; then
+  printf 'VERTICAL_SLICE_SMOKE_ORIGIN is required for staging deployments\n' >&2
   exit 2
 fi
 
@@ -41,6 +46,7 @@ fi
 new_task_definition="$(aws ecs register-task-definition --region "$AWS_REGION" --cli-input-json "file://$deployment_tmp/candidate.json" --query 'taskDefinition.taskDefinitionArn' --output text)"
 deployed=false
 rollback_reason=""
+vertical_slice_smoke="not_requested"
 
 if aws ecs update-service --region "$AWS_REGION" --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" --task-definition "$new_task_definition" >/dev/null && \
    aws ecs wait services-stable --region "$AWS_REGION" --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"; then
@@ -52,6 +58,15 @@ if aws ecs update-service --region "$AWS_REGION" --cluster "$ECS_CLUSTER" --serv
     fi
   else
     deployed=true
+  fi
+  if [[ "$deployed" == true && -n "${VERTICAL_SLICE_SMOKE_ORIGIN:-}" ]]; then
+    if "$script_directory/staging-vertical-slice-smoke.sh" "$VERTICAL_SLICE_SMOKE_ORIGIN"; then
+      vertical_slice_smoke="passed"
+    else
+      deployed=false
+      rollback_reason="vertical_slice_smoke_failed"
+      vertical_slice_smoke="failed"
+    fi
   fi
 else
   rollback_reason="ecs_stabilization_failed"
@@ -72,8 +87,9 @@ jq -n \
   --arg commit "${GITHUB_SHA:-unknown}" \
   --arg run_id "${GITHUB_RUN_ID:-local}" \
   --arg rollback_reason "$rollback_reason" \
+  --arg vertical_slice_smoke "$vertical_slice_smoke" \
   --argjson deployed "$deployed" \
-  '{schema_version:1, environment:$environment, cluster:$cluster, service:$service, image:$image, previous_task_definition:$previous, candidate_task_definition:$candidate, source_commit:$commit, workflow_run_id:$run_id, deployed:$deployed, rollback_reason:$rollback_reason}' \
+  '{schema_version:1, environment:$environment, cluster:$cluster, service:$service, image:$image, previous_task_definition:$previous, candidate_task_definition:$candidate, source_commit:$commit, workflow_run_id:$run_id, deployed:$deployed, rollback_reason:$rollback_reason, vertical_slice_smoke:$vertical_slice_smoke}' \
   > "$DEPLOYMENT_EVIDENCE"
 
 if [[ "$deployed" != true ]]; then

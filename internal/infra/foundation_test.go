@@ -22,11 +22,13 @@ func TestBEInfra001DeploymentEvidenceAndAutomaticRollback(t *testing.T) {
 	for _, test := range []struct {
 		name          string
 		failFirstWait bool
+		failSmoke     bool
 		wantSuccess   bool
 		wantReason    string
 	}{
 		{name: "stable deployment", wantSuccess: true},
 		{name: "failed deployment rolls back", failFirstWait: true, wantSuccess: false, wantReason: "ecs_stabilization_failed"},
+		{name: "failed vertical slice rolls back", failSmoke: true, wantSuccess: false, wantReason: "vertical_slice_smoke_failed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			temporary := t.TempDir()
@@ -52,13 +54,17 @@ esac
 `), 0o755); err != nil {
 				t.Fatal(err)
 			}
+			if err := os.WriteFile(filepath.Join(temporary, "curl"), []byte("#!/usr/bin/env bash\nexit 1\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
 			evidence := filepath.Join(temporary, "evidence.json")
 			command := exec.Command("bash", "../../scripts/deploy-ecs.sh")
 			command.Env = append(os.Environ(),
 				"PATH="+temporary+":"+os.Getenv("PATH"), "AWS_REGION=ap-south-1", "ECS_CLUSTER=planext4u-staging", "ECS_SERVICE=platform", "CONTAINER_NAME=platform",
 				"IMAGE_URI=111111111111.dkr.ecr.ap-south-1.amazonaws.com/planext4u/platform@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-				"DEPLOYMENT_EVIDENCE="+evidence, "DEPLOYMENT_ENVIRONMENT=staging", "FAKE_AWS_STATE="+state,
-				"FAIL_FIRST_WAIT="+map[bool]string{true: "true", false: "false"}[test.failFirstWait])
+				"DEPLOYMENT_EVIDENCE="+evidence, "DEPLOYMENT_ENVIRONMENT="+map[bool]string{true: "staging", false: "development"}[test.failSmoke], "FAKE_AWS_STATE="+state,
+				"FAIL_FIRST_WAIT="+map[bool]string{true: "true", false: "false"}[test.failFirstWait],
+				"VERTICAL_SLICE_SMOKE_ORIGIN="+map[bool]string{true: "https://staging.example.test", false: ""}[test.failSmoke])
 			err := command.Run()
 			if test.wantSuccess && err != nil {
 				t.Fatalf("deployment: %v", err)
@@ -100,7 +106,7 @@ func TestBEInfra001OIDCUsesRepositoryAndEnvironmentBoundTrust(t *testing.T) {
 func TestBEInfra001DeploymentRequiresDigestAndRollbackEvidence(t *testing.T) {
 	t.Parallel()
 	contents := readFile(t, "../../scripts/deploy-ecs.sh")
-	for _, marker := range []string{"@sha256:", "previous_task_definition", "services-stable", "rollback_reason", "DEPLOYMENT_EVIDENCE"} {
+	for _, marker := range []string{"@sha256:", "previous_task_definition", "services-stable", "rollback_reason", "DEPLOYMENT_EVIDENCE", "staging-vertical-slice-smoke.sh", "vertical_slice_smoke_failed", "VERTICAL_SLICE_SMOKE_ORIGIN is required for staging"} {
 		if !strings.Contains(contents, marker) {
 			t.Errorf("deployment script is missing %q", marker)
 		}

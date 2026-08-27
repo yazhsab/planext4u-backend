@@ -30,21 +30,22 @@ module "artifacts" {
 }
 
 module "compute" {
-  source               = "../compute"
-  name                 = var.name
-  environment          = var.environment
-  region               = var.region
-  vpc_id               = module.network.vpc_id
-  vpc_cidr             = module.network.vpc_cidr
-  public_subnet_ids    = module.network.public_subnet_ids
-  private_subnet_ids   = module.network.private_subnet_ids
-  certificate_arn      = var.certificate_arn
-  data_kms_key_arn     = module.data.data_kms_key_arn
-  media_bucket_arn     = module.data.media_bucket_arn
-  event_bus_secret_arn = module.data.event_bus_secret_arn
-  database_secret_arns = module.data.service_database_secret_arns
-  otel_endpoint        = var.otel_endpoint
-  services             = var.services
+  source                                 = "../compute"
+  name                                   = var.name
+  environment                            = var.environment
+  region                                 = var.region
+  vpc_id                                 = module.network.vpc_id
+  vpc_cidr                               = module.network.vpc_cidr
+  public_subnet_ids                      = module.network.public_subnet_ids
+  private_subnet_ids                     = module.network.private_subnet_ids
+  certificate_arn                        = var.certificate_arn
+  data_kms_key_arn                       = module.data.data_kms_key_arn
+  media_bucket_arn                       = module.data.media_bucket_arn
+  event_bus_secret_arn                   = module.data.event_bus_secret_arn
+  database_secret_arns                   = module.data.service_database_secret_arns
+  synthetic_slice_signing_key_secret_arn = module.data.synthetic_slice_signing_key_secret_arn
+  otel_endpoint                          = var.otel_endpoint
+  services                               = var.services
 }
 
 module "delivery_identity" {

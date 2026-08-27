@@ -171,6 +171,15 @@ resource "aws_secretsmanager_secret" "event_bus" {
   tags                    = local.tags
 }
 
+resource "aws_secretsmanager_secret" "synthetic_slice_signing_key" {
+  count                   = var.environment == "staging" ? 1 : 0
+  name                    = "/planext4u/${var.environment}/platform/synthetic-slice-signing-key"
+  description             = "Staging-only synthetic journey signing key; value provisioned outside Terraform state"
+  kms_key_id              = aws_kms_key.data.arn
+  recovery_window_in_days = 30
+  tags                    = merge(local.tags, { Service = "platform", SyntheticDataOnly = "true" })
+}
+
 output "database_endpoint" { value = aws_rds_cluster.this.endpoint }
 output "database_master_secret_arn" {
   value     = aws_rds_cluster.this.master_user_secret[0].secret_arn
@@ -182,3 +191,4 @@ output "media_bucket_arn" { value = aws_s3_bucket.media.arn }
 output "data_kms_key_arn" { value = aws_kms_key.data.arn }
 output "service_database_secret_arns" { value = { for service, secret in aws_secretsmanager_secret.service_database : service => secret.arn } }
 output "event_bus_secret_arn" { value = aws_secretsmanager_secret.event_bus.arn }
+output "synthetic_slice_signing_key_secret_arn" { value = try(aws_secretsmanager_secret.synthetic_slice_signing_key[0].arn, null) }

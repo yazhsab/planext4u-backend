@@ -10,6 +10,11 @@ variable "data_kms_key_arn" { type = string }
 variable "media_bucket_arn" { type = string }
 variable "event_bus_secret_arn" { type = string }
 variable "database_secret_arns" { type = map(string) }
+variable "synthetic_slice_signing_key_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
 variable "otel_endpoint" { type = string }
 variable "log_retention_days" {
   type    = number

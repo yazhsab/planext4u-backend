@@ -29,7 +29,9 @@ Phase 2 implementation includes the greenfield Go platform, versioned
 contracts, deterministic local dependencies, secure gateway, identity/customer,
 configuration, catalog, media, append-only audit, reliable messaging,
 notification, service-owned PostgreSQL migrations, OpenTelemetry/SLO operations,
-validated AWS Terraform foundations, and the secure administrator web shell.
+validated AWS Terraform foundations, the secure administrator web shell, and
+the staging-only login/location/home/catalog deployment slice with automatic
+rollback evidence.
 
 ## Local development
 
@@ -40,6 +42,9 @@ builds with earlier vulnerable Go 1.25 patch releases.
 make verify
 make run
 ```
+
+The staging vertical slice and its environment isolation are documented in
+[`docs/phase-2/STAGING_VERTICAL_SLICE.md`](docs/phase-2/STAGING_VERTICAL_SLICE.md).
 
 The typed React administrator client lives under `admin-web/`. Run
 `make admin-verify` for strict TypeScript, lint, unit/coverage, production build,
@@ -91,5 +96,6 @@ environment files.
 - [Gateway foundation](docs/phase-2/GATEWAY_FOUNDATION.md)
 - [Identity/customer foundation](docs/phase-2/IDENTITY_CUSTOMER_FOUNDATION.md)
 - [Secure administrator shell](docs/phase-2/SECURE_ADMINISTRATOR_SHELL.md)
+- [Staging vertical slice](docs/phase-2/STAGING_VERTICAL_SLICE.md)
 - [Six-phase programme plan](https://github.com/yazhsab/planext4u-moble/blob/main/docs/PROGRAM_PLAN.md)
 - [Flutter applications](https://github.com/yazhsab/planext4u-moble)

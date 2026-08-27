@@ -115,6 +115,38 @@ func TestGatewayDerivesTrustedIdentityAndPropagatesCorrelation(t *testing.T) {
 	}
 }
 
+func TestGatewayDirectUpstreamEnforcesTheSameTrustBoundary(t *testing.T) {
+	t.Parallel()
+
+	upstream := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "" || request.Header.Get("Cookie") != "" {
+			t.Error("browser credentials crossed the direct trust boundary")
+		}
+		if request.Header.Get("X-Planext4u-Tenant") != syntheticPrincipal().TenantID || request.Header.Get("X-Planext4u-Country") != "IN" {
+			t.Errorf("trusted scope = %v", request.Header)
+		}
+		writer.Header().Set("Server", "unsafe-direct-upstream")
+		writer.Header().Set("X-Powered-By", "unsafe-framework")
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"ok":true}`))
+	})
+	config := DefaultConfig(nil)
+	config.UpstreamHandler = upstream
+	handler, err := NewHandler(config, fixedVerifier{principal: syntheticPrincipal()}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/v1/home", nil)
+	request.Header.Set("Authorization", "Bearer valid")
+	request.Header.Set("Cookie", "session=unsafe")
+	request.Header.Set("X-Planext4u-Tenant", "attacker")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("Server") != "" || response.Header().Get("X-Powered-By") != "" {
+		t.Fatalf("response = %d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+}
+
 func TestGatewayAuthenticationDenialsUseSafeProblems(t *testing.T) {
 	t.Parallel()
 

@@ -61,6 +61,27 @@ func TestMiddlewarePreservesValidRequestID(t *testing.T) {
 	}
 }
 
+func TestServerMountsApplicationBehindHardenedMiddleware(t *testing.T) {
+	t.Parallel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	application := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/example" {
+			t.Errorf("application path = %q", request.URL.Path)
+		}
+		writer.WriteHeader(http.StatusCreated)
+	})
+	service := New(config.Config{
+		ServiceName: "test-service", Environment: config.EnvironmentDevelopment, HTTPAddress: ":8080",
+		ShutdownTimeout: time.Second, LogLevel: "info",
+	}, logger, "test", WithApplication(application, nil))
+	request := httptest.NewRequest(http.MethodPost, "/v1/example", nil)
+	response := httptest.NewRecorder()
+	service.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || response.Header().Get("X-Content-Type-Options") != "nosniff" || response.Header().Get(requestIDHeader) == "" {
+		t.Fatalf("application response = %d headers=%v", response.Code, response.Header())
+	}
+}
+
 func TestServeGracefullyShutsDown(t *testing.T) {
 	service := newTestServer(t, "127.0.0.1:0")
 	ctx, cancel := context.WithCancel(context.Background())

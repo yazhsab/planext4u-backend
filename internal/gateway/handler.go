@@ -35,6 +35,7 @@ const (
 
 type Config struct {
 	Upstream         *url.URL
+	UpstreamHandler  http.Handler
 	RequestTimeout   time.Duration
 	MaxRequestBytes  int64
 	PublicPaths      map[string]struct{}
@@ -50,8 +51,9 @@ func DefaultConfig(upstream *url.URL) Config {
 		RequestTimeout:  10 * time.Second,
 		MaxRequestBytes: 1 << 20,
 		PublicPaths: map[string]struct{}{
-			"/healthz": {},
-			"/readyz":  {},
+			"/healthz":      {},
+			"/readyz":       {},
+			"/health/ready": {},
 		},
 		AnonymousRoutes: map[string]map[string]struct{}{
 			"/v1/auth/exchange": {http.MethodPost: {}},
@@ -67,21 +69,23 @@ type Handler struct {
 	config   Config
 	verifier Verifier
 	proxy    *httputil.ReverseProxy
+	upstream http.Handler
 	logger   *slog.Logger
 }
 
 func NewHandler(config Config, verifier Verifier, logger *slog.Logger) (*Handler, error) {
-	if config.Upstream == nil ||
-		(config.Upstream.Scheme != "http" && config.Upstream.Scheme != "https") ||
-		config.Upstream.Host == "" ||
+	if (config.Upstream == nil) == (config.UpstreamHandler == nil) ||
+		(config.Upstream != nil && ((config.Upstream.Scheme != "http" && config.Upstream.Scheme != "https") || config.Upstream.Host == "")) ||
 		config.RequestTimeout <= 0 || config.RequestTimeout > time.Minute ||
 		config.MaxRequestBytes < 1 || config.MaxRequestBytes > 16<<20 ||
 		config.AnonymousLimiter == nil || config.PrincipalLimiter == nil ||
 		verifier == nil || logger == nil {
 		return nil, ErrInvalidConfiguration
 	}
-	upstream := *config.Upstream
-	config.Upstream = &upstream
+	if config.Upstream != nil {
+		upstream := *config.Upstream
+		config.Upstream = &upstream
+	}
 	publicPaths := make(map[string]struct{}, len(config.PublicPaths))
 	for path := range config.PublicPaths {
 		publicPaths[path] = struct{}{}
@@ -103,26 +107,30 @@ func NewHandler(config Config, verifier Verifier, logger *slog.Logger) (*Handler
 	}
 	config.AnonymousRoutes = anonymousRoutes
 
-	handler := &Handler{config: config, verifier: verifier, logger: logger}
-	proxy := &httputil.ReverseProxy{
-		Rewrite:        handler.rewrite,
-		ModifyResponse: handler.modifyResponse,
-		ErrorHandler:   handler.handleProxyError,
-		Transport: &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          100,
-			MaxIdleConnsPerHost:   20,
-			IdleConnTimeout:       60 * time.Second,
-			TLSHandshakeTimeout:   5 * time.Second,
-			ResponseHeaderTimeout: config.RequestTimeout,
-		},
+	handler := &Handler{config: config, verifier: verifier, logger: logger, upstream: config.UpstreamHandler}
+	if config.Upstream != nil {
+		handler.proxy = &httputil.ReverseProxy{
+			Rewrite:        handler.rewrite,
+			ModifyResponse: handler.modifyResponse,
+			ErrorHandler:   handler.handleProxyError,
+			Transport: &http.Transport{
+				Proxy:                 http.ProxyFromEnvironment,
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          100,
+				MaxIdleConnsPerHost:   20,
+				IdleConnTimeout:       60 * time.Second,
+				TLSHandshakeTimeout:   5 * time.Second,
+				ResponseHeaderTimeout: config.RequestTimeout,
+			},
+		}
 	}
-	handler.proxy = proxy
 	return handler, nil
 }
 
 func (handler *Handler) CloseIdleConnections() {
+	if handler.proxy == nil {
+		return
+	}
 	if transport, ok := handler.proxy.Transport.(interface{ CloseIdleConnections() }); ok {
 		transport.CloseIdleConnections()
 	}
@@ -202,7 +210,14 @@ func (handler *Handler) forward(writer http.ResponseWriter, request *http.Reques
 	request = request.WithContext(requestContext)
 
 	started := time.Now()
-	handler.proxy.ServeHTTP(writer, request)
+	if handler.upstream != nil {
+		directRequest := request.Clone(request.Context())
+		directRequest.Header = request.Header.Clone()
+		handler.prepareTrustedRequest(directRequest)
+		handler.upstream.ServeHTTP(&sanitizingResponseWriter{ResponseWriter: writer}, directRequest)
+	} else {
+		handler.proxy.ServeHTTP(writer, request)
+	}
 	handler.logger.Info(
 		"gateway request",
 		"correlation_id", correlationIDFromContext(request.Context()),
@@ -215,7 +230,7 @@ func (handler *Handler) forward(writer http.ResponseWriter, request *http.Reques
 func (handler *Handler) servePublic(writer http.ResponseWriter, request *http.Request) {
 	status := "ok"
 	statusCode := http.StatusOK
-	if request.URL.Path == "/readyz" && handler.config.Readiness != nil {
+	if (request.URL.Path == "/readyz" || request.URL.Path == "/health/ready") && handler.config.Readiness != nil {
 		ctx, cancel := context.WithTimeout(request.Context(), time.Second)
 		defer cancel()
 		if err := handler.config.Readiness(ctx); err != nil {
@@ -331,6 +346,52 @@ func (handler *Handler) rewrite(proxyRequest *httputil.ProxyRequest) {
 		proxyRequest.Out.Header.Del("tracestate")
 	}
 }
+
+func (handler *Handler) prepareTrustedRequest(request *http.Request) {
+	principal, _ := request.Context().Value(principalContextKey).(Principal)
+	removeTrustedHeaders(request.Header)
+	request.Header.Del("Authorization")
+	request.Header.Del("Cookie")
+	request.Header.Set(correlationIDHeader, correlationIDFromContext(request.Context()))
+	if principal.Subject != "" {
+		request.Header.Set("X-Planext4u-Subject", principal.Subject)
+		request.Header.Set("X-Planext4u-Session", principal.SessionID)
+		request.Header.Set("X-Planext4u-Tenant", principal.TenantID)
+		request.Header.Set("X-Planext4u-Country", principal.Country)
+		request.Header.Set("X-Planext4u-Roles", strings.Join(principal.Roles, ","))
+		if principal.DeviceID != "" {
+			request.Header.Set("X-Planext4u-Device", principal.DeviceID)
+		}
+	}
+	if !validTraceparent(request.Header.Get("traceparent")) {
+		request.Header.Del("traceparent")
+		request.Header.Del("tracestate")
+	}
+}
+
+type sanitizingResponseWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (writer *sanitizingResponseWriter) WriteHeader(status int) {
+	if writer.wroteHeader {
+		return
+	}
+	writer.wroteHeader = true
+	writer.Header().Del("Server")
+	writer.Header().Del("X-Powered-By")
+	writer.ResponseWriter.WriteHeader(status)
+}
+
+func (writer *sanitizingResponseWriter) Write(value []byte) (int, error) {
+	if !writer.wroteHeader {
+		writer.WriteHeader(http.StatusOK)
+	}
+	return writer.ResponseWriter.Write(value)
+}
+
+func (writer *sanitizingResponseWriter) Unwrap() http.ResponseWriter { return writer.ResponseWriter }
 
 func (handler *Handler) modifyResponse(response *http.Response) error {
 	response.Header.Del("Server")

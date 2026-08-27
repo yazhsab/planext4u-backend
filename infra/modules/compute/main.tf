@@ -72,7 +72,7 @@ resource "aws_iam_role_policy" "execution_secrets" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = concat(values(var.database_secret_arns), [var.event_bus_secret_arn]) },
+      { Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = concat(values(var.database_secret_arns), [var.event_bus_secret_arn], var.synthetic_slice_signing_key_secret_arn == null ? [] : [var.synthetic_slice_signing_key_secret_arn]) },
       { Effect = "Allow", Action = ["kms:Decrypt"], Resource = [var.data_kms_key_arn] }
     ]
   })
@@ -219,17 +219,21 @@ resource "aws_ecs_task_definition" "service" {
     essential              = true
     readonlyRootFilesystem = true
     portMappings           = [{ containerPort = each.value.port, hostPort = each.value.port, protocol = "tcp", name = "http" }]
-    environment = [
+    environment = concat([
       { name = "APP_ENV", value = var.environment },
       { name = "SERVICE_NAME", value = "planext4u-${each.key}" },
       { name = "HTTP_ADDRESS", value = ":${each.value.port}" },
       { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = var.otel_endpoint },
       { name = "OTEL_EXPORTER_OTLP_PROTOCOL", value = "http/protobuf" }
-    ]
-    secrets = [
+      ], each.key == "platform" && var.environment == "staging" ? [
+      { name = "SYNTHETIC_SLICE_ENABLED", value = "true" }
+    ] : [])
+    secrets = concat([
       { name = "DATABASE_URL", valueFrom = var.database_secret_arns[each.key] },
       { name = "EVENT_BUS_URL", valueFrom = var.event_bus_secret_arn }
-    ]
+      ], each.key == "platform" && var.environment == "staging" ? [
+      { name = "SYNTHETIC_SLICE_SIGNING_KEY", valueFrom = var.synthetic_slice_signing_key_secret_arn }
+    ] : [])
     logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.service[each.key].name, awslogs-region = var.region, awslogs-stream-prefix = "service", mode = "non-blocking", max-buffer-size = "25m" } }
   }])
   tags = merge(local.tags, { Service = each.key })

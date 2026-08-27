@@ -36,11 +36,20 @@ type Server struct {
 type Option func(*serverOptions)
 
 type serverOptions struct {
-	telemetry *telemetry.Telemetry
+	telemetry         *telemetry.Telemetry
+	application       http.Handler
+	applicationRoutes telemetry.RouteResolver
 }
 
 func WithTelemetry(value *telemetry.Telemetry) Option {
 	return func(options *serverOptions) { options.telemetry = value }
+}
+
+func WithApplication(handler http.Handler, routes telemetry.RouteResolver) Option {
+	return func(options *serverOptions) {
+		options.application = handler
+		options.applicationRoutes = routes
+	}
 }
 
 // New builds a server in the not-ready state.
@@ -58,6 +67,9 @@ func New(cfg config.Config, logger *slog.Logger, version string, optionValues ..
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.handleHealth)
 	mux.HandleFunc("GET /readyz", server.handleReadiness)
+	if options.application != nil {
+		mux.Handle("/", options.application)
+	}
 
 	var handler http.Handler = server.middleware(mux)
 	if options.telemetry != nil {
@@ -66,6 +78,9 @@ func New(cfg config.Config, logger *slog.Logger, version string, optionValues ..
 			case "/healthz", "/readyz":
 				return request.URL.Path
 			default:
+				if options.applicationRoutes != nil {
+					return options.applicationRoutes(request)
+				}
 				return "unmatched"
 			}
 		})(handler)
