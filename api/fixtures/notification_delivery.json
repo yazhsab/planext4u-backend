@@ -1,0 +1,14 @@
+{
+  "id": "55555555-5555-4555-8555-555555555555",
+  "country": "IN",
+  "subject_id": "customer-synthetic-001",
+  "recipient_ref": "contact-synthetic-001",
+  "channel": "PUSH",
+  "purpose": "TRANSACTIONAL",
+  "template_key": "plan-ready",
+  "template_version": 1,
+  "locale": "en",
+  "status": "QUEUED",
+  "created_at": "2026-04-01T10:00:00Z",
+  "updated_at": "2026-04-01T10:00:00Z"
+}

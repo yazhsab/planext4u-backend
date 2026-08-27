@@ -244,6 +244,27 @@ func TestAuditContractCompatibilityBaseline(t *testing.T) {
 	assertOpenAPICompatibility(t, "api/openapi/audit.openapi.json", "api/compatibility/audit-v1-baseline.json")
 }
 
+func TestNotificationContractCompatibilityBaseline(t *testing.T) {
+	t.Parallel()
+	assertOpenAPICompatibility(t, "api/openapi/notification.openapi.json", "api/compatibility/notification-v1-baseline.json")
+}
+
+func TestNotificationFixtureUsesOpaqueSyntheticRecipient(t *testing.T) {
+	t.Parallel()
+	var delivery struct {
+		ID           string `json:"id"`
+		SubjectID    string `json:"subject_id"`
+		RecipientRef string `json:"recipient_ref"`
+		Status       string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(generated.NotificationDeliveryFixtureJSON), &delivery); err != nil {
+		t.Fatalf("notification fixture is invalid JSON: %v", err)
+	}
+	if delivery.ID == "" || !strings.Contains(delivery.SubjectID, "synthetic") || !strings.Contains(delivery.RecipientRef, "synthetic") || delivery.Status != "QUEUED" {
+		t.Fatalf("notification fixture is incomplete or not synthetic: %#v", delivery)
+	}
+}
+
 func TestAuditFixtureIsSyntheticAndHasIntegrityEvidence(t *testing.T) {
 	t.Parallel()
 	var entry struct {

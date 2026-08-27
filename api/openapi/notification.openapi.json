@@ -1,0 +1,101 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Planext4u Notification API", "version": "1.0.0"},
+  "security": [{"bearerAuth": []}],
+  "paths": {
+    "/v1/notification/preferences/{purpose}/{channel}": {
+      "get": {
+        "operationId": "notificationGetPreference",
+        "parameters": [
+          {"$ref": "#/components/parameters/Purpose"},
+          {"$ref": "#/components/parameters/Channel"}
+        ],
+        "responses": {"200": {"description": "Current preference", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Preference"}}}}, "403": {"$ref": "#/components/responses/Problem"}}
+      },
+      "put": {
+        "operationId": "notificationPutPreference",
+        "parameters": [
+          {"$ref": "#/components/parameters/Purpose"},
+          {"$ref": "#/components/parameters/Channel"}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["enabled", "expected_version"], "properties": {"enabled": {"type": "boolean"}, "expected_version": {"type": "integer", "format": "int64", "minimum": 0}}}}}},
+        "responses": {"200": {"description": "Updated preference", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Preference"}}}}, "409": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/v1/notifications": {
+      "post": {
+        "operationId": "notificationQueueDelivery",
+        "parameters": [{"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 128}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QueueRequest"}}}},
+        "responses": {"202": {"description": "Queued or policy-suppressed delivery", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Delivery"}}}}, "400": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/v1/notifications/{delivery_id}": {
+      "get": {
+        "operationId": "notificationGetDelivery",
+        "parameters": [{"name": "delivery_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "responses": {"200": {"description": "Tenant-scoped delivery", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Delivery"}}}}, "404": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/v1/admin/notification-templates": {
+      "post": {
+        "operationId": "notificationPublishTemplate",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Template"}}}},
+        "responses": {"201": {"description": "Immutable template version published", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Template"}}}}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/v1/provider/notification-receipts": {
+      "post": {
+        "operationId": "notificationRecordProviderReceipt",
+        "security": [{"providerSignature": []}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProviderReceipt"}}}},
+        "responses": {"204": {"description": "Receipt recorded or already processed"}, "401": {"$ref": "#/components/responses/Problem"}}
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"},
+      "providerSignature": {"type": "apiKey", "in": "header", "name": "X-Planext4u-Provider-Signature"}
+    },
+    "responses": {"Problem": {"description": "Safe standard error", "content": {"application/problem+json": {"schema": {"$ref": "./common.openapi.json#/components/schemas/ErrorEnvelope"}}}}},
+    "parameters": {
+      "Purpose": {"name": "purpose", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Purpose"}},
+      "Channel": {"name": "channel", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Channel"}}
+    },
+    "schemas": {
+      "Channel": {"type": "string", "enum": ["EMAIL", "PUSH", "WHATSAPP", "IN_APP"]},
+      "Purpose": {"type": "string", "enum": ["SECURITY", "TRANSACTIONAL", "MARKETING"]},
+      "DeliveryStatus": {"type": "string", "enum": ["QUEUED", "SENDING", "SENT", "DELIVERED", "FAILED", "SUPPRESSED"]},
+      "Preference": {
+        "type": "object", "additionalProperties": false,
+        "required": ["subject_id", "purpose", "channel", "enabled", "version", "updated_at"],
+        "properties": {"subject_id": {"type": "string"}, "purpose": {"$ref": "#/components/schemas/Purpose"}, "channel": {"$ref": "#/components/schemas/Channel"}, "enabled": {"type": "boolean"}, "version": {"type": "integer", "format": "int64", "minimum": 1}, "updated_at": {"type": "string", "format": "date-time"}}
+      },
+      "QueueRequest": {
+        "type": "object", "additionalProperties": false,
+        "required": ["subject_id", "recipient_ref", "channel", "purpose", "template_key", "template_version", "locale", "variables"],
+        "properties": {"subject_id": {"type": "string"}, "recipient_ref": {"type": "string", "description": "Opaque contact reference; raw addresses are not accepted"}, "channel": {"$ref": "#/components/schemas/Channel"}, "purpose": {"$ref": "#/components/schemas/Purpose"}, "template_key": {"type": "string"}, "template_version": {"type": "integer", "format": "int64", "minimum": 1}, "locale": {"type": "string"}, "variables": {"type": "object", "additionalProperties": {"type": "string"}}}
+      },
+      "Delivery": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "country", "subject_id", "recipient_ref", "channel", "purpose", "template_key", "template_version", "locale", "status", "created_at", "updated_at"],
+        "properties": {"id": {"type": "string", "format": "uuid"}, "country": {"type": "string", "pattern": "^[A-Z]{2}$"}, "subject_id": {"type": "string"}, "recipient_ref": {"type": "string"}, "channel": {"$ref": "#/components/schemas/Channel"}, "purpose": {"$ref": "#/components/schemas/Purpose"}, "template_key": {"type": "string"}, "template_version": {"type": "integer", "format": "int64"}, "locale": {"type": "string"}, "status": {"$ref": "#/components/schemas/DeliveryStatus"}, "suppression_reason": {"type": "string"}, "provider_message_id": {"type": "string"}, "last_error_code": {"type": "string"}, "created_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"}}
+      },
+      "Template": {
+        "type": "object", "additionalProperties": false,
+        "required": ["country", "key", "version", "locale", "channel", "subject", "body", "variables"],
+        "properties": {"country": {"type": "string", "pattern": "^[A-Z]{2}$"}, "key": {"type": "string"}, "version": {"type": "integer", "format": "int64", "minimum": 1}, "locale": {"type": "string"}, "channel": {"$ref": "#/components/schemas/Channel"}, "subject": {"type": "string", "maxLength": 240}, "body": {"type": "string", "maxLength": 32000}, "variables": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}}
+      },
+      "ProviderReceipt": {
+        "type": "object", "additionalProperties": false,
+        "required": ["receipt_id", "delivery_id", "provider_message_id", "status", "occurred_at"],
+        "properties": {"receipt_id": {"type": "string"}, "delivery_id": {"type": "string", "format": "uuid"}, "provider_message_id": {"type": "string"}, "status": {"type": "string", "enum": ["DELIVERED", "FAILED"]}, "error_code": {"type": "string"}, "occurred_at": {"type": "string", "format": "date-time"}}
+      }
+    }
+  },
+  "x-planext4u-owner": "notification",
+  "x-planext4u-reviewers": ["security", "privacy", "product"],
+  "x-planext4u-classification": "confidential",
+  "x-planext4u-slo-class": "standard"
+}

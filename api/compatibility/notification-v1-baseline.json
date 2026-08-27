@@ -1,0 +1,21 @@
+{
+  "operations": [
+    {"method": "GET", "path": "/v1/notification/preferences/{purpose}/{channel}"},
+    {"method": "PUT", "path": "/v1/notification/preferences/{purpose}/{channel}"},
+    {"method": "POST", "path": "/v1/notifications"},
+    {"method": "GET", "path": "/v1/notifications/{delivery_id}"},
+    {"method": "POST", "path": "/v1/admin/notification-templates"},
+    {"method": "POST", "path": "/v1/provider/notification-receipts"}
+  ],
+  "required_properties": {
+    "Preference": ["subject_id", "purpose", "channel", "enabled", "version", "updated_at"],
+    "QueueRequest": ["subject_id", "recipient_ref", "channel", "purpose", "template_key", "template_version", "locale", "variables"],
+    "Delivery": ["id", "country", "subject_id", "recipient_ref", "channel", "purpose", "template_key", "template_version", "locale", "status", "created_at", "updated_at"],
+    "ProviderReceipt": ["receipt_id", "delivery_id", "provider_message_id", "status", "occurred_at"]
+  },
+  "enum_values": {
+    "Channel": ["EMAIL", "PUSH", "WHATSAPP", "IN_APP"],
+    "Purpose": ["SECURITY", "TRANSACTIONAL", "MARKETING"],
+    "DeliveryStatus": ["QUEUED", "SENDING", "SENT", "DELIVERED", "FAILED", "SUPPRESSED"]
+  }
+}

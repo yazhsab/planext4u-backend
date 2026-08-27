@@ -26,6 +26,7 @@ var fixtures = []fixture{
 	{goName: "DomainEventFixtureJSON", dartName: "domainEventFixtureJson", path: "api/fixtures/domain_event.json"},
 	{goName: "IdentityAuthenticationFixtureJSON", dartName: "identityAuthenticationFixtureJson", path: "api/fixtures/identity_authentication.json"},
 	{goName: "MediaAssetFixtureJSON", dartName: "mediaAssetFixtureJson", path: "api/fixtures/media_asset.json"},
+	{goName: "NotificationDeliveryFixtureJSON", dartName: "notificationDeliveryFixtureJson", path: "api/fixtures/notification_delivery.json"},
 	{goName: "ProblemFixtureJSON", dartName: "problemFixtureJson", path: "api/fixtures/problem.json"},
 }
 
@@ -48,6 +49,7 @@ func run(root string, check bool) error {
 		"api/openapi/configuration.openapi.json",
 		"api/openapi/identity.openapi.json",
 		"api/openapi/media.openapi.json",
+		"api/openapi/notification.openapi.json",
 		"api/asyncapi/common.asyncapi.json",
 	} {
 		contents, err := os.ReadFile(filepath.Join(root, contractPath))
