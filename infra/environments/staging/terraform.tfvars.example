@@ -1,0 +1,9 @@
+terraform_deployment_role_arn = "arn:aws:iam::222222222222:role/planext4u-terraform-deploy"
+permissions_boundary_arn     = "arn:aws:iam::222222222222:policy/planext4u-permissions-boundary"
+certificate_arn              = "arn:aws:acm:ap-south-1:222222222222:certificate/22222222-2222-4222-8222-222222222222"
+otel_endpoint                = "https://otel-collector.staging.planext4u.internal:4318"
+services = {
+  platform = { image = "222222222222.dkr.ecr.ap-south-1.amazonaws.com/planext4u/platform@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8080, cpu = 1024, memory = 2048, desired_count = 3, health_path = "/healthz" }
+  identity = { image = "222222222222.dkr.ecr.ap-south-1.amazonaws.com/planext4u/identity@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", port = 8083, cpu = 1024, memory = 2048, desired_count = 3, health_path = "/healthz" }
+  media    = { image = "222222222222.dkr.ecr.ap-south-1.amazonaws.com/planext4u/media@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", port = 8084, cpu = 1024, memory = 2048, desired_count = 3, health_path = "/healthz" }
+}

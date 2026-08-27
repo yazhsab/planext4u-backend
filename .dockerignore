@@ -1,5 +1,9 @@
 **
+!Dockerfile
 !go.mod
+!go.sum
+!cmd/**
+!internal/**
 !cmd/fake-provider/**
 !internal/fakeprovider/**
 !deploy/local/fake-provider.Dockerfile

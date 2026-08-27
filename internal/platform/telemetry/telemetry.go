@@ -16,7 +16,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/yazhsab/planext4u-backend/internal/platform/logging"
@@ -56,7 +56,7 @@ func Setup(ctx context.Context, config Config) (*Telemetry, error) {
 		return nil, fmt.Errorf("create OTLP metric exporter: %w", err)
 	}
 	res, err := resource.Merge(resource.Default(), resource.NewWithAttributes(semconv.SchemaURL,
-		semconv.ServiceName(config.ServiceName), semconv.ServiceVersion(config.ServiceVersion), semconv.DeploymentEnvironmentName(config.Environment)))
+		semconv.ServiceName(config.ServiceName), semconv.ServiceVersion(config.ServiceVersion), semconv.DeploymentEnvironmentNameKey.String(config.Environment)))
 	if err != nil {
 		return nil, fmt.Errorf("create telemetry resource: %w", err)
 	}

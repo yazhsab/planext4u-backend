@@ -7,6 +7,18 @@ coverage/
 *.log
 .local/
 
+# Terraform providers and local state are never source artifacts. Dependency
+# lock files remain committed for reproducible provider selection.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
 # Local environment files may contain secrets and must never be committed.
 .env
 .env.*

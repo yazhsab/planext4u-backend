@@ -25,11 +25,11 @@ The system will use Go for all backend services and workers. The administrator c
 
 Phase 1 architecture and target definition is complete. The approved Phase 2 backlog establishes the Go platform, contracts and staging vertical slice.
 
-Phase 2 implementation includes the greenfield Go service template, common
-contracts, deterministic local dependencies, secure gateway, and the identity
-and customer-profile foundation. Identity owns provider exchange, RS256 access
-tokens, rotating opaque refresh tokens, sessions/devices, current roles,
-profiles and append-only consent evidence backed by PostgreSQL.
+Phase 2 implementation includes the greenfield Go platform, versioned
+contracts, deterministic local dependencies, secure gateway, identity/customer,
+configuration, catalog, media, append-only audit, reliable messaging,
+notification, service-owned PostgreSQL migrations, OpenTelemetry/SLO operations,
+and validated AWS Terraform foundations.
 
 ## Local development
 
@@ -39,6 +39,10 @@ Prerequisite: Go 1.25 or newer.
 make verify
 make run
 ```
+
+`make infra-check` validates all Terraform roots with their locked provider
+versions. It requires Terraform 1.13 or newer. `make container-build` builds the
+minimal non-root release container.
 
 The reviewed OpenAPI 3.1 and AsyncAPI 3.0 documents under `api/` are the
 contract authority. `make contract-generate` refreshes deterministic Go and

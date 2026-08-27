@@ -1,0 +1,11 @@
+organizational_unit_id = "ou-abcd-12345678"
+environment_accounts = {
+  development = {
+    name  = "planext4u-development"
+    email = "aws-planext4u-development@example.invalid"
+  }
+  staging = {
+    name  = "planext4u-staging"
+    email = "aws-planext4u-staging@example.invalid"
+  }
+}

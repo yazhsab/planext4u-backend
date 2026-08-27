@@ -1,9 +1,12 @@
 GO ?= go
 
-.PHONY: build contract-check contract-generate fmt identity-schema-local local-down local-service-logins local-status local-up migration-check migrate-local run run-identity test test-gateway-integration test-identity-integration test-integration test-migrations-integration test-race vet verify
+.PHONY: build container-build contract-check contract-generate fmt identity-schema-local infra-check local-down local-service-logins local-status local-up migration-check migrate-local run run-identity test test-gateway-integration test-identity-integration test-integration test-migrations-integration test-race vet verify
 
 build:
 	$(GO) build ./...
+
+container-build:
+	docker build --build-arg VERSION=local --build-arg COMMIT="$$(git rev-parse --short HEAD)" --tag planext4u-backend:local .
 
 contract-check:
 	$(GO) run ./cmd/contractgen -check
@@ -41,6 +44,9 @@ run-identity:
 identity-schema-local:
 	MIGRATION_DATABASE_URL_FILE=.local/identity/database.url $(GO) run ./cmd/migrate -service platform
 	MIGRATION_DATABASE_URL_FILE=.local/identity/database.url $(GO) run ./cmd/migrate -service identity
+
+infra-check:
+	./scripts/check-infra.sh
 
 migration-check:
 	$(GO) run ./cmd/migrationcheck
