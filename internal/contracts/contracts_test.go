@@ -224,6 +224,45 @@ func TestIdentityContractSecurityMetadata(t *testing.T) {
 	}
 }
 
+func TestConfigurationContractCompatibilityBaseline(t *testing.T) {
+	t.Parallel()
+	assertOpenAPICompatibility(t, "api/openapi/configuration.openapi.json", "api/compatibility/configuration-v1-baseline.json")
+}
+
+func assertOpenAPICompatibility(t *testing.T, contractPath, baselinePath string) {
+	t.Helper()
+	var document openAPIDocument
+	readJSON(t, contractPath, &document)
+	if document.OpenAPI != "3.1.0" {
+		t.Fatalf("%s OpenAPI version = %q", contractPath, document.OpenAPI)
+	}
+	var baseline openAPICompatibilityBaseline
+	readJSON(t, baselinePath, &baseline)
+	for _, operation := range baseline.Operations {
+		methods, exists := document.Paths[operation.Path]
+		if !exists {
+			t.Errorf("breaking change: %s path %s was removed", contractPath, operation.Path)
+			continue
+		}
+		if _, exists := methods[strings.ToLower(operation.Method)]; !exists {
+			t.Errorf("breaking change: %s operation %s %s was removed", contractPath, operation.Method, operation.Path)
+		}
+	}
+	assertRequiredProperties(t, contractPath, document.Components.Schemas, baseline.RequiredProperties)
+	for schemaName, values := range baseline.EnumValues {
+		current, exists := document.Components.Schemas[schemaName]
+		if !exists {
+			t.Errorf("breaking change: enum %s removed", schemaName)
+			continue
+		}
+		for _, value := range values {
+			if !contains(current.Enum, value) {
+				t.Errorf("breaking change: enum %s removed value %s", schemaName, value)
+			}
+		}
+	}
+}
+
 func assertRequiredProperties(
 	t *testing.T,
 	documentName string,

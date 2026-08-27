@@ -1,0 +1,49 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Planext4u Configuration and CMS API", "version": "1.0.0"},
+  "security": [{"bearerAuth": []}],
+  "paths": {
+    "/v1/bootstrap": {
+      "get": {
+        "operationId": "configurationGetBootstrap",
+        "parameters": [
+          {"name": "platform", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Platform"}},
+          {"name": "app_version", "in": "query", "required": true, "schema": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}},
+          {"name": "locale", "in": "query", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "Resolved tenant and country bootstrap", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Bootstrap"}}}},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
+    "responses": {"Problem": {"description": "Safe standard error", "content": {"application/json": {"schema": {"$ref": "./common.openapi.json#/components/schemas/ErrorEnvelope"}}}}},
+    "schemas": {
+      "Platform": {"type": "string", "enum": ["ANDROID", "IOS"]},
+      "UpdateGate": {"type": "string", "enum": ["NONE", "OPTIONAL", "REQUIRED"]},
+      "ConsentPolicy": {"type": "object", "additionalProperties": false, "required": ["purpose", "policy_version", "required"], "properties": {"purpose": {"type": "string"}, "policy_version": {"type": "string"}, "required": {"type": "boolean"}}},
+      "HomeSection": {"type": "object", "additionalProperties": false, "required": ["id", "kind", "title_key", "enabled", "priority"], "properties": {"id": {"type": "string"}, "kind": {"type": "string"}, "title_key": {"type": "string"}, "enabled": {"type": "boolean"}, "priority": {"type": "integer"}}},
+      "Bootstrap": {
+        "type": "object", "additionalProperties": false,
+        "required": ["revision", "published_at", "update_gate", "latest_version", "maintenance", "locale", "supported_locales", "consent_policies", "flags", "home_sections"],
+        "properties": {
+          "revision": {"type": "integer", "minimum": 1}, "published_at": {"type": "string", "format": "date-time"},
+          "update_gate": {"$ref": "#/components/schemas/UpdateGate"}, "latest_version": {"type": "string"},
+          "maintenance": {"type": "boolean"}, "maintenance_until": {"type": "string", "format": "date-time"}, "maintenance_text": {"type": "string"},
+          "locale": {"type": "string"}, "supported_locales": {"type": "array", "items": {"type": "string"}},
+          "consent_policies": {"type": "array", "items": {"$ref": "#/components/schemas/ConsentPolicy"}},
+          "flags": {"type": "object", "additionalProperties": {"type": "boolean"}},
+          "home_sections": {"type": "array", "items": {"$ref": "#/components/schemas/HomeSection"}}
+        }
+      }
+    }
+  },
+  "x-planext4u-owner": "communications-trust-administration",
+  "x-planext4u-reviewers": ["product", "security", "privacy"],
+  "x-planext4u-classification": "internal",
+  "x-planext4u-slo-class": "critical"
+}

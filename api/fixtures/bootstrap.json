@@ -1,0 +1,18 @@
+{
+  "revision": 7,
+  "published_at": "2026-08-27T10:00:00Z",
+  "update_gate": "NONE",
+  "latest_version": "1.2.0",
+  "maintenance": false,
+  "locale": "en",
+  "supported_locales": ["en", "ta"],
+  "consent_policies": [
+    {"purpose": "ANALYTICS", "policy_version": "privacy-2026-01", "required": false},
+    {"purpose": "LOCATION_SERVICEABILITY", "policy_version": "privacy-2026-01", "required": true}
+  ],
+  "flags": {"customer_home": true, "catalog_search": true},
+  "home_sections": [
+    {"id": "hero", "kind": "HERO", "title_key": "home.hero", "enabled": true, "priority": 10},
+    {"id": "categories", "kind": "CATEGORY_RAIL", "title_key": "home.categories", "enabled": true, "priority": 20}
+  ]
+}

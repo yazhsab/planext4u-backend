@@ -1,0 +1,9 @@
+{
+  "operations": [{"method": "GET", "path": "/v1/bootstrap"}],
+  "required_properties": {
+    "ConsentPolicy": ["purpose", "policy_version", "required"],
+    "HomeSection": ["id", "kind", "title_key", "enabled", "priority"],
+    "Bootstrap": ["revision", "published_at", "update_gate", "latest_version", "maintenance", "locale", "supported_locales", "consent_policies", "flags", "home_sections"]
+  },
+  "enum_values": {"Platform": ["ANDROID", "IOS"], "UpdateGate": ["NONE", "OPTIONAL", "REQUIRED"]}
+}
