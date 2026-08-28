@@ -7,6 +7,11 @@ settlement, attendance, franchise operations and their administrator controls.
 All capacity, lifecycle, location, money, commission and payout decisions remain
 server-owned, idempotent and auditable.
 
+## Completion
+
+All stories `BE-P4-001` through `BE-P4-012` are accepted. The evidence and
+release boundary are recorded in [the Phase 4 exit review](PHASE_4_EXIT_REVIEW.md).
+
 | ID | Story | Depends on | Acceptance evidence |
 | --- | --- | --- | --- |
 | `BE-P4-001` | Publish additive service/supply/food/fulfilment/settlement contracts and service-owned schemas | Phase 3 contracts and ledgers | Compatibility, synthetic fixture and from-zero migration checks pass |
@@ -22,10 +27,10 @@ server-owned, idempotent and auditable.
 | `BE-P4-011` | Implement franchise/field operations, regional dispatch, live maps and supply/SLA administrator controls | 005-010 | Territory isolation, geo check-in, RBAC/MFA/audit and dashboard projection tests pass |
 | `BE-P4-012` | Complete controlled service, food, vendor and rider journeys plus performance/resilience gates | 001-011 | `MOB-E2E-004` through `007`, load, offline recovery, battery and 2 GB device gates pass |
 
-## Entry slice
+## Delivery note
 
-Implementation begins with `BE-P4-001` through `BE-P4-004`. The slice is not
-accepted by the backend merely because a booking row exists: the service must
+Implementation began with `BE-P4-001` through `BE-P4-004`. The slice was not
+accepted by the backend merely because a booking row existed: the service had to
 prevent double holds under concurrency, expire capacity safely, reject stale
 revisions, verify payment state server-side, compensate wallet/provider money,
 protect start OTP material, require completion evidence and enforce actor scope.
