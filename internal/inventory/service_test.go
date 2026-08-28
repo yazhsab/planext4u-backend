@@ -83,6 +83,32 @@ func TestReservationReplayAndCompensation(t *testing.T) {
 	}
 }
 
+func TestCommittedInventoryRestockIsBoundedAndIdempotent(t *testing.T) {
+	t.Parallel()
+	clock := newTestClock()
+	service, _ := NewService([]SeedStock{{Scope: testScope(), VariantID: "variant-return", Quantity: 5}}, clock.Now)
+	reservation, _, _ := service.Reserve(testScope(), "idem-restock-reserve-0001", "order-restock-001", []Line{{VariantID: "variant-return", Quantity: 3}}, clock.Now().Add(10*time.Minute))
+	if _, err := service.Commit(testScope(), reservation.ID); err != nil {
+		t.Fatal(err)
+	}
+	restocked, replayed, err := service.Restock(testScope(), "idem-restock-command-0001", reservation.ID, []Line{{VariantID: "variant-return", Quantity: 2}})
+	if err != nil || replayed || len(restocked.RestockedLines) != 1 || restocked.RestockedLines[0].Quantity != 2 {
+		t.Fatalf("restocked=%#v replayed=%v err=%v", restocked, replayed, err)
+	}
+	if available, _ := service.Available(testScope(), "variant-return"); available != 4 {
+		t.Fatalf("available after restock=%d", available)
+	}
+	if _, replayed, err = service.Restock(testScope(), "idem-restock-command-0001", reservation.ID, []Line{{VariantID: "variant-return", Quantity: 2}}); err != nil || !replayed {
+		t.Fatalf("replay replayed=%v err=%v", replayed, err)
+	}
+	if _, _, err = service.Restock(testScope(), "idem-restock-command-0002", reservation.ID, []Line{{VariantID: "variant-return", Quantity: 2}}); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("over-restock=%v", err)
+	}
+	if available, _ := service.Available(testScope(), "variant-return"); available != 4 {
+		t.Fatalf("stock changed on duplicate=%d", available)
+	}
+}
+
 type testClock struct {
 	mu  sync.Mutex
 	now time.Time

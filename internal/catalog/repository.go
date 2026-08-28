@@ -9,13 +9,48 @@ import (
 )
 
 var (
-	ErrNotFound       = errors.New("catalog item not found")
-	ErrInvalidRequest = errors.New("invalid catalog request")
+	ErrNotFound            = errors.New("catalog item not found")
+	ErrInvalidRequest      = errors.New("invalid catalog request")
+	ErrIdempotencyConflict = errors.New("idempotency key was reused with different input")
 )
 
 type Repository interface {
 	Categories(context.Context, string, string) ([]Category, error)
 	Items(context.Context, string, string) ([]Item, error)
+	AddQuestion(context.Context, string, string, string, Question) (Question, error)
+}
+
+func (repository *MemoryRepository) AddQuestion(_ context.Context, _, _, itemID string, question Question) (Question, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	if repository.err != nil {
+		return Question{}, repository.err
+	}
+	for itemIndex := range repository.items {
+		if repository.items[itemIndex].ID != itemID {
+			continue
+		}
+		for _, existing := range repository.items[itemIndex].Questions {
+			if existing.ID == question.ID {
+				if existing.Question != question.Question || existing.AskedByID != question.AskedByID {
+					return Question{}, ErrIdempotencyConflict
+				}
+				return existing, nil
+			}
+		}
+		pending := 0
+		for _, existing := range repository.items[itemIndex].Questions {
+			if existing.AskedByID == question.AskedByID && existing.Answer == "" {
+				pending++
+			}
+		}
+		if pending >= 5 {
+			return Question{}, ErrQuestionLimit
+		}
+		repository.items[itemIndex].Questions = append(repository.items[itemIndex].Questions, question)
+		return question, nil
+	}
+	return Question{}, ErrNotFound
 }
 
 type MemoryRepository struct {
@@ -41,6 +76,24 @@ func NewMemoryRepository(categories []Category, items []Item) (*MemoryRepository
 		if !safeID(item.ID) || !safeID(item.CategoryID) || strings.TrimSpace(item.Name) == "" ||
 			item.Price.AmountMinor < 0 || len(item.Price.Currency) != 3 || item.RatingAverage < 0 || item.RatingAverage > 5 || item.ReviewCount < 0 {
 			return nil, ErrInvalidRequest
+		}
+		if len(item.MediaRefs) > 20 || len(item.Reviews) > 100 || len(item.Questions) > 100 || len(item.RelatedItemIDs) > 50 || len(item.DeliveryEstimate) > 240 {
+			return nil, ErrInvalidRequest
+		}
+		for _, value := range item.MediaRefs {
+			if !validMediaReference(value) {
+				return nil, ErrInvalidRequest
+			}
+		}
+		for _, review := range item.Reviews {
+			if !safeID(review.ID) || strings.TrimSpace(review.AuthorDisplayName) == "" || review.Score < 1 || review.Score > 5 || strings.TrimSpace(review.Body) == "" || len(review.Body) > 4000 || review.CreatedAt.IsZero() {
+				return nil, ErrInvalidRequest
+			}
+		}
+		for _, question := range item.Questions {
+			if !safeID(question.ID) || strings.TrimSpace(question.Question) == "" || strings.TrimSpace(question.AskedBy) == "" || question.AskedAt.IsZero() || (question.Answer == "") != (question.AnsweredAt == nil) || (question.Answer != "" && strings.TrimSpace(question.AnsweredBy) == "") {
+				return nil, ErrInvalidRequest
+			}
 		}
 		variantIDs := map[string]struct{}{}
 		for _, variant := range item.Variants {
@@ -105,6 +158,16 @@ func cloneItems(values []Item) []Item {
 	result := append([]Item(nil), values...)
 	for index := range result {
 		result[index].SearchTerms = append([]string(nil), result[index].SearchTerms...)
+		result[index].MediaRefs = append([]string(nil), result[index].MediaRefs...)
+		result[index].Reviews = append([]Review(nil), result[index].Reviews...)
+		result[index].Questions = append([]Question(nil), result[index].Questions...)
+		for questionIndex := range result[index].Questions {
+			if answeredAt := result[index].Questions[questionIndex].AnsweredAt; answeredAt != nil {
+				copyTime := *answeredAt
+				result[index].Questions[questionIndex].AnsweredAt = &copyTime
+			}
+		}
+		result[index].RelatedItemIDs = append([]string(nil), result[index].RelatedItemIDs...)
 		result[index].Variants = append([]Variant(nil), result[index].Variants...)
 		for variantIndex := range result[index].Variants {
 			if price := result[index].Variants[variantIndex].CompareAtPrice; price != nil {
@@ -120,6 +183,10 @@ func cloneItems(values []Item) []Item {
 		}
 	}
 	return result
+}
+
+func validMediaReference(value string) bool {
+	return strings.HasPrefix(value, "https://") && len(value) <= 2048 && !strings.ContainsAny(value, "\r\n")
 }
 
 func safeID(value string) bool {

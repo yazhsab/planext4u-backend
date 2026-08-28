@@ -51,7 +51,7 @@ const auditPageSchema = z.object({
   next_cursor: z.string().optional(),
   has_more: z.boolean(),
 });
-const operationDomainSchema = z.enum(["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "SUPPORT", "REPORTING"]);
+const operationDomainSchema = z.enum(["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING"]);
 const operationInputSchema = z.object({
   domain: operationDomainSchema,
   action: z.string().min(1).max(128),

@@ -21,9 +21,76 @@ func NewHandler(service *Service) (http.Handler, error) {
 	mux.HandleFunc("GET /v1/catalog/categories", handler.categories)
 	mux.HandleFunc("GET /v1/catalog/items", handler.items)
 	mux.HandleFunc("GET /v1/catalog/items/{item_id}", handler.item)
+	mux.HandleFunc("POST /v1/catalog/items/{item_id}/questions", handler.askQuestion)
 	mux.HandleFunc("GET /v1/catalog/search", handler.search)
+	mux.HandleFunc("GET /v1/catalog/suggestions", handler.suggestions)
+	mux.HandleFunc("GET /v1/geocoding/search", handler.geocode)
 	mux.HandleFunc("POST /v1/serviceability/check", handler.serviceability)
 	return mux, nil
+}
+
+func (handler *Handler) askQuestion(writer http.ResponseWriter, request *http.Request) {
+	tenant, country, ok := requestScope(writer, request)
+	if !ok {
+		return
+	}
+	subject := strings.TrimSpace(request.Header.Get("X-Planext4u-Subject"))
+	idempotencyKey := strings.TrimSpace(request.Header.Get("Idempotency-Key"))
+	roles := "," + strings.ToUpper(strings.TrimSpace(request.Header.Get("X-Planext4u-Roles"))) + ","
+	if !safeID(subject) || !strings.Contains(roles, ",CUSTOMER,") {
+		writeProblem(writer, request, http.StatusForbidden, "CUSTOMER_REQUIRED", "A customer session is required.", false)
+		return
+	}
+	defer request.Body.Close()
+	var input AskQuestionInput
+	decoder := json.NewDecoder(io.LimitReader(request.Body, 4*1024))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil {
+		writeProblem(writer, request, http.StatusUnprocessableEntity, "QUESTION_INVALID", "Enter a question between 5 and 500 characters.", false)
+		return
+	}
+	value, err := handler.service.AskQuestion(request.Context(), tenant, country, subject, request.PathValue("item_id"), idempotencyKey, input.Question)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		writeProblem(writer, request, http.StatusNotFound, "CATALOG_ITEM_NOT_FOUND", "The catalog item was not found.", false)
+	case errors.Is(err, ErrQuestionLimit):
+		writeProblem(writer, request, http.StatusTooManyRequests, "QUESTION_LIMIT_REACHED", "Wait for the seller to answer your existing questions.", true)
+	case errors.Is(err, ErrIdempotencyConflict):
+		writeProblem(writer, request, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "This request key was already used for a different question.", false)
+	case err != nil:
+		writeProblem(writer, request, http.StatusUnprocessableEntity, "QUESTION_INVALID", "Enter a question between 5 and 500 characters.", false)
+	default:
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(writer).Encode(value)
+	}
+}
+
+func (handler *Handler) suggestions(writer http.ResponseWriter, request *http.Request) {
+	tenant, country, ok := requestScope(writer, request)
+	if !ok {
+		return
+	}
+	values, status, err := handler.service.Suggestions(request.Context(), tenant, country, request.URL.Query().Get("q"))
+	if err != nil {
+		writeProblem(writer, request, http.StatusUnprocessableEntity, "CATALOG_REQUEST_INVALID", "The suggestion request is invalid.", false)
+		return
+	}
+	writeProjection(writer, status, map[string]any{"items": values})
+}
+
+func (handler *Handler) geocode(writer http.ResponseWriter, request *http.Request) {
+	_, country, ok := requestScope(writer, request)
+	if !ok {
+		return
+	}
+	values, err := handler.service.Geocode(country, request.URL.Query().Get("q"))
+	if err != nil {
+		writeProblem(writer, request, http.StatusUnprocessableEntity, "GEOCODING_REQUEST_INVALID", "Enter at least two locality or pincode characters.", false)
+		return
+	}
+	writeProjection(writer, ProjectionFresh, map[string]any{"items": values})
 }
 
 func (handler *Handler) home(writer http.ResponseWriter, request *http.Request) {

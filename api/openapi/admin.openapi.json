@@ -214,7 +214,7 @@
       },
       "AdminOperationDomain": {
         "type": "string",
-        "enum": ["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "SUPPORT", "REPORTING"]
+        "enum": ["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING"]
       },
       "AdminOperationRisk": {"type": "string", "enum": ["STANDARD", "HIGH"]},
       "AdminOperationStatus": {"type": "string", "enum": ["PENDING_APPROVAL", "EXECUTED", "REJECTED"]},

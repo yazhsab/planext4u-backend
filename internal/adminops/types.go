@@ -13,6 +13,7 @@ var (
 	ErrChangeNotFound   = errors.New("admin change not found")
 	ErrRevisionConflict = errors.New("admin change revision conflict")
 	ErrInvalidState     = errors.New("invalid admin change state")
+	ErrExecutionFailed  = errors.New("admin operation execution failed")
 )
 
 type Domain string
@@ -23,6 +24,7 @@ const (
 	DomainPayment   Domain = "PAYMENT"
 	DomainWallet    Domain = "WALLET"
 	DomainCampaign  Domain = "CAMPAIGN"
+	DomainCMS       Domain = "CMS"
 	DomainSupport   Domain = "SUPPORT"
 	DomainReporting Domain = "REPORTING"
 )
@@ -45,6 +47,9 @@ const (
 	ActionCampaignUpsert     = "UPSERT"
 	ActionCampaignActivate   = "ACTIVATE"
 	ActionCampaignPause      = "PAUSE"
+	ActionCMSUpsert          = "UPSERT"
+	ActionCMSPublish         = "PUBLISH"
+	ActionCMSRollback        = "ROLLBACK"
 	ActionSupportUpdate      = "UPDATE_CASE"
 	ActionSupportEscalate    = "ESCALATE"
 	ActionSupportResolve     = "RESOLVE"
@@ -57,6 +62,7 @@ const (
 	CapabilityPayment   = "admin.payment.manage"
 	CapabilityWallet    = "admin.wallet.manage"
 	CapabilityCampaign  = "admin.campaign.manage"
+	CapabilityCMS       = "admin.config.manage"
 	CapabilitySupport   = "admin.support.manage"
 	CapabilityReporting = "admin.reporting.export"
 )
@@ -119,4 +125,17 @@ type AuditEvent struct {
 	Reason        string    `json:"reason"`
 	CorrelationID string    `json:"correlation_id"`
 	CreatedAt     time.Time `json:"created_at"`
+}
+
+// Executor applies an approved command to its owning domain. Implementations
+// must use Change.ID as their idempotency key because approval delivery may be
+// retried after a timeout.
+type Executor interface {
+	Execute(Principal, Change) error
+}
+
+type ExecuteFunc func(Principal, Change) error
+
+func (function ExecuteFunc) Execute(principal Principal, change Change) error {
+	return function(principal, change)
 }

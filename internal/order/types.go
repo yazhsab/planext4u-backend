@@ -1,6 +1,7 @@
 package order
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -129,6 +130,24 @@ type Rating struct {
 	Score     int       `json:"score"`
 	Comment   string    `json:"comment,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type Notification struct {
+	ID          string     `json:"id"`
+	TenantID    string     `json:"tenant_id"`
+	Country     string     `json:"country"`
+	CustomerID  string     `json:"customer_id"`
+	OrderID     string     `json:"order_id"`
+	Status      Status     `json:"status"`
+	Revision    int64      `json:"revision"`
+	Attempts    int        `json:"attempts"`
+	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
+	LastError   string     `json:"last_error,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
+type Notifier interface {
+	Send(context.Context, Notification) error
 }
 
 type Order struct {

@@ -47,6 +47,55 @@ type Account struct {
 }
 
 type RewardPolicy struct {
-	DailyDeviceCap int64
-	Cooldown       time.Duration
+	DailyDeviceCap          int64
+	Cooldown                time.Duration
+	ReferralSenderPoints    int64
+	ReferralRecipientPoints int64
+	ReferralExpiry          time.Duration
+}
+
+type Money struct {
+	AmountMinor int64  `json:"amount_minor"`
+	Currency    string `json:"currency"`
+}
+
+type RefillOffer struct {
+	ID             string        `json:"id"`
+	Country        string        `json:"country"`
+	Points         int64         `json:"points"`
+	BonusPoints    int64         `json:"bonus_points"`
+	Price          Money         `json:"price"`
+	PaymentMethods []string      `json:"payment_methods"`
+	ExpiresAfter   time.Duration `json:"-"`
+}
+
+type RewardCampaign struct {
+	ID          string    `json:"id"`
+	Country     string    `json:"country"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Points      int64     `json:"points"`
+	EndsAt      time.Time `json:"ends_at"`
+}
+
+type Program struct {
+	ReferralBaseURL string
+	RefillOffers    []RefillOffer
+	Campaigns       []RewardCampaign
+}
+
+type ReferralProfile struct {
+	Code            string `json:"code"`
+	ShareURL        string `json:"share_url"`
+	SenderPoints    int64  `json:"sender_points"`
+	RecipientPoints int64  `json:"recipient_points"`
+	PendingCode     string `json:"pending_code,omitempty"`
+	Rewarded        bool   `json:"rewarded"`
+}
+
+type Experience struct {
+	Account   Account          `json:"account"`
+	Referral  ReferralProfile  `json:"referral"`
+	Refills   []RefillOffer    `json:"refills"`
+	Campaigns []RewardCampaign `json:"campaigns"`
 }

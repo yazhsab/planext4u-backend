@@ -30,6 +30,17 @@
         "responses": {"202": {"description": "Queued or policy-suppressed delivery", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Delivery"}}}}, "400": {"$ref": "#/components/responses/Problem"}}
       }
     },
+    "/v1/notifications/devices/current": {
+      "put": {
+        "operationId": "notificationRegisterCurrentDevice",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceRegistrationRequest"}}}},
+        "responses": {"200": {"description": "Current push device registered without exposing its provider token", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceEndpoint"}}}}, "422": {"$ref": "#/components/responses/Problem"}}
+      },
+      "delete": {
+        "operationId": "notificationUnregisterCurrentDevice",
+        "responses": {"204": {"description": "Current push device disabled"}}
+      }
+    },
     "/v1/notifications/{delivery_id}": {
       "get": {
         "operationId": "notificationGetDelivery",
@@ -91,6 +102,16 @@
         "type": "object", "additionalProperties": false,
         "required": ["receipt_id", "delivery_id", "provider_message_id", "status", "occurred_at"],
         "properties": {"receipt_id": {"type": "string"}, "delivery_id": {"type": "string", "format": "uuid"}, "provider_message_id": {"type": "string"}, "status": {"type": "string", "enum": ["DELIVERED", "FAILED"]}, "error_code": {"type": "string"}, "occurred_at": {"type": "string", "format": "date-time"}}
+      },
+      "DeviceRegistrationRequest": {
+        "type": "object", "additionalProperties": false,
+        "required": ["platform", "locale", "token"],
+        "properties": {"platform": {"type": "string", "enum": ["ANDROID", "IOS"]}, "locale": {"type": "string"}, "token": {"type": "string", "minLength": 20, "maxLength": 4096, "writeOnly": true}}
+      },
+      "DeviceEndpoint": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "country", "device_reference", "platform", "locale", "enabled", "updated_at"],
+        "properties": {"id": {"type": "string"}, "country": {"type": "string"}, "device_reference": {"type": "string"}, "platform": {"type": "string", "enum": ["ANDROID", "IOS"]}, "locale": {"type": "string"}, "enabled": {"type": "boolean"}, "updated_at": {"type": "string", "format": "date-time"}}
       }
     }
   },

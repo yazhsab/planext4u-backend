@@ -135,6 +135,8 @@ func (handler *Handler) writeOperationError(writer http.ResponseWriter, request 
 		writeProblem(writer, request, http.StatusConflict, "ADMIN_CHANGE_STALE", "The change was updated by another administrator. Refresh and try again.")
 	case errors.Is(err, adminops.ErrInvalidState):
 		writeProblem(writer, request, http.StatusConflict, "ADMIN_CHANGE_STATE_INVALID", "The change is no longer awaiting approval.")
+	case errors.Is(err, adminops.ErrExecutionFailed):
+		writeProblem(writer, request, http.StatusServiceUnavailable, "ADMIN_DOMAIN_EXECUTION_FAILED", "The owning service did not apply the operation. It remains safe to retry.")
 	default:
 		writeProblem(writer, request, http.StatusUnprocessableEntity, "ADMIN_OPERATION_INVALID", "Check the operation details and try again.")
 	}

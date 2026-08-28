@@ -20,7 +20,7 @@ import { Badge } from "../components/badge";
 import { Button } from "../components/button";
 import { StatePanel } from "../components/state-panel";
 
-const domainSchema = z.enum(["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "SUPPORT", "REPORTING"]);
+const domainSchema = z.enum(["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING"]);
 const operationSchema = z.object({
   domain: domainSchema,
   action: z.string().min(1),
@@ -37,6 +37,7 @@ const domainCapabilities: Record<OperationDomain, string> = {
   PAYMENT: "admin.payment.manage",
   WALLET: "admin.wallet.manage",
   CAMPAIGN: "admin.campaign.manage",
+  CMS: "admin.config.manage",
   SUPPORT: "admin.support.manage",
   REPORTING: "admin.reporting.export",
 };
@@ -47,6 +48,7 @@ const actionOptions: Record<OperationDomain, {value: string; label: string}[]> =
   PAYMENT: [{value: "REFUND", label: "Issue refund"}, {value: "RECONCILE", label: "Reconcile payment"}, {value: "MARK_COD_COLLECTED", label: "Mark COD collected"}],
   WALLET: [{value: "ADJUST", label: "Adjust points"}, {value: "REVERSE", label: "Reverse entry"}, {value: "FREEZE", label: "Freeze wallet"}],
   CAMPAIGN: [{value: "UPSERT", label: "Save campaign"}, {value: "ACTIVATE", label: "Activate campaign"}, {value: "PAUSE", label: "Pause campaign"}],
+  CMS: [{value: "UPSERT", label: "Save content revision"}, {value: "PUBLISH", label: "Publish content"}, {value: "ROLLBACK", label: "Roll back content"}],
   SUPPORT: [{value: "UPDATE_CASE", label: "Update case"}, {value: "ESCALATE", label: "Escalate case"}, {value: "RESOLVE", label: "Resolve case"}],
   REPORTING: [{value: "EXPORT", label: "Request export"}],
 };
@@ -66,7 +68,7 @@ export function OperationsPage() {
     return <StatePanel icon={LockKeyhole} title="Operations access unavailable" message="Your administrator role cannot view privileged operations." />;
   }
   if (availableDomains.length === 0) {
-    return <StatePanel icon={LockKeyhole} title="No operational domain assigned" message="Your role does not currently include a catalog, order, payment, wallet, campaign, support, or reporting capability." />;
+    return <StatePanel icon={LockKeyhole} title="No operational domain assigned" message="Your role does not currently include a catalog, order, payment, wallet, campaign, CMS, support, or reporting capability." />;
   }
 
   return (

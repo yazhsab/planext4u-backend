@@ -76,6 +76,67 @@ func TestWalletIdempotencyReferralAndAntiAbuse(t *testing.T) {
 	}
 }
 
+func TestPartialRefundPreservesFIFOExpiryAndCapsOriginalDebit(t *testing.T) {
+	t.Parallel()
+	clock := newWalletClock()
+	service, _ := NewService(clock.Now, RewardPolicy{})
+	scope := walletScope()
+	firstExpiry := clock.Now().Add(24 * time.Hour)
+	secondExpiry := clock.Now().Add(48 * time.Hour)
+	_, _, _ = service.Credit(scope, "idem-partial-credit-0001", "ORDER_REWARD", "order-partial-001", 40, firstExpiry)
+	_, _, _ = service.Credit(scope, "idem-partial-credit-0002", "PROMOTION", "campaign-partial-001", 60, secondExpiry)
+	debit, _, _ := service.Redeem(scope, "idem-partial-debit-0001", "checkout-partial-001", 80)
+	first, _, err := service.RefundDebit(scope, "idem-partial-refund-0001", debit.ID, "return-partial-001", 30)
+	if err != nil || first.DeltaPoints != 30 || first.OriginalExpiryAt == nil || !first.OriginalExpiryAt.Equal(firstExpiry) {
+		t.Fatalf("first partial refund=%#v err=%v", first, err)
+	}
+	second, _, err := service.RefundDebit(scope, "idem-partial-refund-0002", debit.ID, "return-partial-002", 50)
+	if err != nil || second.DeltaPoints != 50 || second.OriginalExpiryAt == nil || !second.OriginalExpiryAt.Equal(firstExpiry) {
+		t.Fatalf("second partial refund=%#v err=%v", second, err)
+	}
+	if _, _, err := service.RefundDebit(scope, "idem-partial-refund-0003", debit.ID, "return-partial-003", 1); !errors.Is(err, ErrAlreadyReversed) {
+		t.Fatalf("over-refund=%v", err)
+	}
+	account, _ := service.Account(scope)
+	if account.Balance != 100 || !Verify(account) {
+		t.Fatalf("account=%#v", account)
+	}
+}
+
+func TestReferralIsAppliedThenAwardedOnlyByCapturedPurchase(t *testing.T) {
+	t.Parallel()
+	clock := func() time.Time { return time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC) }
+	service, err := NewServiceWithProgram(clock, RewardPolicy{DailyDeviceCap: 100, Cooldown: time.Minute, ReferralSenderPoints: 500, ReferralRecipientPoints: 250, ReferralExpiry: 365 * 24 * time.Hour}, Program{ReferralBaseURL: "https://planext4u.net/referral"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := Scope{TenantID: "tenant-synthetic-001", Country: "IN", CustomerID: "customer-referrer-001"}
+	referred := Scope{TenantID: "tenant-synthetic-001", Country: "IN", CustomerID: "customer-referred-001"}
+	ownerExperience, _ := service.Experience(owner)
+	if ownerExperience.Referral.Code == "" || ownerExperience.Referral.ShareURL == "" {
+		t.Fatalf("owner referral=%#v", ownerExperience.Referral)
+	}
+	applied, replayed, err := service.ApplyReferral(referred, "idem-referral-apply-0001", ownerExperience.Referral.Code)
+	if err != nil || replayed || applied.PendingCode != ownerExperience.Referral.Code {
+		t.Fatalf("applied=%#v replayed=%v err=%v", applied, replayed, err)
+	}
+	if account, _ := service.Account(referred); account.Balance != 0 {
+		t.Fatalf("points awarded before purchase=%#v", account)
+	}
+	entries, err := service.ActivateReferral(referred, "payment-first-purchase-001")
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("entries=%#v err=%v", entries, err)
+	}
+	ownerAccount, _ := service.Account(owner)
+	referredAccount, _ := service.Account(referred)
+	if ownerAccount.Balance != 500 || referredAccount.Balance != 250 || !Verify(ownerAccount) || !Verify(referredAccount) {
+		t.Fatalf("owner=%#v referred=%#v", ownerAccount, referredAccount)
+	}
+	if _, err = service.ActivateReferral(referred, "payment-first-purchase-002"); !errors.Is(err, ErrRewardNotEligible) {
+		t.Fatalf("second award=%v", err)
+	}
+}
+
 type walletClock struct {
 	mu    sync.Mutex
 	value time.Time

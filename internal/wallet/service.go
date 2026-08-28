@@ -28,6 +28,7 @@ type accountState struct {
 	lots        []lot
 	allocations map[string][]allocation
 	reversed    map[string]bool
+	refunded    map[string]int64
 }
 
 type replay struct {
@@ -36,24 +37,138 @@ type replay struct {
 }
 
 type Service struct {
-	clock        func() time.Time
-	rewardPolicy RewardPolicy
-	mu           sync.Mutex
-	accounts     map[string]*accountState
-	requests     map[string]replay
-	referrals    map[string]bool
-	rewardUsage  map[string]int64
-	rewardLast   map[string]time.Time
+	clock              func() time.Time
+	rewardPolicy       RewardPolicy
+	program            Program
+	mu                 sync.Mutex
+	accounts           map[string]*accountState
+	requests           map[string]replay
+	referrals          map[string]bool
+	rewardUsage        map[string]int64
+	rewardLast         map[string]time.Time
+	referralCodes      map[string]Scope
+	pendingReferrals   map[string]string
+	activatedReferrals map[string]bool
+	referralRequests   map[string]string
 }
 
 func NewService(clock func() time.Time, rewardPolicy RewardPolicy) (*Service, error) {
-	if clock == nil || rewardPolicy.DailyDeviceCap < 0 || rewardPolicy.Cooldown < 0 {
+	return NewServiceWithProgram(clock, rewardPolicy, Program{})
+}
+
+func NewServiceWithProgram(clock func() time.Time, rewardPolicy RewardPolicy, program Program) (*Service, error) {
+	if clock == nil || rewardPolicy.DailyDeviceCap < 0 || rewardPolicy.Cooldown < 0 || rewardPolicy.ReferralSenderPoints < 0 || rewardPolicy.ReferralRecipientPoints < 0 || rewardPolicy.ReferralExpiry < 0 || !validProgram(program) {
 		return nil, ErrInvalidRequest
 	}
 	return &Service{
-		clock: clock, rewardPolicy: rewardPolicy, accounts: map[string]*accountState{}, requests: map[string]replay{},
+		clock: clock, rewardPolicy: rewardPolicy, program: cloneProgram(program), accounts: map[string]*accountState{}, requests: map[string]replay{},
 		referrals: map[string]bool{}, rewardUsage: map[string]int64{}, rewardLast: map[string]time.Time{},
+		referralCodes: map[string]Scope{}, pendingReferrals: map[string]string{}, activatedReferrals: map[string]bool{}, referralRequests: map[string]string{},
 	}, nil
+}
+
+func (service *Service) Experience(scope Scope) (Experience, error) {
+	account, err := service.Account(scope)
+	if err != nil {
+		return Experience{}, err
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	code := referralCode(scope)
+	service.referralCodes[code] = scope
+	profile := ReferralProfile{Code: code, SenderPoints: service.rewardPolicy.ReferralSenderPoints, RecipientPoints: service.rewardPolicy.ReferralRecipientPoints, PendingCode: service.pendingReferrals[scopeKey(scope)], Rewarded: service.activatedReferrals[scopeKey(scope)]}
+	if service.program.ReferralBaseURL != "" {
+		profile.ShareURL = strings.TrimRight(service.program.ReferralBaseURL, "/") + "/" + code
+	}
+	refills := []RefillOffer{}
+	for _, value := range service.program.RefillOffers {
+		if value.Country == scope.Country {
+			refills = append(refills, cloneRefillOffer(value))
+		}
+	}
+	campaigns := []RewardCampaign{}
+	now := service.clock().UTC()
+	for _, value := range service.program.Campaigns {
+		if value.Country == scope.Country && now.Before(value.EndsAt) {
+			campaigns = append(campaigns, value)
+		}
+	}
+	return Experience{Account: account, Referral: profile, Refills: refills, Campaigns: campaigns}, nil
+}
+
+func (service *Service) RefillOffer(scope Scope, offerID string) (RefillOffer, error) {
+	if !validScope(scope) || !safeID(offerID) {
+		return RefillOffer{}, ErrInvalidRequest
+	}
+	for _, value := range service.program.RefillOffers {
+		if value.ID == offerID && value.Country == scope.Country {
+			return cloneRefillOffer(value), nil
+		}
+	}
+	return RefillOffer{}, ErrEntryNotFound
+}
+
+// ApplyReferral records a referral for award only after the referred
+// customer's first captured purchase. It does not mint points client-side.
+func (service *Service) ApplyReferral(scope Scope, idempotencyKey, code string) (ReferralProfile, bool, error) {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if !validScope(scope) || !safeID(idempotencyKey) || len(idempotencyKey) < 16 || !safeID(code) {
+		return ReferralProfile{}, false, ErrInvalidRequest
+	}
+	requestKey := scopeKey(scope) + "\x00" + idempotencyKey
+	service.mu.Lock()
+	if existing, ok := service.referralRequests[requestKey]; ok {
+		if existing != code {
+			service.mu.Unlock()
+			return ReferralProfile{}, false, ErrIdempotencyConflict
+		}
+		service.mu.Unlock()
+		experience, err := service.Experience(scope)
+		return experience.Referral, true, err
+	}
+	owner, exists := service.referralCodes[code]
+	key := scopeKey(scope)
+	if !exists || owner == scope || service.pendingReferrals[key] != "" || service.activatedReferrals[key] {
+		service.mu.Unlock()
+		return ReferralProfile{}, false, ErrRewardNotEligible
+	}
+	service.pendingReferrals[key] = code
+	service.referralRequests[requestKey] = code
+	service.mu.Unlock()
+	experience, err := service.Experience(scope)
+	return experience.Referral, false, err
+}
+
+// ActivateReferral is called only by the authoritative captured-payment path.
+func (service *Service) ActivateReferral(referred Scope, purchaseReference string) ([]LedgerEntry, error) {
+	if !validScope(referred) || !safeID(purchaseReference) {
+		return nil, ErrInvalidRequest
+	}
+	service.mu.Lock()
+	key := scopeKey(referred)
+	code := service.pendingReferrals[key]
+	owner, exists := service.referralCodes[code]
+	already := service.activatedReferrals[key]
+	service.mu.Unlock()
+	if already || !exists || service.rewardPolicy.ReferralSenderPoints < 1 || service.rewardPolicy.ReferralRecipientPoints < 1 || service.rewardPolicy.ReferralExpiry <= 0 {
+		return nil, ErrRewardNotEligible
+	}
+	expiresAt := service.clock().UTC().Add(service.rewardPolicy.ReferralExpiry)
+	digest := sha256.Sum256([]byte(key + "\x00" + purchaseReference))
+	seed := hex.EncodeToString(digest[:8])
+	sender, _, err := service.AwardReferral(owner, "referral-sender-"+seed, "purchase-"+seed, service.rewardPolicy.ReferralSenderPoints, expiresAt)
+	if err != nil {
+		return nil, err
+	}
+	recipient, _, err := service.AwardReferral(referred, "referral-recipient-"+seed, "purchase-"+seed, service.rewardPolicy.ReferralRecipientPoints, expiresAt)
+	if err != nil {
+		return nil, err
+	}
+	service.mu.Lock()
+	service.activatedReferrals[key] = true
+	delete(service.pendingReferrals, key)
+	service.mu.Unlock()
+	return []LedgerEntry{sender, recipient}, nil
 }
 
 func (service *Service) Account(scope Scope) (Account, error) {
@@ -145,18 +260,90 @@ func (service *Service) ReverseDebit(scope Scope, idempotencyKey, debitEntryID, 
 	if state.reversed[debitEntryID] {
 		return LedgerEntry{}, false, ErrAlreadyReversed
 	}
+	var total int64
+	for _, item := range allocations {
+		total += item.points
+	}
+	already := state.refunded[debitEntryID]
 	var points int64
 	var earliest *time.Time
+	skip := already
 	for _, item := range allocations {
-		points += item.points
+		available := item.points
+		if skip >= available {
+			skip -= available
+			continue
+		}
+		available -= skip
+		skip = 0
+		points += available
 		expiry := item.expiresAt
 		if earliest == nil || expiry.Before(*earliest) {
 			earliest = &expiry
 		}
-		state.lots = append(state.lots, lot{id: debitEntryID + ":reversal:" + item.lotID, remaining: item.points, expiresAt: expiry})
+		state.lots = append(state.lots, lot{id: debitEntryID + ":reversal:" + item.lotID, remaining: available, expiresAt: expiry})
+	}
+	if points == 0 {
+		return LedgerEntry{}, false, ErrAlreadyReversed
 	}
 	entry := service.appendLocked(scope, state, idempotencyKey, EntryReversal, "ORDER_REFUND", sourceReference, debitEntryID, points, earliest)
 	state.reversed[debitEntryID] = true
+	state.refunded[debitEntryID] = total
+	service.rememberLocked(scope, idempotencyKey, fingerprint, entry)
+	service.expireLocked(scope, service.clock().UTC())
+	return entry, false, nil
+}
+
+// RefundDebit restores part of a checkout redemption while retaining the
+// original FIFO expiry dates. Multiple partial refunds may not exceed the
+// original debit and each command is idempotent.
+func (service *Service) RefundDebit(scope Scope, idempotencyKey, debitEntryID, sourceReference string, points int64) (LedgerEntry, bool, error) {
+	if !validScope(scope) || !validCommand(idempotencyKey, "ORDER_REFUND", sourceReference) || !safeID(debitEntryID) || points < 1 {
+		return LedgerEntry{}, false, ErrInvalidRequest
+	}
+	fingerprint := fmt.Sprintf("partial-refund\x00%s\x00%s\x00%d", debitEntryID, sourceReference, points)
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if entry, replayed, err := service.replayLocked(scope, idempotencyKey, fingerprint); replayed || err != nil {
+		return entry, replayed, err
+	}
+	state := service.accountLocked(scope)
+	allocations, exists := state.allocations[debitEntryID]
+	if !exists {
+		return LedgerEntry{}, false, ErrEntryNotFound
+	}
+	var total int64
+	for _, value := range allocations {
+		total += value.points
+	}
+	already := state.refunded[debitEntryID]
+	if points > total-already {
+		return LedgerEntry{}, false, ErrAlreadyReversed
+	}
+	remaining, skip := points, already
+	var earliest *time.Time
+	for _, value := range allocations {
+		available := value.points
+		if skip >= available {
+			skip -= available
+			continue
+		}
+		available -= skip
+		skip = 0
+		restored := min64(available, remaining)
+		expiry := value.expiresAt
+		state.lots = append(state.lots, lot{id: fmt.Sprintf("%s:refund:%d:%s", debitEntryID, already+points-remaining, value.lotID), remaining: restored, expiresAt: expiry})
+		if earliest == nil || expiry.Before(*earliest) {
+			earliest = &expiry
+		}
+		remaining -= restored
+		if remaining == 0 {
+			break
+		}
+	}
+	entry := service.appendLocked(scope, state, idempotencyKey, EntryReversal, "ORDER_REFUND", sourceReference, debitEntryID, points, earliest)
+	state.refunded[debitEntryID] += points
+	state.reversed[debitEntryID] = state.refunded[debitEntryID] == total
 	service.rememberLocked(scope, idempotencyKey, fingerprint, entry)
 	service.expireLocked(scope, service.clock().UTC())
 	return entry, false, nil
@@ -262,7 +449,7 @@ func (service *Service) accountLocked(scope Scope) *accountState {
 	key := scopeKey(scope)
 	state := service.accounts[key]
 	if state == nil {
-		state = &accountState{allocations: map[string][]allocation{}, reversed: map[string]bool{}}
+		state = &accountState{allocations: map[string][]allocation{}, reversed: map[string]bool{}, refunded: map[string]int64{}}
 		service.accounts[key] = state
 	}
 	return state
@@ -296,6 +483,49 @@ func min64(left, right int64) int64 {
 		return left
 	}
 	return right
+}
+
+func validProgram(value Program) bool {
+	if value.ReferralBaseURL != "" && (!strings.HasPrefix(value.ReferralBaseURL, "https://") || len(value.ReferralBaseURL) > 500) {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, offer := range value.RefillOffers {
+		if !safeID(offer.ID) || len(offer.Country) != 2 || offer.Country != strings.ToUpper(offer.Country) || offer.Points < 1 || offer.BonusPoints < 0 || offer.Price.AmountMinor < 1 || len(offer.Price.Currency) != 3 || offer.Price.Currency != strings.ToUpper(offer.Price.Currency) || offer.ExpiresAfter <= 0 || offer.ExpiresAfter > 3*365*24*time.Hour || len(offer.PaymentMethods) == 0 || seen[offer.Country+"\x00"+offer.ID] {
+			return false
+		}
+		for _, method := range offer.PaymentMethods {
+			if method != "RAZORPAY" && method != "PAYSTACK" {
+				return false
+			}
+		}
+		seen[offer.Country+"\x00"+offer.ID] = true
+	}
+	for _, campaign := range value.Campaigns {
+		if !safeID(campaign.ID) || len(campaign.Country) != 2 || strings.TrimSpace(campaign.Title) == "" || strings.TrimSpace(campaign.Description) == "" || campaign.Points < 1 || campaign.EndsAt.IsZero() {
+			return false
+		}
+	}
+	return true
+}
+
+func referralCode(scope Scope) string {
+	digest := sha256.Sum256([]byte(scopeKey(scope)))
+	return "P4U" + strings.ToUpper(hex.EncodeToString(digest[:4]))
+}
+
+func cloneRefillOffer(value RefillOffer) RefillOffer {
+	value.PaymentMethods = append([]string(nil), value.PaymentMethods...)
+	return value
+}
+
+func cloneProgram(value Program) Program {
+	value.RefillOffers = append([]RefillOffer(nil), value.RefillOffers...)
+	for index := range value.RefillOffers {
+		value.RefillOffers[index] = cloneRefillOffer(value.RefillOffers[index])
+	}
+	value.Campaigns = append([]RewardCampaign(nil), value.Campaigns...)
+	return value
 }
 
 func Sum(entries []LedgerEntry) int64 {

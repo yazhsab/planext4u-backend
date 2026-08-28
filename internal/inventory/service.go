@@ -15,12 +15,18 @@ type replayRecord struct {
 	value       Reservation
 }
 
+type restockReplay struct {
+	fingerprint string
+	value       Reservation
+}
+
 type Service struct {
 	clock        func() time.Time
 	mu           sync.Mutex
 	stock        map[string]int
 	reservations map[string]Reservation
 	requests     map[string]replayRecord
+	restocks     map[string]restockReplay
 }
 
 func NewService(seed []SeedStock, clock func() time.Time) (*Service, error) {
@@ -28,7 +34,7 @@ func NewService(seed []SeedStock, clock func() time.Time) (*Service, error) {
 		return nil, ErrInvalidRequest
 	}
 	service := &Service{
-		clock: clock, stock: map[string]int{}, reservations: map[string]Reservation{}, requests: map[string]replayRecord{},
+		clock: clock, stock: map[string]int{}, reservations: map[string]Reservation{}, requests: map[string]replayRecord{}, restocks: map[string]restockReplay{},
 	}
 	for _, item := range seed {
 		if !validScope(item.Scope) || !safeID(item.VariantID) || item.Quantity < 0 {
@@ -50,6 +56,19 @@ func (service *Service) Available(scope Scope, variantID string) (int, error) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	return service.stock[stockKey(scope, variantID)], nil
+}
+
+func (service *Service) Get(scope Scope, reservationID string) (Reservation, error) {
+	if !validScope(scope) || !safeID(reservationID) {
+		return Reservation{}, ErrInvalidRequest
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	value, exists := service.reservations[reservationID]
+	if !exists || value.TenantID != scope.TenantID || value.Country != scope.Country {
+		return Reservation{}, ErrReservationNotFound
+	}
+	return cloneReservation(value), nil
 }
 
 func (service *Service) Reserve(scope Scope, idempotencyKey, orderReference string, lines []Line, expiresAt time.Time) (Reservation, bool, error) {
@@ -92,6 +111,46 @@ func (service *Service) Commit(scope Scope, reservationID string) (Reservation, 
 
 func (service *Service) Release(scope Scope, reservationID string) (Reservation, error) {
 	return service.transition(scope, reservationID, StateReleased)
+}
+
+// Restock returns received goods from a committed order to sellable inventory.
+// Each command is idempotent and cumulative restocks cannot exceed the original
+// reservation, which prevents duplicate return and webhook processing from
+// inflating stock.
+func (service *Service) Restock(scope Scope, idempotencyKey, reservationID string, lines []Line) (Reservation, bool, error) {
+	normalized, fingerprint, err := normalizeRestock(scope, idempotencyKey, reservationID, lines)
+	if err != nil {
+		return Reservation{}, false, err
+	}
+	requestKey := "restock\x00" + scopeKey(scope) + "\x00" + idempotencyKey
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if replay, exists := service.restocks[requestKey]; exists {
+		if replay.fingerprint != fingerprint {
+			return Reservation{}, false, ErrIdempotencyConflict
+		}
+		return cloneReservation(replay.value), true, nil
+	}
+	value, exists := service.reservations[reservationID]
+	if !exists || value.TenantID != scope.TenantID || value.Country != scope.Country {
+		return Reservation{}, false, ErrReservationNotFound
+	}
+	if value.State != StateCommitted {
+		return Reservation{}, false, ErrInvalidTransition
+	}
+	original := quantities(value.Lines)
+	already := quantities(value.RestockedLines)
+	for _, line := range normalized {
+		if line.Quantity > original[line.VariantID]-already[line.VariantID] {
+			return Reservation{}, false, ErrInvalidTransition
+		}
+	}
+	service.restoreLocked(scope, normalized)
+	value.RestockedLines = mergeLines(value.RestockedLines, normalized)
+	value.UpdatedAt = service.clock().UTC()
+	service.reservations[reservationID] = cloneReservation(value)
+	service.restocks[requestKey] = restockReplay{fingerprint: fingerprint, value: cloneReservation(value)}
+	return cloneReservation(value), false, nil
 }
 
 func (service *Service) transition(scope Scope, reservationID string, target ReservationState) (Reservation, error) {
@@ -178,6 +237,60 @@ func normalizeRequest(scope Scope, idempotencyKey, orderReference string, lines 
 	return normalized, hex.EncodeToString(digest[:]), nil
 }
 
+func normalizeRestock(scope Scope, idempotencyKey, reservationID string, lines []Line) ([]Line, string, error) {
+	if !validScope(scope) || !safeID(idempotencyKey) || len(idempotencyKey) < 16 || !safeID(reservationID) || len(lines) == 0 || len(lines) > 100 {
+		return nil, "", ErrInvalidRequest
+	}
+	values := map[string]int{}
+	for _, line := range lines {
+		if !safeID(line.VariantID) || line.Quantity < 1 || line.Quantity > 999 {
+			return nil, "", ErrInvalidRequest
+		}
+		values[line.VariantID] += line.Quantity
+		if values[line.VariantID] > 999 {
+			return nil, "", ErrInvalidRequest
+		}
+	}
+	ids := make([]string, 0, len(values))
+	for id := range values {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	normalized := make([]Line, 0, len(ids))
+	parts := []string{scopeKey(scope), reservationID}
+	for _, id := range ids {
+		normalized = append(normalized, Line{VariantID: id, Quantity: values[id]})
+		parts = append(parts, fmt.Sprintf("%s:%d", id, values[id]))
+	}
+	digest := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return normalized, hex.EncodeToString(digest[:]), nil
+}
+
+func quantities(lines []Line) map[string]int {
+	result := map[string]int{}
+	for _, line := range lines {
+		result[line.VariantID] += line.Quantity
+	}
+	return result
+}
+
+func mergeLines(existing, added []Line) []Line {
+	values := quantities(existing)
+	for _, line := range added {
+		values[line.VariantID] += line.Quantity
+	}
+	ids := make([]string, 0, len(values))
+	for id := range values {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	result := make([]Line, 0, len(ids))
+	for _, id := range ids {
+		result = append(result, Line{VariantID: id, Quantity: values[id]})
+	}
+	return result
+}
+
 func validScope(scope Scope) bool {
 	return safeID(scope.TenantID) && len(scope.Country) == 2 && strings.ToUpper(scope.Country) == scope.Country
 }
@@ -199,5 +312,6 @@ func stockKey(scope Scope, variantID string) string { return scopeKey(scope) + "
 
 func cloneReservation(value Reservation) Reservation {
 	value.Lines = append([]Line(nil), value.Lines...)
+	value.RestockedLines = append([]Line(nil), value.RestockedLines...)
 	return value
 }

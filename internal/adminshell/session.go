@@ -178,6 +178,7 @@ func grantAllOperations(result map[string]bool) {
 		adminops.CapabilityPayment,
 		adminops.CapabilityWallet,
 		adminops.CapabilityCampaign,
+		adminops.CapabilityCMS,
 		adminops.CapabilitySupport,
 		adminops.CapabilityReporting,
 	} {

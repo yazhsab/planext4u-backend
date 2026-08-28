@@ -1,7 +1,9 @@
 package order
 
 import (
+	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -88,6 +90,51 @@ func TestOrderOwnershipIsolation(t *testing.T) {
 	if _, _, err := service.Transition(other, "idem-order-owner-0002", created.ID, created.Revision, StatusAccepted, "VENDOR", ""); !errors.Is(err, ErrOrderNotFound) {
 		t.Fatalf("cross-customer mutation = %v", err)
 	}
+}
+
+func TestNotificationFailureDoesNotRollbackOrderAndRetries(t *testing.T) {
+	t.Parallel()
+	notifier := &flakyOrderNotifier{failures: 1}
+	service, _ := NewServiceWithNotifier(orderClock, notifier)
+	scope := orderScope()
+	created, _, err := service.Create(scope, "idem-order-notify-0001", orderSnapshot(), true)
+	if err != nil || created.Status != StatusPlaced {
+		t.Fatalf("create=%#v err=%v", created, err)
+	}
+	if delivered, err := service.ProcessNotifications(context.Background(), 10); err != nil || delivered != 0 {
+		t.Fatalf("first delivery=%d err=%v", delivered, err)
+	}
+	pending, err := service.PendingNotifications(scope)
+	if err != nil || len(pending) != 1 || pending[0].Attempts != 1 || pending[0].LastError != "NOTIFICATION_PROVIDER_FAILED" {
+		t.Fatalf("pending=%#v err=%v", pending, err)
+	}
+	if current, err := service.Get(scope, created.ID); err != nil || current.Status != StatusPlaced {
+		t.Fatalf("order rolled back=%#v err=%v", current, err)
+	}
+	if delivered, err := service.ProcessNotifications(context.Background(), 10); err != nil || delivered != 1 {
+		t.Fatalf("retry delivery=%d err=%v", delivered, err)
+	}
+	pending, _ = service.PendingNotifications(scope)
+	if len(pending) != 0 || notifier.calls != 2 {
+		t.Fatalf("pending=%#v calls=%d", pending, notifier.calls)
+	}
+}
+
+type flakyOrderNotifier struct {
+	mu       sync.Mutex
+	failures int
+	calls    int
+}
+
+func (notifier *flakyOrderNotifier) Send(_ context.Context, _ Notification) error {
+	notifier.mu.Lock()
+	defer notifier.mu.Unlock()
+	notifier.calls++
+	if notifier.failures > 0 {
+		notifier.failures--
+		return errors.New("synthetic notification failure")
+	}
+	return nil
 }
 
 func orderSnapshot() CheckoutSnapshot {

@@ -1,6 +1,8 @@
 package checkout
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -22,11 +24,20 @@ func NewHandler(service *Service) (http.Handler, error) {
 	handler := &Handler{service: service}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/addresses", handler.addresses)
+	mux.HandleFunc("POST /v1/addresses", handler.createAddress)
+	mux.HandleFunc("PATCH /v1/addresses/{address_id}", handler.updateAddress)
+	mux.HandleFunc("DELETE /v1/addresses/{address_id}", handler.deleteAddress)
 	mux.HandleFunc("GET /v1/delivery-slots", handler.slots)
 	mux.HandleFunc("POST /v1/checkout/quotes", handler.quote)
 	mux.HandleFunc("POST /v1/checkout/orders", handler.place)
 	mux.HandleFunc("GET /v1/payments/{payment_id}", handler.getPayment)
-	mux.HandleFunc("POST /v1/payments/webhooks/{provider}", handler.webhook)
+	mux.HandleFunc("POST /v1/payments/{payment_id}/retry", handler.retryPayment)
+	mux.HandleFunc("POST /v1/payments/webhooks/razorpay", func(writer http.ResponseWriter, request *http.Request) {
+		handler.webhook(writer, request, payment.MethodRazorpay)
+	})
+	mux.HandleFunc("POST /v1/payments/webhooks/paystack", func(writer http.ResponseWriter, request *http.Request) {
+		handler.webhook(writer, request, payment.MethodPaystack)
+	})
 	mux.HandleFunc("GET /v1/orders", handler.listOrders)
 	mux.HandleFunc("GET /v1/orders/{order_id}", handler.getOrder)
 	mux.HandleFunc("POST /v1/orders/{order_id}/cancel", handler.cancelOrder)
@@ -34,7 +45,98 @@ func NewHandler(service *Service) (http.Handler, error) {
 	mux.HandleFunc("POST /v1/orders/{order_id}/returns", handler.requestReturn)
 	mux.HandleFunc("POST /v1/orders/{order_id}/rating", handler.rateOrder)
 	mux.HandleFunc("GET /v1/wallet", handler.getWallet)
+	mux.HandleFunc("GET /v1/wallet/experience", handler.getWalletExperience)
+	mux.HandleFunc("POST /v1/wallet/referrals", handler.applyReferral)
+	mux.HandleFunc("POST /v1/wallet/refills", handler.createWalletRefill)
 	return mux, nil
+}
+
+func (handler *Handler) createAddress(writer http.ResponseWriter, request *http.Request) {
+	scope, ok := customerScope(writer, request)
+	if !ok {
+		return
+	}
+	var input AddressInput
+	if !decodeJSON(request, &input) {
+		writeProblem(writer, request, http.StatusUnprocessableEntity, "ADDRESS_REQUEST_INVALID", "Check the address details.")
+		return
+	}
+	value, replayed, err := handler.service.CreateAddress(scope, strings.TrimSpace(request.Header.Get("Idempotency-Key")), input)
+	if err != nil {
+		handler.writeError(writer, request, err)
+		return
+	}
+	writer.Header().Set("ETag", strconv.Quote(strconv.FormatInt(value.Revision, 10)))
+	writeJSON(writer, http.StatusCreated, value, replayed)
+}
+
+func (handler *Handler) updateAddress(writer http.ResponseWriter, request *http.Request) {
+	scope, ok := customerScope(writer, request)
+	if !ok {
+		return
+	}
+	var input AddressInput
+	if !decodeJSON(request, &input) {
+		writeProblem(writer, request, http.StatusUnprocessableEntity, "ADDRESS_REQUEST_INVALID", "Check the address details.")
+		return
+	}
+	revision, err := parseRevision(request.Header.Get("If-Match"))
+	if err != nil {
+		writeProblem(writer, request, http.StatusUnprocessableEntity, "ADDRESS_REQUEST_INVALID", "Idempotency-Key and If-Match are required.")
+		return
+	}
+	value, replayed, err := handler.service.UpdateAddress(scope, strings.TrimSpace(request.Header.Get("Idempotency-Key")), request.PathValue("address_id"), revision, input)
+	if err != nil {
+		handler.writeError(writer, request, err)
+		return
+	}
+	writer.Header().Set("ETag", strconv.Quote(strconv.FormatInt(value.Revision, 10)))
+	writeJSON(writer, http.StatusOK, value, replayed)
+}
+
+func (handler *Handler) deleteAddress(writer http.ResponseWriter, request *http.Request) {
+	scope, ok := customerScope(writer, request)
+	if !ok {
+		return
+	}
+	revision, err := parseRevision(request.Header.Get("If-Match"))
+	if err != nil {
+		writeProblem(writer, request, http.StatusUnprocessableEntity, "ADDRESS_REQUEST_INVALID", "Idempotency-Key and If-Match are required.")
+		return
+	}
+	replayed, err := handler.service.DeleteAddress(scope, strings.TrimSpace(request.Header.Get("Idempotency-Key")), request.PathValue("address_id"), revision)
+	if err != nil {
+		handler.writeError(writer, request, err)
+		return
+	}
+	if replayed {
+		writer.Header().Set("X-Idempotent-Replay", "true")
+	}
+	writer.WriteHeader(http.StatusNoContent)
+}
+
+func (handler *Handler) retryPayment(writer http.ResponseWriter, request *http.Request) {
+	scope, ok := customerScope(writer, request)
+	if !ok {
+		return
+	}
+	if request.Body != nil && request.Body != http.NoBody {
+		var input struct{}
+		if !decodeJSON(request, &input) {
+			writeProblem(writer, request, http.StatusUnprocessableEntity, "PAYMENT_RETRY_INVALID", "The payment retry request is invalid.")
+			return
+		}
+	}
+	value, replayed, err := handler.service.deps.Payment.RetryProvider(
+		request.Context(),
+		payment.Scope{TenantID: scope.TenantID, Country: scope.Country, CustomerID: scope.CustomerID},
+		strings.TrimSpace(request.Header.Get("Idempotency-Key")), request.PathValue("payment_id"),
+	)
+	if err != nil {
+		handler.writeError(writer, request, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, value, replayed)
 }
 
 func (handler *Handler) addresses(writer http.ResponseWriter, request *http.Request) {
@@ -115,20 +217,19 @@ func (handler *Handler) getPayment(writer http.ResponseWriter, request *http.Req
 	writeJSON(writer, http.StatusOK, value, false)
 }
 
-func (handler *Handler) webhook(writer http.ResponseWriter, request *http.Request) {
-	provider := request.PathValue("provider")
-	method := payment.Method("")
-	if provider == "razorpay" {
-		method = payment.MethodRazorpay
-	} else if provider == "paystack" {
-		method = payment.MethodPaystack
-	}
+func (handler *Handler) webhook(writer http.ResponseWriter, request *http.Request, method payment.Method) {
 	body, err := io.ReadAll(io.LimitReader(request.Body, 64*1024+1))
-	if err != nil || len(body) > 64*1024 || method == "" {
+	if err != nil || len(body) > 64*1024 {
 		writeProblem(writer, request, http.StatusUnprocessableEntity, "PAYMENT_WEBHOOK_INVALID", "The payment event is invalid.")
 		return
 	}
-	value, replayed, err := handler.service.deps.Payment.HandleWebhook(method, request.Header.Get("X-Planext4u-Signature"), body)
+	signature := request.Header.Get("X-Razorpay-Signature")
+	eventID := request.Header.Get("X-Razorpay-Event-Id")
+	if method == payment.MethodPaystack {
+		signature = request.Header.Get("X-Paystack-Signature")
+		eventID = ""
+	}
+	value, replayed, err := handler.service.deps.Payment.HandleProviderWebhook(method, signature, eventID, body)
 	if err != nil {
 		status := http.StatusUnprocessableEntity
 		if errors.Is(err, payment.ErrSignatureInvalid) {
@@ -138,13 +239,21 @@ func (handler *Handler) webhook(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 	if value.Status == payment.StatusCaptured || value.Status == payment.StatusReconciled {
-		var event payment.ProviderEvent
-		if json.Unmarshal(body, &event) != nil {
-			writeProblem(writer, request, http.StatusUnprocessableEntity, "PAYMENT_WEBHOOK_INVALID", "The payment event is invalid.")
+		digest := sha256.Sum256(body)
+		if handler.service.HasWalletRefill(value.ID) {
+			_, _, err = handler.service.FinalizeProviderWalletRefill(value.ID)
+		} else {
+			_, _, err = handler.service.FinalizeProviderPayment("webhook-"+hex.EncodeToString(digest[:8]), value.ID)
+		}
+		if err != nil {
+			writeProblem(writer, request, http.StatusConflict, "PAYMENT_FINALIZATION_PENDING", "Payment was accepted and order finalization will be retried.")
 			return
 		}
-		if _, _, err = handler.service.FinalizeProviderPayment("webhook-"+event.EventID, value.ID); err != nil {
-			writeProblem(writer, request, http.StatusConflict, "PAYMENT_FINALIZATION_PENDING", "Payment was accepted and order finalization will be retried.")
+	}
+	if value.Status == payment.StatusRefunded {
+		digest := sha256.Sum256(body)
+		if _, _, err = handler.service.FinalizeProviderRefund("refund-webhook-"+hex.EncodeToString(digest[:8]), value.ID); err != nil {
+			writeProblem(writer, request, http.StatusConflict, "REFUND_FINALIZATION_PENDING", "Refund was accepted and order finalization will be retried.")
 			return
 		}
 	}
@@ -282,14 +391,72 @@ func (handler *Handler) getWallet(writer http.ResponseWriter, request *http.Requ
 	writeJSON(writer, http.StatusOK, value, false)
 }
 
+func (handler *Handler) getWalletExperience(writer http.ResponseWriter, request *http.Request) {
+	scope, ok := customerScope(writer, request)
+	if !ok {
+		return
+	}
+	value, err := handler.service.WalletExperience(scope)
+	if err != nil {
+		handler.writeError(writer, request, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, value, false)
+}
+
+func (handler *Handler) applyReferral(writer http.ResponseWriter, request *http.Request) {
+	scope, ok := customerScope(writer, request)
+	if !ok {
+		return
+	}
+	var input struct {
+		Code string `json:"code"`
+	}
+	if !decodeJSON(request, &input) {
+		writeProblem(writer, request, http.StatusUnprocessableEntity, "REFERRAL_REQUEST_INVALID", "Check the referral code.")
+		return
+	}
+	value, replayed, err := handler.service.ApplyReferral(scope, strings.TrimSpace(request.Header.Get("Idempotency-Key")), input.Code)
+	if err != nil {
+		handler.writeError(writer, request, err)
+		return
+	}
+	writeJSON(writer, http.StatusCreated, value, replayed)
+}
+
+func (handler *Handler) createWalletRefill(writer http.ResponseWriter, request *http.Request) {
+	scope, ok := customerScope(writer, request)
+	if !ok {
+		return
+	}
+	var input struct {
+		OfferID string         `json:"offer_id"`
+		Method  payment.Method `json:"payment_method"`
+	}
+	if !decodeJSON(request, &input) {
+		writeProblem(writer, request, http.StatusUnprocessableEntity, "WALLET_REFILL_INVALID", "Check the refill selection.")
+		return
+	}
+	value, replayed, err := handler.service.CreateWalletRefill(request.Context(), scope, strings.TrimSpace(request.Header.Get("Idempotency-Key")), input.OfferID, input.Method)
+	if err != nil {
+		handler.writeError(writer, request, err)
+		return
+	}
+	writeJSON(writer, http.StatusCreated, value, replayed)
+}
+
 func (handler *Handler) writeError(writer http.ResponseWriter, request *http.Request, err error) {
 	switch {
-	case errors.Is(err, ErrQuoteNotFound), errors.Is(err, order.ErrOrderNotFound), errors.Is(err, payment.ErrPaymentNotFound):
+	case errors.Is(err, ErrQuoteNotFound), errors.Is(err, ErrAddressNotFound), errors.Is(err, order.ErrOrderNotFound), errors.Is(err, payment.ErrPaymentNotFound):
 		writeProblem(writer, request, http.StatusNotFound, "RESOURCE_NOT_FOUND", "The requested resource was not found.")
 	case errors.Is(err, ErrIdempotencyConflict), errors.Is(err, order.ErrIdempotencyConflict), errors.Is(err, payment.ErrIdempotencyConflict):
 		writeProblem(writer, request, http.StatusConflict, "IDEMPOTENCY_KEY_REUSED", "The idempotency key was already used for a different command.")
+	case errors.Is(err, ErrAddressConflict):
+		writeProblem(writer, request, http.StatusConflict, "ADDRESS_REVISION_CONFLICT", "The address changed. Refresh it and try again.")
 	case errors.Is(err, ErrQuoteExpired), errors.Is(err, ErrQuoteStale), errors.Is(err, ErrSlotNotAvailable), errors.Is(err, ErrPromotionInvalid), errors.Is(err, ErrPaymentMethod), errors.Is(err, order.ErrRevisionConflict), errors.Is(err, order.ErrInvalidTransition):
 		writeProblem(writer, request, http.StatusConflict, "CHECKOUT_STATE_CONFLICT", "The checkout or order state changed. Refresh and try again.")
+	case errors.Is(err, payment.ErrProviderUnavailable):
+		writeProblem(writer, request, http.StatusServiceUnavailable, "PAYMENT_PROVIDER_UNAVAILABLE", "The payment provider is temporarily unavailable.")
 	default:
 		writeProblem(writer, request, http.StatusUnprocessableEntity, "CHECKOUT_REQUEST_INVALID", "The checkout request is invalid.")
 	}

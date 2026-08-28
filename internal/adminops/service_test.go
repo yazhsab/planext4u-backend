@@ -2,9 +2,23 @@ package adminops
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
+
+type recordingExecutor struct {
+	changes []Change
+	fail    bool
+}
+
+func (executor *recordingExecutor) Execute(_ Principal, change Change) error {
+	executor.changes = append(executor.changes, change)
+	if executor.fail {
+		return fmt.Errorf("synthetic domain outage")
+	}
+	return nil
+}
 
 func TestBEAdminP3009RBACFreshMFAFourEyesAndAudit(t *testing.T) {
 	t.Parallel()
@@ -94,6 +108,76 @@ func TestAdminOperationsRejectUnknownActionsAndSensitivePayloads(t *testing.T) {
 	}
 }
 
+func TestApprovedOperationsExecuteOwningDomainAndFailureStaysRetryable(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	executor := &recordingExecutor{}
+	service, err := NewServiceWithExecutor(func() time.Time { return now }, executor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requester := adminPrincipal(now, "admin-requester")
+	standard, err := service.Submit(requester, Command{Domain: DomainCatalog, Action: ActionCatalogUpsert, TargetID: "item-001", Reason: "Publish verified catalogue update", Payload: map[string]any{"name": "Local item"}, CorrelationID: "corr-execute-001"})
+	if err != nil || standard.Status != StatusExecuted || len(executor.changes) != 1 || executor.changes[0].ID != standard.ID {
+		t.Fatalf("standard=%#v calls=%#v err=%v", standard, executor.changes, err)
+	}
+	high, err := service.Submit(requester, Command{Domain: DomainWallet, Action: ActionWalletAdjust, TargetID: "customer-001", Reason: "Correct verified wallet settlement", Payload: map[string]any{"points": 100}, CorrelationID: "corr-execute-002"})
+	if err != nil || high.Status != StatusPending || len(executor.changes) != 1 {
+		t.Fatalf("high=%#v calls=%d err=%v", high, len(executor.changes), err)
+	}
+	approver := adminPrincipal(now, "admin-approver")
+	executed, err := service.Approve(approver, high.ID, high.Revision)
+	if err != nil || executed.Status != StatusExecuted || len(executor.changes) != 2 || executor.changes[1].ID != high.ID {
+		t.Fatalf("executed=%#v calls=%#v err=%v", executed, executor.changes, err)
+	}
+	failing := &recordingExecutor{fail: true}
+	failedService, _ := NewServiceWithExecutor(func() time.Time { return now }, failing)
+	failed, _ := failedService.Submit(requester, Command{Domain: DomainPayment, Action: ActionPaymentRefund, TargetID: "payment-001", Reason: "Refund verified failed delivery", Payload: map[string]any{"amount_minor": 100}, CorrelationID: "corr-execute-003"})
+	if _, err = failedService.Approve(approver, failed.ID, failed.Revision); !errors.Is(err, ErrExecutionFailed) {
+		t.Fatalf("execution failure=%v", err)
+	}
+	values, _ := failedService.List(requester)
+	if len(values) != 1 || values[0].Status != StatusPending || values[0].Revision != 1 {
+		t.Fatalf("unsafe failure state=%#v", values)
+	}
+}
+
+func TestMemoryDomainExecutorAppliesEveryPhase3AdminDomainIdempotently(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	executor, _ := NewMemoryDomainExecutor(func() time.Time { return now })
+	principal := adminPrincipal(now, "admin-executor")
+	cases := []struct {
+		domain  Domain
+		action  string
+		payload map[string]any
+		state   string
+	}{
+		{DomainCatalog, ActionCatalogUpsert, map[string]any{"name": "Local product"}, "DRAFT"},
+		{DomainOrder, ActionOrderCancel, map[string]any{}, "CANCELLED"},
+		{DomainPayment, ActionPaymentRefund, map[string]any{"amount_minor": 100}, "REFUND_SUBMITTED"},
+		{DomainWallet, ActionWalletAdjust, map[string]any{"points": 50}, "ADJUSTED"},
+		{DomainCampaign, ActionCampaignActivate, map[string]any{}, "ACTIVE"},
+		{DomainCMS, ActionCMSPublish, map[string]any{"revision": 7}, "PUBLISHED"},
+		{DomainSupport, ActionSupportEscalate, map[string]any{}, "ESCALATED"},
+		{DomainReporting, ActionReportingExport, map[string]any{"format": "CSV"}, "READY"},
+	}
+	for index, testCase := range cases {
+		target := fmt.Sprintf("target-%03d", index)
+		change := Change{ID: fmt.Sprintf("change-%03d", index), TenantID: principal.TenantID, Country: principal.Country, Status: StatusExecuted, Command: Command{Domain: testCase.domain, Action: testCase.action, TargetID: target, Payload: testCase.payload, CorrelationID: fmt.Sprintf("corr-%03d", index)}}
+		if err := executor.Execute(principal, change); err != nil {
+			t.Fatalf("%s execute: %v", testCase.domain, err)
+		}
+		if err := executor.Execute(principal, change); err != nil {
+			t.Fatalf("%s replay: %v", testCase.domain, err)
+		}
+		record, exists := executor.Record(principal.TenantID, principal.Country, testCase.domain, target)
+		if !exists || record.State != testCase.state || record.Revision != 1 || record.LastChange != change.ID {
+			t.Fatalf("%s record=%#v exists=%v", testCase.domain, record, exists)
+		}
+	}
+}
+
 func adminPrincipal(now time.Time, subject string) Principal {
-	return Principal{TenantID: "tenant-synthetic-001", Country: "IN", SubjectID: subject, AuthenticatedAt: now.Add(-time.Minute), AuthMethods: []string{"password", "webauthn"}, Capabilities: map[string]bool{CapabilityCatalog: true, CapabilityOrder: true, CapabilityPayment: true, CapabilityWallet: true, CapabilityCampaign: true, CapabilitySupport: true, CapabilityReporting: true}}
+	return Principal{TenantID: "tenant-synthetic-001", Country: "IN", SubjectID: subject, AuthenticatedAt: now.Add(-time.Minute), AuthMethods: []string{"password", "webauthn"}, Capabilities: map[string]bool{CapabilityCatalog: true, CapabilityOrder: true, CapabilityPayment: true, CapabilityWallet: true, CapabilityCampaign: true, CapabilityCMS: true, CapabilitySupport: true, CapabilityReporting: true}}
 }

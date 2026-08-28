@@ -17,6 +17,10 @@ Deliver the marketplace transaction core from discovery through a server-authori
 | `BE-P3-009` | Complete admin catalog/order/payment/wallet/campaign/support/reporting operations | 002-008 | RBAC, MFA/four-eyes and privileged audit tests pass |
 | `BE-P3-010` | Load, resilience, observability and staging release evidence | 003-009 | SLO load, dependency failure, rollback and mobile paired E2E gates pass |
 
+All ten Phase 3 source stories are implemented. The local engineering evidence
+and the separate environment-owned activation gates are recorded in
+`PHASE_3_EXIT_REVIEW.md`.
+
 ## Entry slice
 
 Implementation starts with `BE-P3-001` through `BE-P3-003`: search/PDP contracts and a server-authoritative cart. The slice is complete only when the backend refuses client money, returns allowed actions, replays identical idempotency keys safely, rejects conflicting reuse and detects stale cart revisions.

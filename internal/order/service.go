@@ -1,6 +1,7 @@
 package order
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -16,17 +17,23 @@ type replayRecord struct {
 }
 
 type Service struct {
-	clock    func() time.Time
-	mu       sync.Mutex
-	orders   map[string]Order
-	requests map[string]replayRecord
+	clock         func() time.Time
+	notifier      Notifier
+	mu            sync.Mutex
+	orders        map[string]Order
+	requests      map[string]replayRecord
+	notifications map[string]Notification
 }
 
 func NewService(clock func() time.Time) (*Service, error) {
+	return NewServiceWithNotifier(clock, nil)
+}
+
+func NewServiceWithNotifier(clock func() time.Time, notifier Notifier) (*Service, error) {
 	if clock == nil {
 		return nil, ErrInvalidRequest
 	}
-	return &Service{clock: clock, orders: map[string]Order{}, requests: map[string]replayRecord{}}, nil
+	return &Service{clock: clock, notifier: notifier, orders: map[string]Order{}, requests: map[string]replayRecord{}, notifications: map[string]Notification{}}, nil
 }
 
 func (service *Service) Create(scope Scope, idempotencyKey string, snapshot CheckoutSnapshot, paymentCaptured bool) (Order, bool, error) {
@@ -52,6 +59,7 @@ func (service *Service) Create(scope Scope, idempotencyKey string, snapshot Chec
 	}
 	service.orders[value.ID] = cloneOrder(value)
 	service.requests[requestKey] = replayRecord{fingerprint: fingerprint, value: cloneOrder(value)}
+	service.queueNotificationLocked(value)
 	return cloneOrder(value), false, nil
 }
 
@@ -217,7 +225,81 @@ func (service *Service) mutate(scope Scope, idempotencyKey, fingerprint, orderID
 	value.AllowedActions = allowedActions(value.Status, value.Return, value.Rating)
 	service.orders[orderID] = cloneOrder(value)
 	service.requests[requestKey] = replayRecord{fingerprint: fingerprint, value: cloneOrder(value)}
+	service.queueNotificationLocked(value)
 	return cloneOrder(value), false, nil
+}
+
+// ProcessNotifications drains durable order-notification intents. A provider
+// failure never rolls back an accepted order transition; the intent remains
+// pending and can be retried safely by a worker.
+func (service *Service) ProcessNotifications(ctx context.Context, limit int) (int, error) {
+	if service.notifier == nil || limit < 1 || limit > 100 {
+		return 0, ErrInvalidRequest
+	}
+	service.mu.Lock()
+	ids := make([]string, 0, len(service.notifications))
+	for id, value := range service.notifications {
+		if value.DeliveredAt == nil {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) > limit {
+		ids = ids[:limit]
+	}
+	service.mu.Unlock()
+	delivered := 0
+	for _, id := range ids {
+		service.mu.Lock()
+		value := service.notifications[id]
+		if value.DeliveredAt != nil {
+			service.mu.Unlock()
+			continue
+		}
+		value.Attempts++
+		service.notifications[id] = value
+		service.mu.Unlock()
+		if err := service.notifier.Send(ctx, value); err != nil {
+			service.mu.Lock()
+			value = service.notifications[id]
+			value.LastError = "NOTIFICATION_PROVIDER_FAILED"
+			service.notifications[id] = value
+			service.mu.Unlock()
+			continue
+		}
+		now := service.clock().UTC()
+		service.mu.Lock()
+		value = service.notifications[id]
+		value.DeliveredAt, value.LastError = &now, ""
+		service.notifications[id] = value
+		service.mu.Unlock()
+		delivered++
+	}
+	return delivered, nil
+}
+
+func (service *Service) PendingNotifications(scope Scope) ([]Notification, error) {
+	if !validScope(scope) {
+		return nil, ErrInvalidRequest
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	result := []Notification{}
+	for _, value := range service.notifications {
+		if value.TenantID == scope.TenantID && value.Country == scope.Country && value.CustomerID == scope.CustomerID && value.DeliveredAt == nil {
+			result = append(result, value)
+		}
+	}
+	sort.Slice(result, func(left, right int) bool { return result[left].CreatedAt.Before(result[right].CreatedAt) })
+	return result, nil
+}
+
+func (service *Service) queueNotificationLocked(value Order) {
+	id := fmt.Sprintf("order-notification-%s-%d", value.ID, value.Revision)
+	if _, exists := service.notifications[id]; exists {
+		return
+	}
+	service.notifications[id] = Notification{ID: id, TenantID: value.scope.TenantID, Country: value.scope.Country, CustomerID: value.scope.CustomerID, OrderID: value.ID, Status: value.Status, Revision: value.Revision, CreatedAt: service.clock().UTC()}
 }
 
 func (service *Service) replayLocked(key, fingerprint string) (Order, bool, error) {
@@ -233,7 +315,7 @@ func (service *Service) replayLocked(key, fingerprint string) (Order, bool, erro
 
 func canTransition(current, target Status, actor string) bool {
 	allowed := map[Status]map[Status]string{
-		StatusPendingPayment:   {StatusPlaced: "PLATFORM", StatusCancelled: "PLATFORM"},
+		StatusPendingPayment:   {StatusPlaced: "PLATFORM", StatusCancelRequested: "CUSTOMER", StatusCancelled: "PLATFORM"},
 		StatusPlaced:           {StatusAccepted: "VENDOR", StatusRejected: "VENDOR", StatusCancelRequested: "CUSTOMER"},
 		StatusAccepted:         {StatusPacking: "VENDOR", StatusCancelRequested: "CUSTOMER"},
 		StatusPacking:          {StatusReadyForHandover: "VENDOR", StatusCancelRequested: "CUSTOMER"},

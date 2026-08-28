@@ -3,6 +3,7 @@ package notification
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -15,6 +16,47 @@ import (
 
 type Provider interface {
 	Send(context.Context, ProviderMessage) (ProviderReceipt, error)
+}
+
+func (service *Service) RegisterDevice(ctx context.Context, tenantID, country, subjectID, deviceID string, platform DevicePlatform, locale, token string) (DeviceEndpoint, error) {
+	token = strings.TrimSpace(token)
+	if !uuidPattern.MatchString(tenantID) || !regexp.MustCompile(`^[A-Z]{2}$`).MatchString(country) || !safeID(subjectID) || !safeID(deviceID) || (platform != DeviceAndroid && platform != DeviceIOS) || !regexp.MustCompile(`^[a-z]{2}(-[A-Z]{2})?$`).MatchString(locale) || len(token) < 20 || len(token) > 4096 || !regexp.MustCompile(`^[A-Za-z0-9_:\-]+$`).MatchString(token) {
+		return DeviceEndpoint{}, ErrInvalidRequest
+	}
+	digest := sha256.Sum256([]byte(tenantID + "\x00" + subjectID + "\x00" + deviceID))
+	id := hex.EncodeToString(digest[:16])
+	now := service.clock().UTC()
+	value := DeviceEndpoint{ID: id, TenantID: tenantID, Country: country, SubjectID: subjectID, DeviceReference: "device-" + hex.EncodeToString(digest[16:24]), Platform: platform, Locale: locale, Enabled: true, UpdatedAt: now, Token: token}
+	if err := service.repository.SaveDevice(ctx, value); err != nil {
+		return DeviceEndpoint{}, err
+	}
+	return value, nil
+}
+
+func (service *Service) UnregisterDevice(ctx context.Context, tenantID, subjectID, deviceID string) (DeviceEndpoint, error) {
+	if !uuidPattern.MatchString(tenantID) || !safeID(subjectID) || !safeID(deviceID) {
+		return DeviceEndpoint{}, ErrInvalidRequest
+	}
+	digest := sha256.Sum256([]byte(tenantID + "\x00" + subjectID + "\x00" + deviceID))
+	id := hex.EncodeToString(digest[:16])
+	value, err := service.repository.Device(ctx, tenantID, id)
+	if err != nil || value.SubjectID != subjectID {
+		return DeviceEndpoint{}, ErrNotFound
+	}
+	value.Enabled = false
+	value.Token = ""
+	value.UpdatedAt = service.clock().UTC()
+	if err = service.repository.SaveDevice(ctx, value); err != nil {
+		return DeviceEndpoint{}, err
+	}
+	return value, nil
+}
+
+func (service *Service) DeviceEndpoints(ctx context.Context, tenantID, country, subjectID string) ([]DeviceEndpoint, error) {
+	if !uuidPattern.MatchString(tenantID) || !regexp.MustCompile(`^[A-Z]{2}$`).MatchString(country) || !safeID(subjectID) {
+		return nil, ErrInvalidRequest
+	}
+	return service.repository.Devices(ctx, tenantID, country, subjectID)
 }
 
 type Service struct {
@@ -68,7 +110,7 @@ func (service *Service) Queue(ctx context.Context, command QueueCommand) (Delive
 	now := service.clock().UTC()
 	delivery := Delivery{ID: newUUID(), TenantID: command.TenantID, Country: command.Country, SubjectID: command.SubjectID, RecipientRef: command.RecipientRef,
 		Channel: command.Channel, Purpose: command.Purpose, TemplateKey: command.TemplateKey, TemplateVersion: template.Version, Locale: template.Locale,
-		RenderedSubject: subject, RenderedBody: body, Status: DeliveryQueued, CreatedAt: now, UpdatedAt: now}
+		RenderedSubject: subject, RenderedBody: body, Data: cloneStringMap(command.Data), Status: DeliveryQueued, CreatedAt: now, UpdatedAt: now}
 	allowed, reason, err := service.allowed(ctx, command)
 	if err != nil {
 		return Delivery{}, err
@@ -85,25 +127,23 @@ func (service *Service) Queue(ctx context.Context, command QueueCommand) (Delive
 }
 
 func (service *Service) Process(ctx context.Context, tenantID, deliveryID string) error {
-	delivery, err := service.repository.Delivery(ctx, tenantID, deliveryID)
+	delivery, claimed, err := service.repository.ClaimDelivery(ctx, tenantID, deliveryID, service.clock().UTC())
 	if err != nil {
 		return err
 	}
 	if delivery.Status == DeliverySent || delivery.Status == DeliveryDelivered || delivery.Status == DeliverySuppressed {
 		return nil
 	}
-	if delivery.Status != DeliveryQueued {
+	if !claimed {
 		return ErrConflict
 	}
 	provider := service.providers[delivery.Channel]
 	if provider == nil {
+		delivery.Status, delivery.LastErrorCode, delivery.UpdatedAt = DeliveryFailed, "PROVIDER_NOT_CONFIGURED", service.clock().UTC()
+		_ = service.repository.UpdateDelivery(ctx, delivery)
 		return ErrInvalidRequest
 	}
-	delivery.Status, delivery.UpdatedAt = DeliverySending, service.clock().UTC()
-	if err := service.repository.UpdateDelivery(ctx, delivery); err != nil {
-		return err
-	}
-	receipt, sendErr := provider.Send(ctx, ProviderMessage{DeliveryID: delivery.ID, RecipientRef: delivery.RecipientRef, Subject: delivery.RenderedSubject, Body: delivery.RenderedBody})
+	receipt, sendErr := provider.Send(ctx, ProviderMessage{DeliveryID: delivery.ID, TenantID: delivery.TenantID, RecipientRef: delivery.RecipientRef, Subject: delivery.RenderedSubject, Body: delivery.RenderedBody, Data: cloneStringMap(delivery.Data)})
 	if sendErr != nil {
 		providerErr := &ProviderError{}
 		if errors.As(sendErr, &providerErr) {
@@ -181,10 +221,32 @@ func render(template Template, values map[string]string) (string, string, error)
 }
 
 func validCommand(command QueueCommand) bool {
-	return uuidPattern.MatchString(command.TenantID) && regexp.MustCompile(`^[A-Z]{2}$`).MatchString(command.Country) && safeID(command.SubjectID) && safeID(command.RecipientRef) &&
-		validChannel(command.Channel) && validPurpose(command.Purpose) && safeID(command.TemplateKey) && command.TemplateVersion > 0 && command.TemplateVersion <= 1_000_000 &&
-		regexp.MustCompile(`^[a-z]{2}(-[A-Z]{2})?$`).MatchString(command.Locale) && safeID(command.IdempotencyKey) && safeID(command.CorrelationID) && safeID(command.CausationID) &&
-		regexp.MustCompile(`^00-[a-f0-9]{32}-[a-f0-9]{16}-[0-9a-f]{2}$`).MatchString(command.Traceparent) && command.Variables != nil
+	if !uuidPattern.MatchString(command.TenantID) || !regexp.MustCompile(`^[A-Z]{2}$`).MatchString(command.Country) || !safeID(command.SubjectID) || !safeID(command.RecipientRef) ||
+		!validChannel(command.Channel) || !validPurpose(command.Purpose) || !safeID(command.TemplateKey) || command.TemplateVersion < 1 || command.TemplateVersion > 1_000_000 ||
+		!regexp.MustCompile(`^[a-z]{2}(-[A-Z]{2})?$`).MatchString(command.Locale) || !safeID(command.IdempotencyKey) || !safeID(command.CorrelationID) || !safeID(command.CausationID) ||
+		!regexp.MustCompile(`^00-[a-f0-9]{32}-[a-f0-9]{16}-[0-9a-f]{2}$`).MatchString(command.Traceparent) || command.Variables == nil {
+		return false
+	}
+	if len(command.Data) > 20 {
+		return false
+	}
+	for key, value := range command.Data {
+		if !regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`).MatchString(key) || len(value) > 2000 || strings.ContainsRune(value, '\x00') {
+			return false
+		}
+	}
+	return true
+}
+
+func cloneStringMap(value map[string]string) map[string]string {
+	if value == nil {
+		return nil
+	}
+	result := make(map[string]string, len(value))
+	for key, item := range value {
+		result[key] = item
+	}
+	return result
 }
 
 func validTemplate(template Template) bool {

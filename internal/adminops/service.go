@@ -11,17 +11,33 @@ import (
 )
 
 type Service struct {
-	clock   func() time.Time
-	mu      sync.Mutex
-	changes map[string]Change
-	events  []AuditEvent
+	clock    func() time.Time
+	executor Executor
+	mu       sync.Mutex
+	changes  map[string]Change
+	events   []AuditEvent
 }
 
 func NewService(clock func() time.Time) (*Service, error) {
+	executor, err := NewMemoryDomainExecutor(clock)
+	if err != nil {
+		return nil, err
+	}
+	return newService(clock, executor)
+}
+
+func NewServiceWithExecutor(clock func() time.Time, executor Executor) (*Service, error) {
+	if executor == nil {
+		return nil, ErrInvalidRequest
+	}
+	return newService(clock, executor)
+}
+
+func newService(clock func() time.Time, executor Executor) (*Service, error) {
 	if clock == nil {
 		return nil, ErrInvalidRequest
 	}
-	return &Service{clock: clock, changes: map[string]Change{}}, nil
+	return &Service{clock: clock, executor: executor, changes: map[string]Change{}}, nil
 }
 
 func (service *Service) Submit(principal Principal, command Command) (Change, error) {
@@ -50,6 +66,18 @@ func (service *Service) Submit(principal Principal, command Command) (Change, er
 		service.mu.Unlock()
 		return cloneChange(existing), nil
 	}
+	service.mu.Unlock()
+	if status == StatusExecuted && service.executor != nil {
+		if err := service.executor.Execute(principal, cloneChange(value)); err != nil {
+			service.record(principal, command, "FAILED", "DOMAIN_EXECUTION_FAILED")
+			return Change{}, ErrExecutionFailed
+		}
+	}
+	service.mu.Lock()
+	if existing, exists := service.changes[value.ID]; exists {
+		service.mu.Unlock()
+		return cloneChange(existing), nil
+	}
 	service.changes[value.ID] = cloneChange(value)
 	service.mu.Unlock()
 	service.record(principal, command, "SUCCEEDED", string(status))
@@ -61,23 +89,41 @@ func (service *Service) Approve(principal Principal, changeID string, expectedRe
 		return Change{}, ErrFreshMFARequired
 	}
 	service.mu.Lock()
-	defer service.mu.Unlock()
 	value, exists := service.changes[changeID]
 	if !exists || value.TenantID != principal.TenantID || value.Country != principal.Country {
+		service.mu.Unlock()
 		return Change{}, ErrChangeNotFound
 	}
 	if !principal.Capabilities[capability(value.Command.Domain)] {
+		service.mu.Unlock()
 		return Change{}, ErrForbidden
 	}
 	if value.RequestedBy == principal.SubjectID {
+		service.mu.Unlock()
 		return Change{}, ErrFourEyesRequired
 	}
 	if value.Revision != expectedRevision {
+		service.mu.Unlock()
 		return Change{}, ErrRevisionConflict
 	}
 	if value.Status != StatusPending {
+		service.mu.Unlock()
 		return Change{}, ErrInvalidState
 	}
+	service.mu.Unlock()
+	if service.executor != nil {
+		if err := service.executor.Execute(principal, cloneChange(value)); err != nil {
+			service.record(principal, value.Command, "FAILED", "DOMAIN_EXECUTION_FAILED")
+			return Change{}, ErrExecutionFailed
+		}
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	latest, exists := service.changes[changeID]
+	if !exists || latest.Revision != expectedRevision || latest.Status != StatusPending {
+		return Change{}, ErrRevisionConflict
+	}
+	value = latest
 	value.Status, value.ApprovedBy, value.Revision, value.UpdatedAt = StatusExecuted, principal.SubjectID, value.Revision+1, service.clock().UTC()
 	service.changes[changeID] = cloneChange(value)
 	service.appendEventLocked(principal, value.Command, "SUCCEEDED", "FOUR_EYES_APPROVED")
@@ -159,6 +205,7 @@ func (service *Service) appendEventLocked(principal Principal, command Command, 
 func commandRisk(command Command) Risk {
 	if command.Domain == DomainCatalog && (command.Action == ActionCatalogUpsert || command.Action == ActionCatalogPublish) ||
 		command.Domain == DomainCampaign && command.Action == ActionCampaignUpsert ||
+		command.Domain == DomainCMS && (command.Action == ActionCMSUpsert || command.Action == ActionCMSPublish) ||
 		command.Domain == DomainSupport && (command.Action == ActionSupportUpdate || command.Action == ActionSupportResolve) ||
 		command.Domain == DomainReporting && command.Action == ActionReportingExport {
 		return RiskStandard
@@ -166,7 +213,7 @@ func commandRisk(command Command) Risk {
 	return RiskHigh
 }
 func capability(domain Domain) string {
-	return map[Domain]string{DomainCatalog: CapabilityCatalog, DomainOrder: CapabilityOrder, DomainPayment: CapabilityPayment, DomainWallet: CapabilityWallet, DomainCampaign: CapabilityCampaign, DomainSupport: CapabilitySupport, DomainReporting: CapabilityReporting}[domain]
+	return map[Domain]string{DomainCatalog: CapabilityCatalog, DomainOrder: CapabilityOrder, DomainPayment: CapabilityPayment, DomainWallet: CapabilityWallet, DomainCampaign: CapabilityCampaign, DomainCMS: CapabilityCMS, DomainSupport: CapabilitySupport, DomainReporting: CapabilityReporting}[domain]
 }
 func fresh(value Principal, now time.Time) bool {
 	age := now.Sub(value.AuthenticatedAt.UTC())
@@ -205,6 +252,9 @@ func validAction(domain Domain, action string) bool {
 		},
 		DomainCampaign: {
 			ActionCampaignUpsert: true, ActionCampaignActivate: true, ActionCampaignPause: true,
+		},
+		DomainCMS: {
+			ActionCMSUpsert: true, ActionCMSPublish: true, ActionCMSRollback: true,
 		},
 		DomainSupport: {
 			ActionSupportUpdate: true, ActionSupportEscalate: true, ActionSupportResolve: true,

@@ -1,6 +1,7 @@
 package checkout
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 var (
 	ErrInvalidRequest      = errors.New("invalid checkout request")
 	ErrAddressNotFound     = errors.New("checkout address not found")
+	ErrAddressConflict     = errors.New("checkout address revision conflict")
 	ErrSlotNotAvailable    = errors.New("delivery slot unavailable")
 	ErrPromotionInvalid    = errors.New("promotion is invalid")
 	ErrQuoteNotFound       = errors.New("checkout quote not found")
@@ -30,13 +32,37 @@ type Scope struct {
 }
 
 type Address struct {
-	ID         string `json:"id"`
-	Label      string `json:"label"`
-	PostalCode string `json:"postal_code"`
-	Locality   string `json:"locality"`
-	TenantID   string `json:"-"`
-	Country    string `json:"-"`
-	CustomerID string `json:"-"`
+	ID          string  `json:"id"`
+	Label       string  `json:"label"`
+	Line1       string  `json:"line1"`
+	Line2       string  `json:"line2,omitempty"`
+	PostalCode  string  `json:"postal_code"`
+	Locality    string  `json:"locality"`
+	Latitude    float64 `json:"latitude,omitempty"`
+	Longitude   float64 `json:"longitude,omitempty"`
+	Serviceable bool    `json:"serviceable"`
+	Default     bool    `json:"default"`
+	Revision    int64   `json:"revision"`
+	TenantID    string  `json:"-"`
+	Country     string  `json:"-"`
+	CustomerID  string  `json:"-"`
+}
+
+type AddressInput struct {
+	Label      string  `json:"label"`
+	Line1      string  `json:"line1"`
+	Line2      string  `json:"line2,omitempty"`
+	PostalCode string  `json:"postal_code"`
+	Locality   string  `json:"locality"`
+	Latitude   float64 `json:"latitude,omitempty"`
+	Longitude  float64 `json:"longitude,omitempty"`
+	Default    bool    `json:"default"`
+}
+
+type PostalZone struct {
+	Country    string
+	PostalCode string
+	Locality   string
 }
 
 type DeliverySlot struct {
@@ -120,17 +146,45 @@ type PlaceResult struct {
 	WalletDebit *wallet.LedgerEntry   `json:"wallet_debit,omitempty"`
 }
 
+type ReturnResult struct {
+	Order        order.Order           `json:"order"`
+	Payment      *payment.Payment      `json:"payment,omitempty"`
+	WalletRefund *wallet.LedgerEntry   `json:"wallet_refund,omitempty"`
+	Inventory    inventory.Reservation `json:"inventory"`
+	Pending      bool                  `json:"pending"`
+}
+
+type WalletRefillResult struct {
+	Offer   wallet.RefillOffer  `json:"offer"`
+	Payment payment.Payment     `json:"payment"`
+	Credit  *wallet.LedgerEntry `json:"credit,omitempty"`
+}
+
+type CancellationResult struct {
+	Order         order.Order           `json:"order"`
+	Payment       payment.Payment       `json:"payment"`
+	WalletRefund  *wallet.LedgerEntry   `json:"wallet_refund,omitempty"`
+	Inventory     inventory.Reservation `json:"inventory"`
+	RefundPending bool                  `json:"refund_pending"`
+}
+
 type Dependencies struct {
 	Cart      *commerce.Service
 	Inventory *inventory.Service
 	Wallet    *wallet.Service
 	Payment   *payment.Service
 	Orders    *order.Service
+	Payers    PayerResolver
+}
+
+type PayerResolver interface {
+	ResolvePayer(context.Context, Scope) (payment.Payer, error)
 }
 
 type Configuration struct {
-	Addresses  []Address
-	Slots      []DeliverySlot
-	Promotions []Promotion
-	Policies   []PricingPolicy
+	Addresses   []Address
+	Slots       []DeliverySlot
+	Promotions  []Promotion
+	Policies    []PricingPolicy
+	PostalZones []PostalZone
 }

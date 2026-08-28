@@ -45,6 +45,7 @@ type Reservation struct {
 	OrderReference string           `json:"order_reference"`
 	State          ReservationState `json:"state"`
 	Lines          []Line           `json:"lines"`
+	RestockedLines []Line           `json:"restocked_lines,omitempty"`
 	CreatedAt      time.Time        `json:"created_at"`
 	ExpiresAt      time.Time        `json:"expires_at"`
 	UpdatedAt      time.Time        `json:"updated_at"`

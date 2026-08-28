@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/yazhsab/planext4u-backend/internal/notification"
 	"github.com/yazhsab/planext4u-backend/internal/platform/telemetry"
 	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -147,7 +149,13 @@ func TestVerticalSliceRejectsUntrustedOrExpiredIdentity(t *testing.T) {
 func TestBEVSlicePhase3CheckoutCODOrderAndWallet(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 8, 27, 10, 30, 0, 0, time.UTC)
-	application, err := New(Config{SigningKey: []byte("synthetic-staging-key-32-bytes-minimum-value"), Clock: func() time.Time { return now }, Logger: slog.New(slog.NewJSONHandler(io.Discard, nil))})
+	push := &recordingPushProvider{}
+	application, err := New(Config{
+		SigningKey: []byte("synthetic-staging-key-32-bytes-minimum-value"), Clock: func() time.Time { return now }, Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		NotificationProviderFactory: func(notification.DeviceResolver) (map[notification.Channel]notification.Provider, error) {
+			return map[notification.Channel]notification.Provider{notification.ChannelPush: push}, nil
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,6 +169,8 @@ func TestBEVSlicePhase3CheckoutCODOrderAndWallet(t *testing.T) {
 		} `json:"tokens"`
 	}
 	decodeVerticalJSON(t, authentication, &authPayload)
+	registered := verticalRequest(t, client, http.MethodPut, server.URL+"/v1/notifications/devices/current", `{"platform":"ANDROID","locale":"en","token":"fcm_registration_token_synthetic_000000000001"}`, authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, registered, http.StatusOK, `"enabled":true`)
 	added := verticalRequestWithHeaders(t, client, http.MethodPut, server.URL+"/v1/cart/items/variant-milk-1l", `{"quantity":2}`, authPayload.Tokens.AccessToken, map[string]string{"Idempotency-Key": "idem-phase3-cart-0001", "If-Match": `"0"`})
 	assertVerticalResponse(t, added, http.StatusOK, `"revision":1`)
 	addresses := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/addresses", "", authPayload.Tokens.AccessToken)
@@ -176,10 +186,31 @@ func TestBEVSlicePhase3CheckoutCODOrderAndWallet(t *testing.T) {
 	placedBody, _ := json.Marshal(map[string]string{"quote_id": quote.ID, "payment_method": "COD"})
 	placed := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/checkout/orders", string(placedBody), authPayload.Tokens.AccessToken, map[string]string{"Idempotency-Key": "idem-phase3-place-0001"})
 	assertVerticalResponse(t, placed, http.StatusCreated, `"state":"COMMITTED"`, `"status":"PLACED"`, `"method":"COD"`)
+	if messages := push.Messages(); len(messages) != 1 || messages[0].Data["deep_link"] == "" || strings.Contains(messages[0].RecipientRef, "fcm_registration") {
+		t.Fatalf("push messages=%#v", messages)
+	}
 	orders := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/orders", "", authPayload.Tokens.AccessToken)
 	assertVerticalResponse(t, orders, http.StatusOK, `"status":"PLACED"`, `"pricing_policy_version":"pricing-2026-01"`)
 	wallet := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/wallet", "", authPayload.Tokens.AccessToken)
 	assertVerticalResponse(t, wallet, http.StatusOK, `"balance":24000`, `"category":"CHECKOUT_REDEMPTION"`)
+}
+
+type recordingPushProvider struct {
+	mu       sync.Mutex
+	messages []notification.ProviderMessage
+}
+
+func (provider *recordingPushProvider) Send(_ context.Context, message notification.ProviderMessage) (notification.ProviderReceipt, error) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	provider.messages = append(provider.messages, message)
+	return notification.ProviderReceipt{ProviderMessageID: "fcm-message-001", Status: notification.DeliverySent, OccurredAt: time.Now().UTC()}, nil
+}
+
+func (provider *recordingPushProvider) Messages() []notification.ProviderMessage {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	return append([]notification.ProviderMessage(nil), provider.messages...)
 }
 
 func verticalRequest(t *testing.T, client *http.Client, method, target, body, accessToken string) *http.Response {

@@ -3,12 +3,16 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/yazhsab/planext4u-backend/internal/notification"
 	"github.com/yazhsab/planext4u-backend/internal/platform/config"
 	"github.com/yazhsab/planext4u-backend/internal/platform/logging"
 	"github.com/yazhsab/planext4u-backend/internal/platform/server"
@@ -52,7 +56,12 @@ func run() int {
 		}
 	}()
 
-	application, err := verticalslice.New(verticalslice.Config{SigningKey: signingKey, Logger: logger})
+	providerFactory, err := notificationProviderFactory(os.LookupEnv)
+	if err != nil {
+		logger.Error("initialize notification provider", "error", err)
+		return 1
+	}
+	application, err := verticalslice.New(verticalslice.Config{SigningKey: signingKey, Logger: logger, NotificationProviderFactory: providerFactory})
 	if err != nil {
 		logger.Error("initialize staging vertical slice", "error", err)
 		return 1
@@ -65,6 +74,40 @@ func run() int {
 	}
 	logger.Info("staging vertical slice stopped", "service", cfg.ServiceName)
 	return 0
+}
+
+func notificationProviderFactory(lookup func(string) (string, bool)) (func(notification.DeviceResolver) (map[notification.Channel]notification.Provider, error), error) {
+	path, configured := lookup("FCM_SERVICE_ACCOUNT_FILE")
+	path = strings.TrimSpace(path)
+	if !configured || path == "" {
+		return nil, nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, errors.New("FCM service account file is unavailable")
+	}
+	defer file.Close()
+	credentials, err := io.ReadAll(io.LimitReader(file, 64*1024+1))
+	if err != nil || len(credentials) > 64*1024 {
+		return nil, errors.New("FCM service account file is invalid")
+	}
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return errors.New("provider redirects are disabled")
+		},
+	}
+	tokenSource, err := notification.NewServiceAccountTokenSource(credentials, client, time.Now)
+	if err != nil {
+		return nil, errors.New("FCM service account file is invalid")
+	}
+	return func(resolver notification.DeviceResolver) (map[notification.Channel]notification.Provider, error) {
+		provider, providerErr := notification.NewFCMProvider(tokenSource.ProjectID(), resolver, tokenSource, client)
+		if providerErr != nil {
+			return nil, providerErr
+		}
+		return map[notification.Channel]notification.Provider{notification.ChannelPush: provider}, nil
+	}, nil
 }
 
 func loadRuntimeConfig(lookup func(string) (string, bool)) (config.Config, []byte, error) {

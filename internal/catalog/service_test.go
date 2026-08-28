@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -32,6 +33,41 @@ func TestCatalogPaginationSearchAndItem(t *testing.T) {
 	if _, err := service.Items(context.Background(), "tenant-synthetic", "IN", "", "", "not-a-cursor", 20); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("cursor error = %v", err)
 	}
+	trending, _, err := service.Suggestions(context.Background(), "tenant-synthetic", "IN", "")
+	if err != nil || len(trending) == 0 || trending[0].Type != "TRENDING" {
+		t.Fatalf("trending=%#v err=%v", trending, err)
+	}
+	suggestions, _, err := service.Suggestions(context.Background(), "tenant-synthetic", "IN", "filter")
+	if err != nil || len(suggestions) == 0 || suggestions[0].ItemID != "item-water-filter" {
+		t.Fatalf("suggestions=%#v err=%v", suggestions, err)
+	}
+}
+
+func TestCustomerQuestionIsAuthenticatedDataAndRateBounded(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
+	repository, _ := NewMemoryRepository(syntheticCategories(), syntheticItems())
+	service, _ := NewService(repository, nil, 15*time.Minute, func() time.Time { return now })
+	created, err := service.AskQuestion(context.Background(), "tenant-synthetic", "IN", "customer-001", "item-milk", "command-001", "Is this delivered chilled?")
+	if err != nil || created.Question != "Is this delivered chilled?" || created.AskedByID != "customer-001" || created.AskedAt != now {
+		t.Fatalf("created question = %#v err=%v", created, err)
+	}
+	item, _, err := service.Item(context.Background(), "tenant-synthetic", "IN", "item-milk")
+	if err != nil || len(item.Questions) != 1 || item.Questions[0].ID != created.ID {
+		t.Fatalf("item questions = %#v err=%v", item.Questions, err)
+	}
+	replayed, err := service.AskQuestion(context.Background(), "tenant-synthetic", "IN", "customer-001", "item-milk", "command-001", "Is this delivered chilled?")
+	if err != nil || replayed.ID != created.ID {
+		t.Fatalf("idempotent replay = %#v err=%v", replayed, err)
+	}
+	for index := 1; index < 5; index++ {
+		if _, err := service.AskQuestion(context.Background(), "tenant-synthetic", "IN", "customer-001", "item-milk", fmt.Sprintf("command-%03d", index+1), fmt.Sprintf("Customer question number %d?", index+1)); err != nil {
+			t.Fatalf("question %d error = %v", index+1, err)
+		}
+	}
+	if _, err := service.AskQuestion(context.Background(), "tenant-synthetic", "IN", "customer-001", "item-milk", "command-006", "One question too many?"); !errors.Is(err, ErrQuestionLimit) {
+		t.Fatalf("limit error = %v", err)
+	}
 }
 
 func TestProjectionTransitionsFreshStaleDegraded(t *testing.T) {
@@ -60,7 +96,7 @@ func TestServiceabilityRequiresPurposeAndMatchesCountryZone(t *testing.T) {
 	repository, _ := NewMemoryRepository(syntheticCategories(), syntheticItems())
 	service, _ := NewService(repository, []Zone{{
 		ID: "zone-chennai", Country: "IN", Locality: "Chennai", MinimumLatitude: 12.8, MaximumLatitude: 13.3,
-		MinimumLongitude: 80.0, MaximumLongitude: 80.4,
+		MinimumLongitude: 80.0, MaximumLongitude: 80.4, PostalCodes: []string{"600001"},
 	}}, 15*time.Minute, func() time.Time { return now })
 	point := GeoPoint{Latitude: 13.08, Longitude: 80.27, AccuracyMetres: 12, CapturedAt: now, Purpose: "LOCATION_SERVICEABILITY"}
 	result, err := service.CheckServiceability("IN", point)
@@ -70,6 +106,10 @@ func TestServiceabilityRequiresPurposeAndMatchesCountryZone(t *testing.T) {
 	point.Purpose = "TRACKING"
 	if _, err := service.CheckServiceability("IN", point); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("purpose error = %v", err)
+	}
+	candidates, err := service.Geocode("IN", "600")
+	if err != nil || len(candidates) != 1 || candidates[0].PostalCode != "600001" || candidates[0].Locality != "Chennai" {
+		t.Fatalf("geocode = %#v err=%v", candidates, err)
 	}
 }
 

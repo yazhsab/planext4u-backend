@@ -23,7 +23,11 @@ The system will use Go for all backend services and workers. The administrator c
 
 ## Current status
 
-Phase 1 architecture and target definition is complete. The approved Phase 2 backlog establishes the Go platform, contracts and staging vertical slice.
+Phase 1 architecture, Phase 2 platform foundations and the complete Phase 3
+customer-commerce source backlog are implemented. Phase 3 includes catalog and
+Q&A, authoritative cart/checkout, Razorpay/Paystack/COD orchestration, orders,
+partial returns/refunds, wallet/referrals/refills/rewards, FCM push delivery and
+the secured administrator operation domains.
 
 Phase 2 implementation includes the greenfield Go platform, versioned
 contracts, deterministic local dependencies, secure gateway, identity/customer,
@@ -97,5 +101,7 @@ environment files.
 - [Identity/customer foundation](docs/phase-2/IDENTITY_CUSTOMER_FOUNDATION.md)
 - [Secure administrator shell](docs/phase-2/SECURE_ADMINISTRATOR_SHELL.md)
 - [Staging vertical slice](docs/phase-2/STAGING_VERTICAL_SLICE.md)
+- [Phase 3 executable backlog](docs/phase-3/PHASE_3_BACKLOG.md)
+- [Phase 3 exit review](docs/phase-3/PHASE_3_EXIT_REVIEW.md)
 - [Six-phase programme plan](https://github.com/yazhsab/planext4u-moble/blob/main/docs/PROGRAM_PLAN.md)
 - [Flutter applications](https://github.com/yazhsab/planext4u-moble)

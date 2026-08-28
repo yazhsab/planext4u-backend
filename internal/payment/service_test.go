@@ -1,6 +1,7 @@
 package payment
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -60,7 +61,7 @@ func TestPaymentRetryConflictRefundAndCountryPolicy(t *testing.T) {
 func TestPaymentOwnershipAndPartialRefundWebhook(t *testing.T) {
 	t.Parallel()
 	secret := []byte("synthetic-provider-secret-32-bytes-minimum")
-	service, _ := NewService(paymentClock, map[Method][]byte{MethodRazorpay: secret})
+	service, _ := NewServiceWithProviders(paymentClock, map[Method][]byte{MethodRazorpay: secret}, map[Method]ProviderInitializer{MethodRazorpay: syntheticPaymentProvider{}})
 	scope := paymentScope()
 	created, _, _ := service.Create(scope, "idem-payment-owner-0001", "order-payment-owner-001", MethodRazorpay, Money{AmountMinor: 50000, Currency: "INR"})
 	other := scope
@@ -79,6 +80,16 @@ func TestPaymentOwnershipAndPartialRefundWebhook(t *testing.T) {
 	if err != nil || refunded.Status != StatusRefunded {
 		t.Fatalf("refund webhook = %#v err=%v", refunded, err)
 	}
+}
+
+type syntheticPaymentProvider struct{}
+
+func (syntheticPaymentProvider) Initialize(_ context.Context, input ProviderInitialization) (ProviderSession, error) {
+	return ProviderSession{ProviderReference: "order-synthetic-provider", ClientHandoff: ClientHandoff{Type: "RAZORPAY_CHECKOUT", PublicKey: "rzp_test_synthetic", ProviderOrderID: "order-synthetic-provider"}}, nil
+}
+
+func (syntheticPaymentProvider) Refund(_ context.Context, _ ProviderRefundRequest) (ProviderRefundSubmission, error) {
+	return ProviderRefundSubmission{ProviderRefundReference: "refund-synthetic-provider", Status: StatusRefundSubmitted}, nil
 }
 
 func paymentScope() Scope {

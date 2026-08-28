@@ -32,12 +32,37 @@ type Category struct {
 	Priority int    `json:"priority"`
 }
 
+type Review struct {
+	ID                string    `json:"id"`
+	AuthorDisplayName string    `json:"author_display_name"`
+	Score             int       `json:"score"`
+	Body              string    `json:"body"`
+	VerifiedPurchase  bool      `json:"verified_purchase"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
+type Question struct {
+	ID         string     `json:"id"`
+	Question   string     `json:"question"`
+	AskedBy    string     `json:"asked_by"`
+	AskedByID  string     `json:"-"`
+	AskedAt    time.Time  `json:"asked_at"`
+	Answer     string     `json:"answer,omitempty"`
+	AnsweredBy string     `json:"answered_by,omitempty"`
+	AnsweredAt *time.Time `json:"answered_at,omitempty"`
+}
+
+type AskQuestionInput struct {
+	Question string `json:"question"`
+}
+
 type Item struct {
 	ID                  string            `json:"id"`
 	CategoryID          string            `json:"category_id"`
 	Name                string            `json:"name"`
 	Summary             string            `json:"summary"`
 	MediaRef            string            `json:"media_ref,omitempty"`
+	MediaRefs           []string          `json:"media_refs,omitempty"`
 	Price               Money             `json:"price"`
 	Available           bool              `json:"available"`
 	SellerName          string            `json:"seller_name,omitempty"`
@@ -47,6 +72,10 @@ type Item struct {
 	RatingAverage       float64           `json:"rating_average,omitempty"`
 	ReviewCount         int               `json:"review_count,omitempty"`
 	Variants            []Variant         `json:"variants,omitempty"`
+	DeliveryEstimate    string            `json:"delivery_estimate,omitempty"`
+	Reviews             []Review          `json:"reviews,omitempty"`
+	Questions           []Question        `json:"questions,omitempty"`
+	RelatedItemIDs      []string          `json:"related_item_ids,omitempty"`
 	SearchTerms         []string          `json:"-"`
 }
 
@@ -61,8 +90,24 @@ type Page[T any] struct {
 type Home struct {
 	Categories       []Category       `json:"categories"`
 	FeaturedItems    []Item           `json:"featured_items"`
+	Recommendations  []Item           `json:"recommendations"`
+	Leaderboard      []SellerLeader   `json:"leaderboard"`
+	HelpShortcuts    []HelpShortcut   `json:"help_shortcuts"`
 	ProjectionStatus ProjectionStatus `json:"projection_status"`
 	GeneratedAt      time.Time        `json:"generated_at"`
+}
+
+type SellerLeader struct {
+	SellerName    string  `json:"seller_name"`
+	Verified      bool    `json:"verified"`
+	RatingAverage float64 `json:"rating_average"`
+	ReviewCount   int     `json:"review_count"`
+}
+
+type HelpShortcut struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Route string `json:"route"`
 }
 
 type GeoPoint struct {
@@ -78,4 +123,21 @@ type Serviceability struct {
 	ZoneID      string `json:"zone_id,omitempty"`
 	Locality    string `json:"locality,omitempty"`
 	ReasonCode  string `json:"reason_code"`
+}
+
+type GeocodeCandidate struct {
+	ID         string  `json:"id"`
+	Label      string  `json:"label"`
+	Locality   string  `json:"locality"`
+	PostalCode string  `json:"postal_code"`
+	Latitude   float64 `json:"latitude"`
+	Longitude  float64 `json:"longitude"`
+}
+
+type Suggestion struct {
+	Type     string `json:"type"`
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Subtitle string `json:"subtitle,omitempty"`
+	ItemID   string `json:"item_id,omitempty"`
 }

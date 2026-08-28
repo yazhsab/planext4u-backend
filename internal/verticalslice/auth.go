@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	syntheticTenant  = "tenant-synthetic-001"
+	syntheticTenant  = "11111111-1111-4111-8111-111111111111"
 	syntheticSubject = "customer-synthetic-001"
 	accessTokenTTL   = 10 * time.Minute
 )
