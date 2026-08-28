@@ -1,0 +1,99 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Planext4u Service Booking API", "version": "1.0.0"},
+  "security": [{"bearerAuth": []}],
+  "paths": {
+    "/v1/services": {
+      "get": {
+        "operationId": "bookingListOfferings",
+        "parameters": [
+          {"name": "postal_code", "in": "query", "required": true, "schema": {"type": "string", "minLength": 3, "maxLength": 12}},
+          {"name": "category_id", "in": "query", "required": false, "schema": {"type": "string", "maxLength": 128}}
+        ],
+        "responses": {"200": {"description": "Geo-serviceable trusted offerings", "content": {"application/json": {"schema": {"type": "object", "required": ["items"], "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/ServiceOffering"}}}}}}}, "403": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/v1/services/{service_id}": {
+      "get": {
+        "operationId": "bookingGetOffering",
+        "parameters": [{"$ref": "#/components/parameters/ServiceID"}, {"name": "postal_code", "in": "query", "required": true, "schema": {"type": "string", "minLength": 3, "maxLength": 12}}],
+        "responses": {"200": {"description": "Service offering", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ServiceOffering"}}}}, "404": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/v1/services/{service_id}/slots": {
+      "get": {
+        "operationId": "bookingListSlots",
+        "parameters": [{"$ref": "#/components/parameters/ServiceID"}, {"name": "from", "in": "query", "required": false, "schema": {"type": "string", "format": "date-time"}}, {"name": "to", "in": "query", "required": false, "schema": {"type": "string", "format": "date-time"}}],
+        "responses": {"200": {"description": "Live capacity-aware service slots", "content": {"application/json": {"schema": {"type": "object", "required": ["items"], "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/ServiceSlot"}}}}}}}, "404": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/v1/service-slot-holds": {
+      "post": {
+        "operationId": "bookingHoldSlot",
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HoldSlotRequest"}}}},
+        "responses": {"201": {"description": "Expiring atomic slot hold", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SlotHold"}}}}, "409": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/v1/service-slot-holds/{hold_id}": {
+      "delete": {
+        "operationId": "bookingReleaseSlotHold",
+        "parameters": [{"$ref": "#/components/parameters/HoldID"}],
+        "responses": {"204": {"description": "Hold released"}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/v1/service-bookings": {
+      "get": {"operationId": "bookingListBookings", "responses": {"200": {"description": "Actor-scoped booking queue", "content": {"application/json": {"schema": {"type": "object", "required": ["items"], "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/ServiceBooking"}}}}}}}}},
+      "post": {
+        "operationId": "bookingCreateBooking",
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateBookingRequest"}}}},
+        "responses": {"201": {"description": "Booking and authoritative payment", "headers": {"ETag": {"schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ServiceBooking"}}}}, "409": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/v1/service-bookings/{booking_id}": {
+      "get": {"operationId": "bookingGetBooking", "parameters": [{"$ref": "#/components/parameters/BookingID"}], "responses": {"200": {"description": "Actor-scoped booking", "headers": {"ETag": {"schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ServiceBooking"}}}}, "404": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/v1/service-bookings/{booking_id}/payment-confirmation": {"post": {"operationId": "bookingConfirmPayment", "parameters": [{"$ref": "#/components/parameters/BookingID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/IfMatch"}], "responses": {"200": {"description": "Provider payment verified against server state", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ServiceBooking"}}}}, "409": {"$ref": "#/components/responses/Problem"}}}},
+    "/v1/service-bookings/{booking_id}/reschedule": {"post": {"operationId": "bookingReschedule", "parameters": [{"$ref": "#/components/parameters/BookingID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/IfMatch"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RescheduleRequest"}}}}, "responses": {"200": {"description": "Policy-checked reschedule", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ServiceBooking"}}}}, "409": {"$ref": "#/components/responses/Problem"}}}},
+    "/v1/service-bookings/{booking_id}/cancel": {"post": {"operationId": "bookingCancel", "parameters": [{"$ref": "#/components/parameters/BookingID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/IfMatch"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReasonRequest"}}}}, "responses": {"200": {"description": "Cancelled booking with financial compensation state", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ServiceBooking"}}}}, "409": {"$ref": "#/components/responses/Problem"}}}},
+    "/v1/service-bookings/{booking_id}/provider-status": {"post": {"operationId": "bookingProviderTransition", "parameters": [{"$ref": "#/components/parameters/BookingID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/IfMatch"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProviderTransitionRequest"}}}}, "responses": {"200": {"description": "Provider-owned lifecycle transition"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}}}},
+    "/v1/service-bookings/{booking_id}/start": {"post": {"operationId": "bookingStart", "parameters": [{"$ref": "#/components/parameters/BookingID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/IfMatch"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StartRequest"}}}}, "responses": {"200": {"description": "One-time start OTP verified"}, "409": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}}}},
+    "/v1/service-bookings/{booking_id}/completion": {"post": {"operationId": "bookingSubmitCompletion", "parameters": [{"$ref": "#/components/parameters/BookingID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/IfMatch"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CompletionRequest"}}}}, "responses": {"200": {"description": "Completion evidence submitted"}, "409": {"$ref": "#/components/responses/Problem"}}}},
+    "/v1/service-bookings/{booking_id}/confirm-completion": {"post": {"operationId": "bookingConfirmCompletion", "parameters": [{"$ref": "#/components/parameters/BookingID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/IfMatch"}], "responses": {"200": {"description": "Customer completion confirmation"}, "409": {"$ref": "#/components/responses/Problem"}}}},
+    "/v1/service-bookings/{booking_id}/no-show": {"post": {"operationId": "bookingReportNoShow", "parameters": [{"$ref": "#/components/parameters/BookingID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/IfMatch"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReasonRequest"}}}}, "responses": {"200": {"description": "Actor-scoped no-show recorded"}, "409": {"$ref": "#/components/responses/Problem"}}}},
+    "/v1/service-bookings/{booking_id}/disputes": {"post": {"operationId": "bookingOpenDispute", "parameters": [{"$ref": "#/components/parameters/BookingID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/IfMatch"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReasonRequest"}}}}, "responses": {"200": {"description": "Booking dispute opened"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}}}}
+  },
+  "components": {
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
+    "parameters": {
+      "IdempotencyKey": {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 16, "maxLength": 128}},
+      "IfMatch": {"name": "If-Match", "in": "header", "required": true, "schema": {"type": "string"}},
+      "ServiceID": {"name": "service_id", "in": "path", "required": true, "schema": {"type": "string", "maxLength": 128}},
+      "HoldID": {"name": "hold_id", "in": "path", "required": true, "schema": {"type": "string", "maxLength": 128}},
+      "BookingID": {"name": "booking_id", "in": "path", "required": true, "schema": {"type": "string", "maxLength": 128}}
+    },
+    "responses": {"Problem": {"description": "Safe standard error", "content": {"application/json": {"schema": {"$ref": "./common.openapi.json#/components/schemas/ErrorEnvelope"}}}}},
+    "schemas": {
+      "Money": {"type": "object", "additionalProperties": false, "required": ["amount_minor", "currency"], "properties": {"amount_minor": {"type": "integer", "format": "int64", "minimum": 0}, "currency": {"type": "string", "pattern": "^[A-Z]{3}$"}}},
+      "PaymentMode": {"type": "string", "enum": ["FULL", "ADVANCE"]},
+      "PaymentMethod": {"type": "string", "enum": ["RAZORPAY", "PAYSTACK", "WALLET"]},
+      "ServiceOffering": {"type": "object", "additionalProperties": false, "required": ["id", "provider_id", "provider_name", "category_id", "name", "summary", "duration_minutes", "price", "advance", "payment_mode", "verified_provider", "rating_average", "completed_bookings", "live_engagements", "service_postal_codes", "cancellation_policy_ref", "reschedule_policy_ref", "active"], "properties": {"id": {"type": "string"}, "provider_id": {"type": "string"}, "provider_name": {"type": "string"}, "category_id": {"type": "string"}, "name": {"type": "string"}, "summary": {"type": "string"}, "duration_minutes": {"type": "integer", "minimum": 15}, "price": {"$ref": "#/components/schemas/Money"}, "advance": {"$ref": "#/components/schemas/Money"}, "payment_mode": {"$ref": "#/components/schemas/PaymentMode"}, "verified_provider": {"type": "boolean"}, "rating_average": {"type": "number", "minimum": 0, "maximum": 5}, "completed_bookings": {"type": "integer", "minimum": 0}, "live_engagements": {"type": "integer", "minimum": 0}, "service_postal_codes": {"type": "array", "items": {"type": "string"}}, "cancellation_policy_ref": {"type": "string"}, "reschedule_policy_ref": {"type": "string"}, "active": {"type": "boolean"}}},
+      "ServiceSlot": {"type": "object", "additionalProperties": false, "required": ["id", "offering_id", "provider_id", "starts_at", "ends_at", "time_zone", "capacity", "remaining", "buffer_minutes", "price", "advance", "allowed_actions", "policy_version", "service_date", "provider_version"], "properties": {"id": {"type": "string"}, "offering_id": {"type": "string"}, "provider_id": {"type": "string"}, "starts_at": {"type": "string", "format": "date-time"}, "ends_at": {"type": "string", "format": "date-time"}, "time_zone": {"type": "string"}, "capacity": {"type": "integer", "minimum": 1}, "remaining": {"type": "integer", "minimum": 0}, "buffer_minutes": {"type": "integer", "minimum": 0}, "price": {"$ref": "#/components/schemas/Money"}, "advance": {"$ref": "#/components/schemas/Money"}, "allowed_actions": {"type": "array", "items": {"type": "string"}}, "policy_version": {"type": "string"}, "service_date": {"type": "string", "format": "date"}, "provider_version": {"type": "integer", "format": "int64", "minimum": 1}}},
+      "SlotHoldStatus": {"type": "string", "enum": ["HELD", "CONSUMED", "EXPIRED", "RELEASED"]},
+      "SlotHold": {"type": "object", "additionalProperties": false, "required": ["id", "slot_id", "offering_id", "status", "expires_at", "created_at", "allowed_actions"], "properties": {"id": {"type": "string"}, "slot_id": {"type": "string"}, "offering_id": {"type": "string"}, "status": {"$ref": "#/components/schemas/SlotHoldStatus"}, "expires_at": {"type": "string", "format": "date-time"}, "created_at": {"type": "string", "format": "date-time"}, "allowed_actions": {"type": "array", "items": {"type": "string"}}}},
+      "BookingStatus": {"type": "string", "enum": ["PENDING_PAYMENT", "REQUESTED", "ACCEPTED", "PROVIDER_EN_ROUTE", "ARRIVED", "START_OTP_REQUIRED", "IN_PROGRESS", "COMPLETION_EVIDENCE_REQUIRED", "COMPLETED_PENDING_CONFIRMATION", "COMPLETED", "RESCHEDULE_REQUESTED", "CANCEL_REQUESTED", "CANCELLED", "DECLINED", "CUSTOMER_NO_SHOW", "PROVIDER_NO_SHOW", "DISPUTED"]},
+      "TimelineEvent": {"type": "object", "additionalProperties": false, "required": ["status", "actor", "created_at"], "properties": {"status": {"$ref": "#/components/schemas/BookingStatus"}, "actor": {"type": "string"}, "reason": {"type": "string"}, "created_at": {"type": "string", "format": "date-time"}}},
+      "CompletionEvidence": {"type": "object", "additionalProperties": false, "required": ["photo_asset_id", "captured_at", "submitted_by"], "properties": {"photo_asset_id": {"type": "string"}, "captured_at": {"type": "string", "format": "date-time"}, "submitted_by": {"type": "string"}}},
+      "Payment": {"type": "object", "required": ["id", "order_reference", "method", "status", "amount", "allowed_actions", "created_at", "updated_at"], "properties": {"id": {"type": "string"}, "order_reference": {"type": "string"}, "method": {"type": "string"}, "status": {"type": "string"}, "amount": {"$ref": "#/components/schemas/Money"}, "client_handoff": {"type": "object"}, "allowed_actions": {"type": "array", "items": {"type": "string"}}, "created_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"}}},
+      "ServiceBooking": {"type": "object", "additionalProperties": false, "required": ["id", "revision", "status", "offering", "slot", "price", "amount_due", "payment", "reschedule_count", "free_reschedules_left", "allowed_actions", "timeline", "created_at", "updated_at"], "properties": {"id": {"type": "string"}, "revision": {"type": "integer", "format": "int64", "minimum": 1}, "status": {"$ref": "#/components/schemas/BookingStatus"}, "offering": {"$ref": "#/components/schemas/ServiceOffering"}, "slot": {"$ref": "#/components/schemas/ServiceSlot"}, "price": {"$ref": "#/components/schemas/Money"}, "amount_due": {"$ref": "#/components/schemas/Money"}, "payment": {"$ref": "#/components/schemas/Payment"}, "start_otp": {"type": "string", "pattern": "^[0-9]{6}$", "x-planext4u-sensitive": true}, "completion_evidence": {"$ref": "#/components/schemas/CompletionEvidence"}, "reschedule_count": {"type": "integer", "minimum": 0}, "free_reschedules_left": {"type": "integer", "minimum": 0}, "allowed_actions": {"type": "array", "items": {"type": "string"}}, "timeline": {"type": "array", "items": {"$ref": "#/components/schemas/TimelineEvent"}}, "created_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"}}},
+      "HoldSlotRequest": {"type": "object", "additionalProperties": false, "required": ["slot_id", "postal_code"], "properties": {"slot_id": {"type": "string"}, "postal_code": {"type": "string", "minLength": 3, "maxLength": 12}}},
+      "CreateBookingRequest": {"type": "object", "additionalProperties": false, "required": ["hold_id", "payment_method"], "properties": {"hold_id": {"type": "string"}, "payment_method": {"$ref": "#/components/schemas/PaymentMethod"}}},
+      "RescheduleRequest": {"type": "object", "additionalProperties": false, "required": ["hold_id", "reason"], "properties": {"hold_id": {"type": "string"}, "reason": {"type": "string", "minLength": 3, "maxLength": 500}}},
+      "ReasonRequest": {"type": "object", "additionalProperties": false, "required": ["reason"], "properties": {"reason": {"type": "string", "minLength": 3, "maxLength": 500}}},
+      "StartRequest": {"type": "object", "additionalProperties": false, "required": ["otp"], "properties": {"otp": {"type": "string", "pattern": "^[0-9]{6}$", "x-planext4u-sensitive": true}}},
+      "CompletionRequest": {"type": "object", "additionalProperties": false, "required": ["photo_asset_id"], "properties": {"photo_asset_id": {"type": "string"}}},
+      "ProviderTransitionRequest": {"type": "object", "additionalProperties": false, "required": ["status", "reason"], "properties": {"status": {"$ref": "#/components/schemas/BookingStatus"}, "reason": {"type": "string", "maxLength": 500}}}
+    }
+  }
+}

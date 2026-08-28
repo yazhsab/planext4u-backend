@@ -195,6 +195,60 @@ func TestBEVSlicePhase3CheckoutCODOrderAndWallet(t *testing.T) {
 	assertVerticalResponse(t, wallet, http.StatusOK, `"balance":24000`, `"category":"CHECKOUT_REDEMPTION"`)
 }
 
+func TestBEVSlicePhase4ServiceHoldWalletBookingAndCompensation(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 28, 10, 30, 0, 0, time.UTC)
+	application, err := New(Config{
+		SigningKey: []byte("synthetic-staging-key-32-bytes-minimum-value"),
+		Clock:      func() time.Time { return now },
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(application)
+	t.Cleanup(server.Close)
+	client := server.Client()
+	authentication := verticalRequest(t, client, http.MethodPost, server.URL+"/v1/auth/exchange", `{"provider":"local","provider_token":"synthetic-customer","device_id":"device-phase4-e2e-001","country":"IN"}`, "")
+	var authPayload struct {
+		Tokens struct {
+			AccessToken string `json:"access_token"`
+		} `json:"tokens"`
+	}
+	decodeVerticalJSON(t, authentication, &authPayload)
+
+	bootstrap := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/bootstrap?platform=android&app_version=0.1.0&locale=en", "", authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, bootstrap, http.StatusOK, `"service_booking":true`)
+	offerings := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/services?postal_code=600001&category_id=home-cleaning", "", authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, offerings, http.StatusOK, `"id":"service-home-cleaning"`, `"verified_provider":true`, `"payment_mode":"ADVANCE"`)
+	slots := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/services/service-home-cleaning/slots", "", authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, slots, http.StatusOK, `"id":"slot-cleaning-morning-001"`, `"remaining":2`, `"time_zone":"Asia/Kolkata"`)
+
+	hold := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/service-slot-holds", `{"slot_id":"slot-cleaning-morning-001","postal_code":"600001"}`, authPayload.Tokens.AccessToken, map[string]string{"Idempotency-Key": "idem-phase4-hold-00001"})
+	assertVerticalResponse(t, hold, http.StatusCreated, `"status":"HELD"`, `"CREATE_BOOKING"`)
+	var holdPayload struct {
+		ID string `json:"id"`
+	}
+	decodeVerticalJSON(t, hold, &holdPayload)
+	createdBody, _ := json.Marshal(map[string]string{"hold_id": holdPayload.ID, "payment_method": "WALLET"})
+	created := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/service-bookings", string(createdBody), authPayload.Tokens.AccessToken, map[string]string{"Idempotency-Key": "idem-phase4-booking-001"})
+	assertVerticalResponse(t, created, http.StatusCreated, `"status":"REQUESTED"`, `"amount_minor":5000`, `"method":"WALLET"`, `"RESCHEDULE"`)
+	if created.Header.Get("ETag") != `"1"` {
+		t.Fatalf("booking ETag = %q", created.Header.Get("ETag"))
+	}
+	var bookingPayload struct {
+		ID string `json:"id"`
+	}
+	decodeVerticalJSON(t, created, &bookingPayload)
+	walletAfterBooking := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/wallet", "", authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, walletAfterBooking, http.StatusOK, `"balance":20000`, `"source_reference":"`+bookingPayload.ID+`"`)
+
+	cancelled := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/service-bookings/"+bookingPayload.ID+"/cancel", `{"reason":"Synthetic schedule changed"}`, authPayload.Tokens.AccessToken, map[string]string{"Idempotency-Key": "idem-phase4-cancel-0001", "If-Match": `"1"`})
+	assertVerticalResponse(t, cancelled, http.StatusOK, `"status":"CANCELLED"`, `"status":"REFUND_SUBMITTED"`, `"VIEW_REFUND"`)
+	walletAfterCancellation := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/wallet", "", authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, walletAfterCancellation, http.StatusOK, `"balance":25000`, `"type":"REVERSAL"`)
+}
+
 type recordingPushProvider struct {
 	mu       sync.Mutex
 	messages []notification.ProviderMessage

@@ -244,6 +244,42 @@ func TestTransactionContractCompatibilityBaseline(t *testing.T) {
 	assertOpenAPICompatibility(t, "api/openapi/transaction.openapi.json", "api/compatibility/transaction-v1-baseline.json")
 }
 
+func TestBookingContractCompatibilityBaseline(t *testing.T) {
+	t.Parallel()
+	assertOpenAPICompatibility(t, "api/openapi/booking.openapi.json", "api/compatibility/booking-v1-baseline.json")
+}
+
+func TestBookingContractProtectsOTPAndFixtureIsSynthetic(t *testing.T) {
+	t.Parallel()
+	var document map[string]any
+	readJSON(t, "api/openapi/booking.openapi.json", &document)
+	schemas := document["components"].(map[string]any)["schemas"].(map[string]any)
+	bookingProperties := schemas["ServiceBooking"].(map[string]any)["properties"].(map[string]any)
+	if bookingProperties["start_otp"].(map[string]any)["x-planext4u-sensitive"] != true {
+		t.Fatal("service booking start OTP is not marked sensitive")
+	}
+	startProperties := schemas["StartRequest"].(map[string]any)["properties"].(map[string]any)
+	if startProperties["otp"].(map[string]any)["x-planext4u-sensitive"] != true {
+		t.Fatal("service start request OTP is not marked sensitive")
+	}
+	var fixture struct {
+		ID       string `json:"id"`
+		Status   string `json:"status"`
+		Offering struct {
+			ProviderID string `json:"provider_id"`
+		} `json:"offering"`
+		Payment struct {
+			Status string `json:"status"`
+		} `json:"payment"`
+	}
+	if err := json.Unmarshal([]byte(generated.ServiceBookingFixtureJSON), &fixture); err != nil {
+		t.Fatalf("service booking fixture is invalid JSON: %v", err)
+	}
+	if !strings.Contains(fixture.ID, "synthetic") || !strings.Contains(fixture.Offering.ProviderID, "synthetic") || fixture.Status != "REQUESTED" || fixture.Payment.Status != "CAPTURED" {
+		t.Fatalf("service booking fixture is incomplete or not synthetic: %#v", fixture)
+	}
+}
+
 func TestMediaContractCompatibilityBaseline(t *testing.T) {
 	t.Parallel()
 	assertOpenAPICompatibility(t, "api/openapi/media.openapi.json", "api/compatibility/media-v1-baseline.json")

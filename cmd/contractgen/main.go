@@ -32,6 +32,7 @@ var fixtures = []fixture{
 	{goName: "OrderFixtureJSON", dartName: "orderFixtureJson", path: "api/fixtures/order.json"},
 	{goName: "PaymentFixtureJSON", dartName: "paymentFixtureJson", path: "api/fixtures/payment.json"},
 	{goName: "ProblemFixtureJSON", dartName: "problemFixtureJson", path: "api/fixtures/problem.json"},
+	{goName: "ServiceBookingFixtureJSON", dartName: "serviceBookingFixtureJson", path: "api/fixtures/service_booking.json"},
 	{goName: "WalletFixtureJSON", dartName: "walletFixtureJson", path: "api/fixtures/wallet.json"},
 }
 
@@ -50,6 +51,7 @@ func run(root string, check bool) error {
 	for _, contractPath := range []string{
 		"api/openapi/admin.openapi.json",
 		"api/openapi/audit.openapi.json",
+		"api/openapi/booking.openapi.json",
 		"api/openapi/common.openapi.json",
 		"api/openapi/catalog.openapi.json",
 		"api/openapi/commerce.openapi.json",

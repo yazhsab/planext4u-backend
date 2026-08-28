@@ -1,0 +1,40 @@
+{
+  "operations": [
+    {"method": "GET", "path": "/v1/services"},
+    {"method": "GET", "path": "/v1/services/{service_id}"},
+    {"method": "GET", "path": "/v1/services/{service_id}/slots"},
+    {"method": "POST", "path": "/v1/service-slot-holds"},
+    {"method": "DELETE", "path": "/v1/service-slot-holds/{hold_id}"},
+    {"method": "GET", "path": "/v1/service-bookings"},
+    {"method": "POST", "path": "/v1/service-bookings"},
+    {"method": "GET", "path": "/v1/service-bookings/{booking_id}"},
+    {"method": "POST", "path": "/v1/service-bookings/{booking_id}/payment-confirmation"},
+    {"method": "POST", "path": "/v1/service-bookings/{booking_id}/reschedule"},
+    {"method": "POST", "path": "/v1/service-bookings/{booking_id}/cancel"},
+    {"method": "POST", "path": "/v1/service-bookings/{booking_id}/provider-status"},
+    {"method": "POST", "path": "/v1/service-bookings/{booking_id}/start"},
+    {"method": "POST", "path": "/v1/service-bookings/{booking_id}/completion"},
+    {"method": "POST", "path": "/v1/service-bookings/{booking_id}/confirm-completion"},
+    {"method": "POST", "path": "/v1/service-bookings/{booking_id}/no-show"},
+    {"method": "POST", "path": "/v1/service-bookings/{booking_id}/disputes"}
+  ],
+  "required_properties": {
+    "Money": ["amount_minor", "currency"],
+    "ServiceOffering": ["id", "provider_id", "provider_name", "category_id", "name", "summary", "duration_minutes", "price", "advance", "payment_mode", "verified_provider", "rating_average", "completed_bookings", "live_engagements", "service_postal_codes", "cancellation_policy_ref", "reschedule_policy_ref", "active"],
+    "ServiceSlot": ["id", "offering_id", "provider_id", "starts_at", "ends_at", "time_zone", "capacity", "remaining", "buffer_minutes", "price", "advance", "allowed_actions", "policy_version", "service_date", "provider_version"],
+    "SlotHold": ["id", "slot_id", "offering_id", "status", "expires_at", "created_at", "allowed_actions"],
+    "ServiceBooking": ["id", "revision", "status", "offering", "slot", "price", "amount_due", "payment", "reschedule_count", "free_reschedules_left", "allowed_actions", "timeline", "created_at", "updated_at"],
+    "HoldSlotRequest": ["slot_id", "postal_code"],
+    "CreateBookingRequest": ["hold_id", "payment_method"],
+    "RescheduleRequest": ["hold_id", "reason"],
+    "ReasonRequest": ["reason"],
+    "StartRequest": ["otp"],
+    "CompletionRequest": ["photo_asset_id"]
+  },
+  "enum_values": {
+    "PaymentMode": ["FULL", "ADVANCE"],
+    "PaymentMethod": ["RAZORPAY", "PAYSTACK", "WALLET"],
+    "SlotHoldStatus": ["HELD", "CONSUMED", "EXPIRED", "RELEASED"],
+    "BookingStatus": ["PENDING_PAYMENT", "REQUESTED", "ACCEPTED", "PROVIDER_EN_ROUTE", "ARRIVED", "START_OTP_REQUIRED", "IN_PROGRESS", "COMPLETION_EVIDENCE_REQUIRED", "COMPLETED_PENDING_CONFIRMATION", "COMPLETED", "RESCHEDULE_REQUESTED", "CANCEL_REQUESTED", "CANCELLED", "DECLINED", "CUSTOMER_NO_SHOW", "PROVIDER_NO_SHOW", "DISPUTED"]
+  }
+}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yazhsab/planext4u-backend/internal/booking"
 	"github.com/yazhsab/planext4u-backend/internal/catalog"
 	"github.com/yazhsab/planext4u-backend/internal/checkout"
 	"github.com/yazhsab/planext4u-backend/internal/commerce"
@@ -69,7 +70,7 @@ func New(config Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	commerceHandler, transactionHandler, err := customerTransactionHandlers(config.Clock, orderNotifier)
+	commerceHandler, transactionHandler, bookingHandler, err := customerTransactionHandlers(config.Clock, orderNotifier)
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +87,9 @@ func New(config Config) (http.Handler, error) {
 	for _, path := range []string{"/v1/addresses", "/v1/delivery-slots", "/v1/checkout/", "/v1/payments/", "/v1/orders", "/v1/orders/", "/v1/wallet", "/v1/wallet/"} {
 		upstream.Handle(path, transactionHandler)
 	}
+	for _, path := range []string{"/v1/services", "/v1/services/", "/v1/service-slot-holds", "/v1/service-slot-holds/", "/v1/service-bookings", "/v1/service-bookings/"} {
+		upstream.Handle(path, bookingHandler)
+	}
 	upstream.Handle("/v1/notifications/devices/", notificationHandler)
 
 	gatewayConfig := gateway.DefaultConfig(nil)
@@ -101,7 +105,7 @@ func New(config Config) (http.Handler, error) {
 
 func Route(request *http.Request) string {
 	switch request.URL.Path {
-	case "/healthz", "/readyz", "/health/ready", "/v1/auth/exchange", "/v1/bootstrap", "/v1/home", "/v1/catalog/categories", "/v1/catalog/items", "/v1/catalog/search", "/v1/catalog/suggestions", "/v1/serviceability/check", "/v1/geocoding/search", "/v1/cart", "/v1/addresses", "/v1/delivery-slots", "/v1/checkout/quotes", "/v1/checkout/orders", "/v1/orders", "/v1/wallet", "/v1/wallet/experience", "/v1/wallet/referrals", "/v1/wallet/refills", "/v1/notifications/devices/current", "/v1/payments/webhooks/razorpay", "/v1/payments/webhooks/paystack":
+	case "/healthz", "/readyz", "/health/ready", "/v1/auth/exchange", "/v1/bootstrap", "/v1/home", "/v1/catalog/categories", "/v1/catalog/items", "/v1/catalog/search", "/v1/catalog/suggestions", "/v1/serviceability/check", "/v1/geocoding/search", "/v1/cart", "/v1/addresses", "/v1/delivery-slots", "/v1/checkout/quotes", "/v1/checkout/orders", "/v1/orders", "/v1/wallet", "/v1/wallet/experience", "/v1/wallet/referrals", "/v1/wallet/refills", "/v1/notifications/devices/current", "/v1/payments/webhooks/razorpay", "/v1/payments/webhooks/paystack", "/v1/services", "/v1/service-slot-holds", "/v1/service-bookings":
 		return request.URL.Path
 	default:
 		if strings.HasPrefix(request.URL.Path, "/v1/catalog/items/") {
@@ -130,6 +134,25 @@ func Route(request *http.Request) string {
 				return "/v1/orders/{order_id}/" + parts[3]
 			}
 		}
+		if strings.HasPrefix(request.URL.Path, "/v1/services/") {
+			parts := strings.Split(strings.Trim(request.URL.Path, "/"), "/")
+			if len(parts) == 4 && parts[3] == "slots" {
+				return "/v1/services/{service_id}/slots"
+			}
+			return "/v1/services/{service_id}"
+		}
+		if strings.HasPrefix(request.URL.Path, "/v1/service-slot-holds/") {
+			return "/v1/service-slot-holds/{hold_id}"
+		}
+		if strings.HasPrefix(request.URL.Path, "/v1/service-bookings/") {
+			parts := strings.Split(strings.Trim(request.URL.Path, "/"), "/")
+			if len(parts) == 3 {
+				return "/v1/service-bookings/{booking_id}"
+			}
+			if len(parts) == 4 {
+				return "/v1/service-bookings/{booking_id}/" + parts[3]
+			}
+		}
 		return "unmatched"
 	}
 }
@@ -144,7 +167,7 @@ func (snapshots syntheticCommerceSnapshots) Resolve(_ context.Context, _ commerc
 	return value, nil
 }
 
-func customerTransactionHandlers(clock func() time.Time, notifier order.Notifier) (http.Handler, http.Handler, error) {
+func customerTransactionHandlers(clock func() time.Time, notifier order.Notifier) (http.Handler, http.Handler, http.Handler, error) {
 	service, err := commerce.NewService(syntheticCommerceSnapshots{
 		"variant-milk-1l":          {VariantID: "variant-milk-1l", ItemID: "item-milk", VendorID: "vendor-dairy-001", ItemName: "Fresh milk", VariantName: "1 litre", UnitPrice: commerce.Money{AmountMinor: 6500, Currency: "INR"}, Available: true, Stock: 50, MaxPerOrder: 10},
 		"variant-groceries-weekly": {VariantID: "variant-groceries-weekly", ItemID: "item-groceries", VendorID: "vendor-mart-001", ItemName: "Weekly groceries", VariantName: "Essential bundle", UnitPrice: commerce.Money{AmountMinor: 120000, Currency: "INR"}, Available: true, Stock: 20, MaxPerOrder: 3},
@@ -152,11 +175,11 @@ func customerTransactionHandlers(clock func() time.Time, notifier order.Notifier
 		"variant-sesame-oil-1l":    {VariantID: "variant-sesame-oil-1l", ItemID: "item-sesame-oil", VendorID: "vendor-foods-001", ItemName: "Cold-pressed sesame oil", VariantName: "1L", UnitPrice: commerce.Money{AmountMinor: 45000, Currency: "INR"}, Available: true, Stock: 12, MaxPerOrder: 5},
 	}, clock)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	commerceHandler, err := commerce.NewHandler(service)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	inventoryService, err := inventory.NewService([]inventory.SeedStock{
 		{Scope: inventory.Scope{TenantID: syntheticTenant, Country: "IN"}, VariantID: "variant-milk-1l", Quantity: 50},
@@ -165,7 +188,7 @@ func customerTransactionHandlers(clock func() time.Time, notifier order.Notifier
 		{Scope: inventory.Scope{TenantID: syntheticTenant, Country: "IN"}, VariantID: "variant-sesame-oil-1l", Quantity: 12},
 	}, clock)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	walletService, err := wallet.NewServiceWithProgram(clock, wallet.RewardPolicy{DailyDeviceCap: 100, Cooldown: time.Minute, ReferralSenderPoints: 500, ReferralRecipientPoints: 250, ReferralExpiry: 365 * 24 * time.Hour}, wallet.Program{
 		ReferralBaseURL: "https://planext4u.net/referral",
@@ -176,20 +199,20 @@ func customerTransactionHandlers(clock func() time.Time, notifier order.Notifier
 		Campaigns: []wallet.RewardCampaign{{ID: "first-local-order", Country: "IN", Title: "First local order", Description: "Earn bonus points after your first completed local order.", Points: 250, EndsAt: clock().UTC().AddDate(1, 0, 0)}},
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	walletScope := wallet.Scope{TenantID: syntheticTenant, Country: "IN", CustomerID: "customer-synthetic-001"}
 	if _, _, err = walletService.Credit(walletScope, "synthetic-wallet-seed-0001", "WELCOME_REWARD", "synthetic-launch-001", 25000, clock().UTC().AddDate(1, 0, 0)); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	providerSecret := []byte("synthetic-provider-secret-32-bytes-minimum")
 	paymentService, err := payment.NewService(clock, map[payment.Method][]byte{payment.MethodRazorpay: providerSecret, payment.MethodPaystack: providerSecret})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	orderService, err := order.NewServiceWithNotifier(clock, notifier)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	now := clock().UTC()
 	checkoutService, err := checkout.NewService(checkout.Dependencies{Cart: service, Inventory: inventoryService, Wallet: walletService, Payment: paymentService, Orders: orderService}, checkout.Configuration{
@@ -203,13 +226,34 @@ func customerTransactionHandlers(clock func() time.Time, notifier order.Notifier
 		PostalZones: []checkout.PostalZone{{Country: "IN", PostalCode: "600001", Locality: "Chennai"}},
 	}, clock)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	transactionHandler, err := checkout.NewHandler(checkoutService)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return commerceHandler, transactionHandler, nil
+	bookingService, err := booking.NewService(paymentService, walletService, booking.Configuration{
+		Offerings: []booking.Offering{{
+			ID: "service-home-cleaning", ProviderID: "provider-clean-001", ProviderName: "Clean Chennai", CategoryID: "home-cleaning",
+			Name: "Home deep cleaning", Summary: "Verified two-person cleaning team with supplies", DurationMinutes: 120,
+			Price: booking.Money{AmountMinor: 20000, Currency: "INR"}, Advance: booking.Money{AmountMinor: 5000, Currency: "INR"}, PaymentMode: booking.PaymentAdvance,
+			VerifiedProvider: true, RatingAverage: 4.8, CompletedBookings: 241, LiveEngagements: 3,
+			ServicePostalCodes: []string{"600001", "600002", "600003"}, CancellationPolicyRef: "service-cancel-v1", ReschedulePolicyRef: "service-reschedule-v1", Active: true,
+		}},
+		Slots: []booking.Slot{
+			{ID: "slot-cleaning-morning-001", OfferingID: "service-home-cleaning", ProviderID: "provider-clean-001", StartsAt: now.Add(24 * time.Hour), EndsAt: now.Add(26 * time.Hour), TimeZone: "Asia/Kolkata", Capacity: 2, BufferMinutes: 30, Price: booking.Money{AmountMinor: 20000, Currency: "INR"}, Advance: booking.Money{AmountMinor: 5000, Currency: "INR"}, PolicyVersion: "service-slot-v1", ServiceDate: now.Add(24 * time.Hour).Format("2006-01-02"), ProviderVersion: 1},
+			{ID: "slot-cleaning-evening-001", OfferingID: "service-home-cleaning", ProviderID: "provider-clean-001", StartsAt: now.Add(32 * time.Hour), EndsAt: now.Add(34 * time.Hour), TimeZone: "Asia/Kolkata", Capacity: 2, BufferMinutes: 30, Price: booking.Money{AmountMinor: 20000, Currency: "INR"}, Advance: booking.Money{AmountMinor: 5000, Currency: "INR"}, PolicyVersion: "service-slot-v1", ServiceDate: now.Add(32 * time.Hour).Format("2006-01-02"), ProviderVersion: 1},
+		},
+		Policies: []booking.Policy{{Version: "service-policy-v1", Country: "IN", HoldTTL: 5 * time.Minute, CancellationCutoff: 2 * time.Hour, MaximumFreeReschedules: 1, StartOTPValidity: 30 * time.Minute, CompletionConfirmWindow: 24 * time.Hour, WalletPointValueMinor: 1}},
+	}, clock)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	bookingHandler, err := booking.NewHandler(bookingService)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return commerceHandler, transactionHandler, bookingHandler, nil
 }
 
 func configurationHandler(clock func() time.Time) (http.Handler, error) {
@@ -222,7 +266,7 @@ func configurationHandler(clock func() time.Time) (http.Handler, error) {
 			{Purpose: "ESSENTIAL", PolicyVersion: "privacy-2026-01", Required: true},
 			{Purpose: "LOCATION_SERVICEABILITY", PolicyVersion: "location-2026-01", Required: true},
 		},
-		Flags: map[string]bool{"customer_home": true, "catalog_read": true},
+		Flags: map[string]bool{"customer_home": true, "catalog_read": true, "service_booking": true},
 		HomeSections: []configcms.HomeSection{
 			{ID: "featured", Kind: "FEATURED_ITEMS", TitleKey: "home.featured", Enabled: true, Priority: 10},
 			{ID: "categories", Kind: "CATEGORY_GRID", TitleKey: "home.categories", Enabled: true, Priority: 20},

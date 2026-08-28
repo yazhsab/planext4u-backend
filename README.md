@@ -27,7 +27,10 @@ Phase 1 architecture, Phase 2 platform foundations and the complete Phase 3
 customer-commerce source backlog are implemented. Phase 3 includes catalog and
 Q&A, authoritative cart/checkout, Razorpay/Paystack/COD orchestration, orders,
 partial returns/refunds, wallet/referrals/refills/rewards, FCM push delivery and
-the secured administrator operation domains.
+the secured administrator operation domains. Phase 4 implementation has started
+with the contract-first service-booking slice: trusted geo discovery, atomic
+slot holds, wallet/provider payment state, reschedule/cancel compensation,
+start OTP, completion evidence, no-show and disputes.
 
 Phase 2 implementation includes the greenfield Go platform, versioned
 contracts, deterministic local dependencies, secure gateway, identity/customer,
@@ -103,5 +106,7 @@ environment files.
 - [Staging vertical slice](docs/phase-2/STAGING_VERTICAL_SLICE.md)
 - [Phase 3 executable backlog](docs/phase-3/PHASE_3_BACKLOG.md)
 - [Phase 3 exit review](docs/phase-3/PHASE_3_EXIT_REVIEW.md)
+- [Phase 4 executable backlog](docs/phase-4/PHASE_4_BACKLOG.md)
+- [Phase 4 service-booking entry slice](docs/phase-4/SERVICE_BOOKING_ENTRY_SLICE.md)
 - [Six-phase programme plan](https://github.com/yazhsab/planext4u-moble/blob/main/docs/PROGRAM_PLAN.md)
 - [Flutter applications](https://github.com/yazhsab/planext4u-moble)
