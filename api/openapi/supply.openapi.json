@@ -1,0 +1,51 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Planext4u Supply API", "version": "1.0.0"},
+  "x-planext4u-reviewers": ["architecture", "security", "privacy", "mobile"],
+  "security": [{"bearerAuth": []}],
+  "paths": {
+    "/v1/vendor/applications": {"post": {"operationId": "registerVendor", "responses": {"201": {"description": "Registered"}}}},
+    "/v1/vendor/application": {"get": {"operationId": "getVendorApplication", "responses": {"200": {"description": "Application"}}}},
+    "/v1/vendor/application/documents": {"post": {"operationId": "submitVendorDocuments", "responses": {"200": {"description": "Documents submitted"}}}},
+    "/v1/vendor/application/field-visit": {"post": {"operationId": "scheduleVendorFieldVisit", "responses": {"200": {"description": "Visit scheduled"}}}},
+    "/v1/vendor/application/zones": {"post": {"operationId": "setVendorZones", "responses": {"200": {"description": "Zones stored"}}}},
+    "/v1/vendor/application/bank": {"post": {"operationId": "submitVendorBank", "responses": {"200": {"description": "Bank submitted"}}}},
+    "/v1/vendor/applications/{vendor_id}/transitions": {"post": {"operationId": "transitionVendorApplication", "parameters": [{"$ref": "#/components/parameters/VendorID"}], "responses": {"200": {"description": "Transitioned"}}}},
+    "/v1/vendor/applications/{vendor_id}/field-check-in": {"post": {"operationId": "checkInVendorFieldVisit", "parameters": [{"$ref": "#/components/parameters/VendorID"}], "responses": {"200": {"description": "Checked in"}}}},
+    "/v1/vendor/applications/{vendor_id}/bank-verification": {"post": {"operationId": "verifyVendorBank", "parameters": [{"$ref": "#/components/parameters/VendorID"}], "responses": {"200": {"description": "Bank verified"}}}},
+    "/v1/vendor/dashboard": {"get": {"operationId": "getVendorDashboard", "responses": {"200": {"description": "Dashboard"}}}},
+    "/v1/vendor/catalog": {
+      "get": {"operationId": "listVendorCatalog", "responses": {"200": {"description": "Catalog"}}},
+      "post": {"operationId": "createVendorCatalogItem", "responses": {"201": {"description": "Created"}}}
+    },
+    "/v1/vendor/catalog/{item_id}": {"put": {"operationId": "updateVendorCatalogItem", "parameters": [{"$ref": "#/components/parameters/ItemID"}], "responses": {"200": {"description": "Updated"}}}},
+    "/v1/vendor/catalog/{item_id}/inventory": {"post": {"operationId": "setVendorInventory", "parameters": [{"$ref": "#/components/parameters/ItemID"}], "responses": {"200": {"description": "Inventory stored"}}}},
+    "/v1/vendor/catalog/{item_id}/schedule": {"post": {"operationId": "setVendorSchedule", "parameters": [{"$ref": "#/components/parameters/ItemID"}], "responses": {"200": {"description": "Schedule stored"}}}},
+    "/v1/vendor/catalog/{item_id}/approval": {"post": {"operationId": "approveVendorCatalog", "parameters": [{"$ref": "#/components/parameters/ItemID"}], "responses": {"200": {"description": "Approval stored"}}}},
+    "/v1/vendor/work": {"get": {"operationId": "listVendorWork", "responses": {"200": {"description": "Work queue"}}}},
+    "/v1/vendor/work/{work_id}/transition": {"post": {"operationId": "transitionVendorWork", "parameters": [{"name": "work_id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Transitioned"}}}},
+    "/v1/vendor/promotions": {"post": {"operationId": "createVendorPromotion", "responses": {"201": {"description": "Promotion created"}}}}
+  },
+  "components": {
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
+    "parameters": {
+      "VendorID": {"name": "vendor_id", "in": "path", "required": true, "schema": {"type": "string"}},
+      "ItemID": {"name": "item_id", "in": "path", "required": true, "schema": {"type": "string"}}
+    },
+    "schemas": {
+      "ApplicationStatus": {"type": "string", "enum": ["REGISTERED", "DOCUMENTS_SUBMITTED", "OCR_REVIEW", "KYC_REVIEW", "FIELD_VISIT_REQUIRED", "FIELD_VISIT_SCHEDULED", "FIELD_VISIT_PASSED", "BANK_REVIEW", "APPROVED", "REJECTED"]},
+      "VendorApplication": {
+        "type": "object",
+        "required": ["id", "vendor_id", "revision", "status", "business_name", "documents", "service_zones", "verified", "timeline", "created_at", "updated_at"],
+        "properties": {
+          "id": {"type": "string"}, "vendor_id": {"type": "string"}, "revision": {"type": "integer", "format": "int64"}, "status": {"$ref": "#/components/schemas/ApplicationStatus"}, "business_name": {"type": "string"},
+          "documents": {"type": "array", "items": {"$ref": "#/components/schemas/VendorDocument"}}, "service_zones": {"type": "array", "items": {"type": "object"}}, "bank_account": {"$ref": "#/components/schemas/BankAccount"}, "verified": {"type": "boolean"}, "timeline": {"type": "array", "items": {"type": "object"}}, "created_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "VendorDocument": {"type": "object", "required": ["kind", "asset_id", "ocr_status"], "properties": {"kind": {"type": "string"}, "asset_id": {"type": "string", "x-planext4u-sensitive": true}, "ocr_status": {"type": "string"}, "extracted_fields": {"type": "object", "additionalProperties": {"type": "string"}, "x-planext4u-sensitive": true}}},
+      "BankAccount": {"type": "object", "required": ["reference", "holder_name", "last4", "ifsc", "status"], "properties": {"reference": {"type": "string", "x-planext4u-sensitive": true}, "holder_name": {"type": "string", "x-planext4u-sensitive": true}, "last4": {"type": "string"}, "ifsc": {"type": "string"}, "status": {"type": "string"}}},
+      "CatalogKind": {"type": "string", "enum": ["PRODUCT", "SERVICE", "FOOD"]},
+      "VendorCatalogItem": {"type": "object", "required": ["id", "vendor_id", "revision", "kind", "name", "price", "stock", "approval_status", "active", "schedules", "updated_at"], "properties": {"id": {"type": "string"}, "vendor_id": {"type": "string"}, "revision": {"type": "integer"}, "kind": {"$ref": "#/components/schemas/CatalogKind"}, "name": {"type": "string"}, "price": {"type": "object"}, "stock": {"type": "integer"}, "approval_status": {"type": "string"}, "active": {"type": "boolean"}, "schedules": {"type": "array", "items": {"type": "object"}}, "updated_at": {"type": "string", "format": "date-time"}}}
+    }
+  }
+}

@@ -13,6 +13,7 @@
   },
   "enum_values": {
     "AdminRole": ["SUPER_ADMIN", "COUNTRY_ADMIN", "CONTENT_ADMIN", "SUPPORT_ADMIN", "AUDITOR"],
-    "AuditOutcome": ["SUCCEEDED", "DENIED", "FAILED"]
+    "AuditOutcome": ["SUCCEEDED", "DENIED", "FAILED"],
+    "AdminOperationDomain": ["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING", "SUPPLY", "RESTAURANT", "DISPATCH", "SETTLEMENT", "FRANCHISE"]
   }
 }

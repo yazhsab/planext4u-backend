@@ -24,14 +24,15 @@ const (
 )
 
 type tokenClaims struct {
-	Subject   string   `json:"sub"`
-	SessionID string   `json:"sid"`
-	TenantID  string   `json:"tenant_id"`
-	Country   string   `json:"country"`
-	DeviceID  string   `json:"device_id"`
-	Roles     []string `json:"roles"`
-	IssuedAt  int64    `json:"iat"`
-	ExpiresAt int64    `json:"exp"`
+	Subject     string   `json:"sub"`
+	SessionID   string   `json:"sid"`
+	TenantID    string   `json:"tenant_id"`
+	Country     string   `json:"country"`
+	DeviceID    string   `json:"device_id"`
+	Roles       []string `json:"roles"`
+	MFAVerified bool     `json:"mfa_verified,omitempty"`
+	IssuedAt    int64    `json:"iat"`
+	ExpiresAt   int64    `json:"exp"`
 }
 
 type tokenService struct {
@@ -47,7 +48,11 @@ func newTokenService(key []byte, clock func() time.Time) (*tokenService, error) 
 }
 
 func (service *tokenService) issue(deviceID, country string) (string, string, time.Time, error) {
-	if !safeID(deviceID) || country != "IN" {
+	return service.issueFor(syntheticSubject, []string{"CUSTOMER"}, false, deviceID, country)
+}
+
+func (service *tokenService) issueFor(subject string, roles []string, mfa bool, deviceID, country string) (string, string, time.Time, error) {
+	if !safeID(subject) || !safeID(deviceID) || country != "IN" || len(roles) != 1 || !safeID(roles[0]) {
 		return "", "", time.Time{}, errors.New("invalid synthetic identity request")
 	}
 	sessionID, err := secureID("session")
@@ -57,8 +62,8 @@ func (service *tokenService) issue(deviceID, country string) (string, string, ti
 	now := service.clock().UTC().Truncate(time.Second)
 	expiresAt := now.Add(accessTokenTTL)
 	claims := tokenClaims{
-		Subject: syntheticSubject, SessionID: sessionID, TenantID: syntheticTenant, Country: country,
-		DeviceID: deviceID, Roles: []string{"CUSTOMER"}, IssuedAt: now.Unix(), ExpiresAt: expiresAt.Unix(),
+		Subject: subject, SessionID: sessionID, TenantID: syntheticTenant, Country: country,
+		DeviceID: deviceID, Roles: append([]string(nil), roles...), MFAVerified: mfa, IssuedAt: now.Unix(), ExpiresAt: expiresAt.Unix(),
 	}
 	payload, err := json.Marshal(claims)
 	if err != nil {
@@ -102,6 +107,7 @@ func (service *tokenService) Verify(_ context.Context, token string) (gateway.Pr
 	return gateway.Principal{
 		Subject: claims.Subject, SessionID: claims.SessionID, TenantID: claims.TenantID,
 		Country: claims.Country, DeviceID: claims.DeviceID, Roles: append([]string(nil), claims.Roles...),
+		MFAVerified: claims.MFAVerified,
 	}, nil
 }
 
@@ -130,26 +136,31 @@ func (handler authHandler) ServeHTTP(writer http.ResponseWriter, request *http.R
 	}
 	decoder := json.NewDecoder(io.LimitReader(request.Body, 16*1024))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || decoder.Decode(&struct{}{}) != io.EOF || input.Provider != "local" || input.ProviderToken != "synthetic-customer" {
+	if decoder.Decode(&input) != nil || decoder.Decode(&struct{}{}) != io.EOF || input.Provider != "local" {
 		writeAuthProblem(writer, request, http.StatusUnauthorized, "PROVIDER_TOKEN_INVALID", "Sign in again to continue.")
 		return
 	}
-	accessToken, refreshToken, accessExpiresAt, err := handler.tokens.issue(input.DeviceID, strings.ToUpper(input.Country))
+	identity, ok := syntheticIdentities[input.ProviderToken]
+	if !ok {
+		writeAuthProblem(writer, request, http.StatusUnauthorized, "PROVIDER_TOKEN_INVALID", "Sign in again to continue.")
+		return
+	}
+	accessToken, refreshToken, accessExpiresAt, err := handler.tokens.issueFor(identity.subject, []string{identity.role}, identity.mfa, input.DeviceID, strings.ToUpper(input.Country))
 	if err != nil {
 		writeAuthProblem(writer, request, http.StatusUnprocessableEntity, "VALIDATION_FAILED", "Check the submitted values.")
 		return
 	}
 	now := handler.clock().UTC().Truncate(time.Second)
 	writeAuthJSON(writer, http.StatusCreated, map[string]any{
-		"identity_id": syntheticSubject,
+		"identity_id": identity.subject,
 		"tenant_id":   syntheticTenant,
 		"country":     "IN",
 		"tokens": map[string]any{
 			"access_token": accessToken, "access_expires_at": accessExpiresAt,
 			"refresh_token": refreshToken, "refresh_expires_at": now.Add(24 * time.Hour), "token_type": "Bearer",
 		},
-		"profile": map[string]any{"display_name": "Synthetic Customer", "locale": "en", "time_zone": "Asia/Kolkata", "version": 1, "updated_at": now},
-		"roles":   []string{"CUSTOMER"},
+		"profile": map[string]any{"display_name": identity.displayName, "locale": "en", "time_zone": "Asia/Kolkata", "version": 1, "updated_at": now},
+		"roles":   []string{identity.role},
 		"session": map[string]any{
 			"id": claimsSessionID(accessToken), "device_reference": "device-synthetic", "country": "IN",
 			"authenticated_at": now, "last_seen_at": now, "expires_at": now.Add(24 * time.Hour), "current": true,
@@ -169,9 +180,29 @@ func claimsSessionID(token string) string {
 }
 
 func validClaims(claims tokenClaims) bool {
-	return claims.Subject == syntheticSubject && claims.TenantID == syntheticTenant && claims.Country == "IN" &&
-		safeID(claims.SessionID) && safeID(claims.DeviceID) && len(claims.Roles) == 1 && claims.Roles[0] == "CUSTOMER" &&
+	return safeID(claims.Subject) && claims.TenantID == syntheticTenant && claims.Country == "IN" &&
+		safeID(claims.SessionID) && safeID(claims.DeviceID) && len(claims.Roles) == 1 && safeID(claims.Roles[0]) &&
 		claims.IssuedAt > 0 && claims.ExpiresAt > claims.IssuedAt
+}
+
+type syntheticIdentity struct {
+	subject     string
+	role        string
+	displayName string
+	mfa         bool
+}
+
+var syntheticIdentities = map[string]syntheticIdentity{
+	"synthetic-customer":      {subject: "customer-synthetic-001", role: "CUSTOMER", displayName: "Synthetic Customer"},
+	"synthetic-vendor":        {subject: "vendor-synthetic-001", role: "VENDOR", displayName: "Synthetic Vendor"},
+	"synthetic-restaurant":    {subject: "restaurant-owner-001", role: "RESTAURANT_VENDOR", displayName: "Synthetic Restaurant"},
+	"synthetic-rider":         {subject: "rider-synthetic-001", role: "RIDER", displayName: "Synthetic Rider"},
+	"synthetic-ops-admin":     {subject: "ops-admin-001", role: "OPS_ADMIN", displayName: "Synthetic Operations Admin", mfa: true},
+	"synthetic-field-officer": {subject: "field-officer-001", role: "FIELD_OFFICER", displayName: "Synthetic Field Officer"},
+	"synthetic-finance-one":   {subject: "finance-approver-001", role: "FINANCE", displayName: "Synthetic Finance One", mfa: true},
+	"synthetic-finance-two":   {subject: "finance-approver-002", role: "FINANCE", displayName: "Synthetic Finance Two", mfa: true},
+	"synthetic-dispatch":      {subject: "dispatch-001", role: "DISPATCH", displayName: "Synthetic Dispatch", mfa: true},
+	"synthetic-franchise":     {subject: "franchise-chennai-001", role: "FRANCHISE_ADMIN", displayName: "Synthetic Franchise", mfa: true},
 }
 
 func secureID(prefix string) (string, error) {

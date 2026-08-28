@@ -149,7 +149,7 @@ export interface components {
             country: string;
         };
         /** @enum {string} */
-        AdminOperationDomain: "CATALOG" | "ORDER" | "PAYMENT" | "WALLET" | "CAMPAIGN" | "CMS" | "SUPPORT" | "REPORTING";
+        AdminOperationDomain: "CATALOG" | "ORDER" | "PAYMENT" | "WALLET" | "CAMPAIGN" | "CMS" | "SUPPORT" | "REPORTING" | "SUPPLY" | "RESTAURANT" | "DISPATCH" | "SETTLEMENT" | "FRANCHISE";
         /** @enum {string} */
         AdminOperationRisk: "STANDARD" | "HIGH";
         /** @enum {string} */

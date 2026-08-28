@@ -1,0 +1,13 @@
+{
+  "operations":[
+    {"method":"POST","path":"/v1/rider/applications"},{"method":"GET","path":"/v1/rider/profile"},
+    {"method":"POST","path":"/v1/rider/duty/start"},{"method":"GET","path":"/v1/rider/offers"},
+    {"method":"POST","path":"/v1/rider/tasks/{task_id}/accept"},{"method":"POST","path":"/v1/rider/tasks/{task_id}/pickup"},
+    {"method":"POST","path":"/v1/rider/tasks/{task_id}/completion"},{"method":"POST","path":"/v1/rider/location"},
+    {"method":"POST","path":"/v1/rider/offline-recovery"},{"method":"GET","path":"/v1/order-chats/{order_id}"},
+    {"method":"POST","path":"/v1/order-chats/{conversation_id}/messages"},{"method":"GET","path":"/v1/settlements/ledger"},
+    {"method":"POST","path":"/v1/payouts"},{"method":"GET","path":"/v1/operations/regions/{region_id}/dashboard"}
+  ],
+  "required_properties":{"RiderProfile":["id","rider_id","revision","status","documents","bank_status","zones"],"DeliveryTask":["id","revision","order_id","region_id","territory_id","status","pickup","dropoff","earning"],"Conversation":["id","order_id","participant_ids","expires_at","blocked","messages"],"LedgerEntry":["id","account_id","gross","commission","tax","net","calculation_version"],"Payout":["id","account_id","revision","amount","status","entry_ids","attempt_count"]},
+  "enum_values":{"RiderStatus":["REGISTERED","KYC_REVIEW","APPROVED","SUSPENDED"],"DeliveryStatus":["READY_FOR_DISPATCH","OFFERED","ASSIGNED","PICKED_UP","DELIVERED","REASSIGNMENT_REQUIRED"],"PayoutStatus":["PENDING_REVIEW","FIRST_APPROVED","APPROVED","FAILED","PAID"]}
+}

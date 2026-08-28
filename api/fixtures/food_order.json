@@ -1,0 +1,6 @@
+{
+  "id":"food-order-synthetic-001","customer_id":"customer-synthetic-001","restaurant_id":"restaurant-synthetic-001","revision":1,"status":"PENDING_RESTAURANT",
+  "lines":[{"menu_item_id":"menu-synthetic-001","name":"South Indian meals","quantity":2,"unit_price":{"amount_minor":19500,"currency":"INR"},"options":[{"id":"option-synthetic-large","name":"Large","price_delta":{"amount_minor":3000,"currency":"INR"}},{"id":"option-synthetic-curd","name":"Curd","price_delta":{"amount_minor":1500,"currency":"INR"}}],"line_total":{"amount_minor":39000,"currency":"INR"}}],
+  "subtotal":{"amount_minor":39000,"currency":"INR"},"delivery_fee":{"amount_minor":2500,"currency":"INR"},"tax":{"amount_minor":1950,"currency":"INR"},"total":{"amount_minor":43450,"currency":"INR"},
+  "payment":{"method":"WALLET","status":"CAPTURED","reference":"payment-food-synthetic-001"},"postal_code":"600001","pricing_version":"food-pricing-v1","accept_by":"2026-08-28T10:03:00Z","allowed_actions":["CANCEL"],"timeline":[{"status":"PENDING_RESTAURANT","actor":"customer-synthetic-001","created_at":"2026-08-28T10:00:00Z"}],"created_at":"2026-08-28T10:00:00Z","updated_at":"2026-08-28T10:00:00Z"
+}

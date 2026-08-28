@@ -4,7 +4,7 @@ export const adminSession: AdminSession = {
   subject_id: "admin-synthetic-001",
   display_name: "Asha Raman",
   roles: ["COUNTRY_ADMIN"],
-  capabilities: ["admin.audit.read", "admin.campaign.manage", "admin.catalog.manage", "admin.config.manage", "admin.content.manage", "admin.operations.read", "admin.order.manage", "admin.payment.manage", "admin.reporting.export", "admin.shell.read", "admin.support.manage", "admin.wallet.manage"],
+  capabilities: ["admin.audit.read", "admin.campaign.manage", "admin.catalog.manage", "admin.config.manage", "admin.content.manage", "admin.dispatch.manage", "admin.franchise.manage", "admin.operations.read", "admin.order.manage", "admin.payment.manage", "admin.reporting.export", "admin.restaurant.manage", "admin.settlement.manage", "admin.shell.read", "admin.supply.manage", "admin.support.manage", "admin.wallet.manage"],
   allowed_countries: ["IN", "SG"],
   selected_country: "IN",
   assurance: {mfa_satisfied: true, fresh_auth: true, auth_time: "2026-08-27T06:30:00Z"},

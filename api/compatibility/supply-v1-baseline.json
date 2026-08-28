@@ -1,0 +1,11 @@
+{
+  "operations": [
+    {"method":"POST","path":"/v1/vendor/applications"}, {"method":"GET","path":"/v1/vendor/application"},
+    {"method":"POST","path":"/v1/vendor/application/documents"}, {"method":"POST","path":"/v1/vendor/application/field-visit"},
+    {"method":"POST","path":"/v1/vendor/application/zones"}, {"method":"POST","path":"/v1/vendor/application/bank"},
+    {"method":"GET","path":"/v1/vendor/dashboard"}, {"method":"GET","path":"/v1/vendor/catalog"},
+    {"method":"POST","path":"/v1/vendor/catalog"}, {"method":"GET","path":"/v1/vendor/work"}
+  ],
+  "required_properties": {"VendorApplication":["id","vendor_id","revision","status","documents","verified"],"VendorCatalogItem":["id","vendor_id","revision","kind","price","approval_status"]},
+  "enum_values": {"ApplicationStatus":["REGISTERED","OCR_REVIEW","KYC_REVIEW","FIELD_VISIT_REQUIRED","APPROVED","REJECTED"],"CatalogKind":["PRODUCT","SERVICE","FOOD"]}
+}

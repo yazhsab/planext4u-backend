@@ -1,0 +1,5 @@
+{
+  "application": {"id":"vendor-application-synthetic-001","vendor_id":"vendor-synthetic-001","revision":11,"status":"APPROVED","business_name":"Synthetic Home Services","documents":[{"kind":"BUSINESS_REGISTRATION","asset_id":"asset-private-synthetic-001","ocr_status":"VERIFIED"}],"service_zones":[{"id":"zone-synthetic-chennai","postal_codes":["600001"],"policy_version":"zone-policy-v1"}],"bank_account":{"reference":"bankref_synthetic001","holder_name":"Synthetic Vendor","last4":"1234","ifsc":"HDFC0001234","status":"VERIFIED"},"verified":true,"timeline":[],"created_at":"2026-08-28T10:00:00Z","updated_at":"2026-08-28T10:00:00Z"},
+  "catalog": [{"id":"vendor-catalog-synthetic-001","vendor_id":"vendor-synthetic-001","revision":3,"kind":"SERVICE","name":"Deep cleaning","price":{"amount_minor":20000,"currency":"INR"},"stock":4,"approval_status":"APPROVED","active":true,"schedules":[],"updated_at":"2026-08-28T10:00:00Z"}],
+  "settlement_summary": {"available_minor":88200,"pending_minor":0,"currency":"INR","calculation_version":"settlement-v1"}
+}

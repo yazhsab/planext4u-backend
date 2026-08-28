@@ -74,6 +74,10 @@ func New(config Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	supplyHandler, foodHandler, fulfillmentHandler, err := phase4Handlers(config.Clock)
+	if err != nil {
+		return nil, err
+	}
 
 	upstream := http.NewServeMux()
 	upstream.Handle("/v1/auth/exchange", authHandler{tokens: tokens, clock: config.Clock})
@@ -91,6 +95,19 @@ func New(config Config) (http.Handler, error) {
 		upstream.Handle(path, bookingHandler)
 	}
 	upstream.Handle("/v1/notifications/devices/", notificationHandler)
+	upstream.Handle("/v1/vendor/", supplyHandler)
+	upstream.Handle("/v1/restaurants", foodHandler)
+	upstream.Handle("/v1/restaurants/", foodHandler)
+	upstream.Handle("/v1/food-carts", foodHandler)
+	upstream.Handle("/v1/food-orders", foodHandler)
+	upstream.Handle("/v1/food-orders/", foodHandler)
+	upstream.Handle("/v1/rider/", fulfillmentHandler)
+	upstream.Handle("/v1/dispatch/", fulfillmentHandler)
+	upstream.Handle("/v1/order-chats/", fulfillmentHandler)
+	upstream.Handle("/v1/settlements/", fulfillmentHandler)
+	upstream.Handle("/v1/payouts", fulfillmentHandler)
+	upstream.Handle("/v1/payouts/", fulfillmentHandler)
+	upstream.Handle("/v1/operations/", fulfillmentHandler)
 
 	gatewayConfig := gateway.DefaultConfig(nil)
 	gatewayConfig.UpstreamHandler = upstream
@@ -104,6 +121,9 @@ func New(config Config) (http.Handler, error) {
 }
 
 func Route(request *http.Request) string {
+	if route := phase4Route(request.URL.Path); route != "" {
+		return route
+	}
 	switch request.URL.Path {
 	case "/healthz", "/readyz", "/health/ready", "/v1/auth/exchange", "/v1/bootstrap", "/v1/home", "/v1/catalog/categories", "/v1/catalog/items", "/v1/catalog/search", "/v1/catalog/suggestions", "/v1/serviceability/check", "/v1/geocoding/search", "/v1/cart", "/v1/addresses", "/v1/delivery-slots", "/v1/checkout/quotes", "/v1/checkout/orders", "/v1/orders", "/v1/wallet", "/v1/wallet/experience", "/v1/wallet/referrals", "/v1/wallet/refills", "/v1/notifications/devices/current", "/v1/payments/webhooks/razorpay", "/v1/payments/webhooks/paystack", "/v1/services", "/v1/service-slot-holds", "/v1/service-bookings":
 		return request.URL.Path
@@ -266,7 +286,7 @@ func configurationHandler(clock func() time.Time) (http.Handler, error) {
 			{Purpose: "ESSENTIAL", PolicyVersion: "privacy-2026-01", Required: true},
 			{Purpose: "LOCATION_SERVICEABILITY", PolicyVersion: "location-2026-01", Required: true},
 		},
-		Flags: map[string]bool{"customer_home": true, "catalog_read": true, "service_booking": true},
+		Flags: map[string]bool{"customer_home": true, "catalog_read": true, "service_booking": true, "food_ordering": true, "vendor_operations": true, "rider_fulfillment": true, "order_chat": true, "settlements": true},
 		HomeSections: []configcms.HomeSection{
 			{ID: "featured", Kind: "FEATURED_ITEMS", TitleKey: "home.featured", Enabled: true, Priority: 10},
 			{ID: "categories", Kind: "CATEGORY_GRID", TitleKey: "home.categories", Enabled: true, Priority: 20},

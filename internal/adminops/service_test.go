@@ -161,6 +161,11 @@ func TestMemoryDomainExecutorAppliesEveryPhase3AdminDomainIdempotently(t *testin
 		{DomainCMS, ActionCMSPublish, map[string]any{"revision": 7}, "PUBLISHED"},
 		{DomainSupport, ActionSupportEscalate, map[string]any{}, "ESCALATED"},
 		{DomainReporting, ActionReportingExport, map[string]any{"format": "CSV"}, "READY"},
+		{DomainSupply, ActionSupplyApprove, map[string]any{"review": "passed"}, "APPROVED"},
+		{DomainRestaurant, ActionRestaurantSuspend, map[string]any{"sla_breach": true}, "SUSPENDED"},
+		{DomainDispatch, ActionDispatchReassign, map[string]any{"reason_code": "RIDER_OFFLINE"}, "REASSIGNMENT_REQUIRED"},
+		{DomainSettlement, ActionSettlementReconcile, map[string]any{"variance_minor": 0}, "RECONCILED"},
+		{DomainFranchise, ActionFranchiseAssign, map[string]any{"territory_id": "territory-001"}, "TERRITORY_ASSIGNED"},
 	}
 	for index, testCase := range cases {
 		target := fmt.Sprintf("target-%03d", index)
@@ -179,5 +184,5 @@ func TestMemoryDomainExecutorAppliesEveryPhase3AdminDomainIdempotently(t *testin
 }
 
 func adminPrincipal(now time.Time, subject string) Principal {
-	return Principal{TenantID: "tenant-synthetic-001", Country: "IN", SubjectID: subject, AuthenticatedAt: now.Add(-time.Minute), AuthMethods: []string{"password", "webauthn"}, Capabilities: map[string]bool{CapabilityCatalog: true, CapabilityOrder: true, CapabilityPayment: true, CapabilityWallet: true, CapabilityCampaign: true, CapabilityCMS: true, CapabilitySupport: true, CapabilityReporting: true}}
+	return Principal{TenantID: "tenant-synthetic-001", Country: "IN", SubjectID: subject, AuthenticatedAt: now.Add(-time.Minute), AuthMethods: []string{"password", "webauthn"}, Capabilities: map[string]bool{CapabilityCatalog: true, CapabilityOrder: true, CapabilityPayment: true, CapabilityWallet: true, CapabilityCampaign: true, CapabilityCMS: true, CapabilitySupport: true, CapabilityReporting: true, CapabilitySupply: true, CapabilityRestaurant: true, CapabilityDispatch: true, CapabilitySettlement: true, CapabilityFranchise: true}}
 }

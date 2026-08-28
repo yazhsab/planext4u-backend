@@ -20,7 +20,7 @@ import { Badge } from "../components/badge";
 import { Button } from "../components/button";
 import { StatePanel } from "../components/state-panel";
 
-const domainSchema = z.enum(["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING"]);
+const domainSchema = z.enum(["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING", "SUPPLY", "RESTAURANT", "DISPATCH", "SETTLEMENT", "FRANCHISE"]);
 const operationSchema = z.object({
   domain: domainSchema,
   action: z.string().min(1),
@@ -40,6 +40,11 @@ const domainCapabilities: Record<OperationDomain, string> = {
   CMS: "admin.config.manage",
   SUPPORT: "admin.support.manage",
   REPORTING: "admin.reporting.export",
+  SUPPLY: "admin.supply.manage",
+  RESTAURANT: "admin.restaurant.manage",
+  DISPATCH: "admin.dispatch.manage",
+  SETTLEMENT: "admin.settlement.manage",
+  FRANCHISE: "admin.franchise.manage",
 };
 
 const actionOptions: Record<OperationDomain, {value: string; label: string}[]> = {
@@ -51,6 +56,11 @@ const actionOptions: Record<OperationDomain, {value: string; label: string}[]> =
   CMS: [{value: "UPSERT", label: "Save content revision"}, {value: "PUBLISH", label: "Publish content"}, {value: "ROLLBACK", label: "Roll back content"}],
   SUPPORT: [{value: "UPDATE_CASE", label: "Update case"}, {value: "ESCALATE", label: "Escalate case"}, {value: "RESOLVE", label: "Resolve case"}],
   REPORTING: [{value: "EXPORT", label: "Request export"}],
+  SUPPLY: [{value: "APPROVE_VENDOR", label: "Approve vendor"}, {value: "REJECT_VENDOR", label: "Reject vendor"}, {value: "VERIFY_FIELD_VISIT", label: "Verify field visit"}],
+  RESTAURANT: [{value: "APPROVE_RESTAURANT", label: "Approve restaurant"}, {value: "SUSPEND_RESTAURANT", label: "Suspend restaurant"}, {value: "ORDER_OVERRIDE", label: "Override restaurant order"}],
+  DISPATCH: [{value: "OFFER_TASK", label: "Offer task"}, {value: "REASSIGN_TASK", label: "Reassign task"}, {value: "SUSPEND_RIDER", label: "Suspend rider"}],
+  SETTLEMENT: [{value: "APPROVE_PAYOUT", label: "Approve payout"}, {value: "RECONCILE", label: "Reconcile ledger"}, {value: "RETRY_PAYOUT", label: "Retry payout"}],
+  FRANCHISE: [{value: "ASSIGN_TERRITORY", label: "Assign territory"}, {value: "UPDATE_SLA", label: "Update SLA"}, {value: "CHECKIN_OVERRIDE", label: "Override check-in"}],
 };
 
 export function OperationsPage() {
@@ -68,7 +78,7 @@ export function OperationsPage() {
     return <StatePanel icon={LockKeyhole} title="Operations access unavailable" message="Your administrator role cannot view privileged operations." />;
   }
   if (availableDomains.length === 0) {
-    return <StatePanel icon={LockKeyhole} title="No operational domain assigned" message="Your role does not currently include a catalog, order, payment, wallet, campaign, CMS, support, or reporting capability." />;
+    return <StatePanel icon={LockKeyhole} title="No operational domain assigned" message="Your role does not currently include an assigned operational capability." />;
   }
 
   return (

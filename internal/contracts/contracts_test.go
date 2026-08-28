@@ -280,6 +280,64 @@ func TestBookingContractProtectsOTPAndFixtureIsSynthetic(t *testing.T) {
 	}
 }
 
+func TestSupplyContractCompatibilityBaseline(t *testing.T) {
+	t.Parallel()
+	assertOpenAPICompatibility(t, "api/openapi/supply.openapi.json", "api/compatibility/supply-v1-baseline.json")
+}
+
+func TestFoodContractCompatibilityBaseline(t *testing.T) {
+	t.Parallel()
+	assertOpenAPICompatibility(t, "api/openapi/food.openapi.json", "api/compatibility/food-v1-baseline.json")
+}
+
+func TestFulfillmentContractCompatibilityBaseline(t *testing.T) {
+	t.Parallel()
+	assertOpenAPICompatibility(t, "api/openapi/fulfillment.openapi.json", "api/compatibility/fulfillment-v1-baseline.json")
+}
+
+func TestPhase4ContractsProtectSensitiveEvidenceAndFixturesAreSynthetic(t *testing.T) {
+	t.Parallel()
+	var fulfillment map[string]any
+	readJSON(t, "api/openapi/fulfillment.openapi.json", &fulfillment)
+	schemas := fulfillment["components"].(map[string]any)["schemas"].(map[string]any)
+	completion := schemas["DeliveryCompletionRequest"].(map[string]any)["properties"].(map[string]any)
+	for _, field := range []string{"otp", "blurred_photo_asset_id", "signature_asset_id"} {
+		if completion[field].(map[string]any)["x-planext4u-sensitive"] != true {
+			t.Errorf("DeliveryCompletionRequest.%s is not sensitive", field)
+		}
+	}
+	var vendor struct {
+		Application struct {
+			ID       string `json:"id"`
+			Verified bool   `json:"verified"`
+		} `json:"application"`
+	}
+	if err := json.Unmarshal([]byte(generated.VendorProgramFixtureJSON), &vendor); err != nil || !strings.Contains(vendor.Application.ID, "synthetic") || !vendor.Application.Verified {
+		t.Fatalf("vendor fixture=%#v err=%v", vendor, err)
+	}
+	var food struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+		Total  struct {
+			AmountMinor int64 `json:"amount_minor"`
+		} `json:"total"`
+	}
+	if err := json.Unmarshal([]byte(generated.FoodOrderFixtureJSON), &food); err != nil || !strings.Contains(food.ID, "synthetic") || food.Status != "PENDING_RESTAURANT" || food.Total.AmountMinor != 43450 {
+		t.Fatalf("food fixture=%#v err=%v", food, err)
+	}
+	var rider struct {
+		Profile struct {
+			ID string `json:"id"`
+		} `json:"profile"`
+		Task struct {
+			Status string `json:"status"`
+		} `json:"task"`
+	}
+	if err := json.Unmarshal([]byte(generated.RiderAssignmentFixtureJSON), &rider); err != nil || !strings.Contains(rider.Profile.ID, "synthetic") || rider.Task.Status != "ASSIGNED" {
+		t.Fatalf("rider fixture=%#v err=%v", rider, err)
+	}
+}
+
 func TestMediaContractCompatibilityBaseline(t *testing.T) {
 	t.Parallel()
 	assertOpenAPICompatibility(t, "api/openapi/media.openapi.json", "api/compatibility/media-v1-baseline.json")

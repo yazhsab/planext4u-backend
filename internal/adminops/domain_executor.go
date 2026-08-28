@@ -187,6 +187,58 @@ func applyDomainCommand(current DomainRecord, command Command) (string, map[stri
 			payload["export_reference"] = "export-" + changeSafeDigest(command.CorrelationID+"\x00"+command.TargetID)
 			return "READY", payload, nil
 		}
+	case DomainSupply:
+		merge()
+		switch command.Action {
+		case ActionSupplyApprove:
+			return "APPROVED", payload, nil
+		case ActionSupplyReject:
+			return "REJECTED", payload, nil
+		case ActionSupplyVisitVerify:
+			return "FIELD_VISIT_PASSED", payload, nil
+		}
+	case DomainRestaurant:
+		merge()
+		switch command.Action {
+		case ActionRestaurantApprove:
+			return "APPROVED", payload, nil
+		case ActionRestaurantSuspend:
+			return "SUSPENDED", payload, nil
+		case ActionRestaurantOverride:
+			if status, ok := command.Payload["status"].(string); ok && safeID(status) {
+				return status, payload, nil
+			}
+		}
+	case DomainDispatch:
+		merge()
+		switch command.Action {
+		case ActionDispatchOffer:
+			return "OFFERED", payload, nil
+		case ActionDispatchReassign:
+			return "REASSIGNMENT_REQUIRED", payload, nil
+		case ActionDispatchSuspend:
+			return "RIDER_SUSPENDED", payload, nil
+		}
+	case DomainSettlement:
+		merge()
+		switch command.Action {
+		case ActionSettlementApprove:
+			return "APPROVED", payload, nil
+		case ActionSettlementReconcile:
+			return "RECONCILED", payload, nil
+		case ActionSettlementRetry:
+			return "RETRY_SUBMITTED", payload, nil
+		}
+	case DomainFranchise:
+		merge()
+		switch command.Action {
+		case ActionFranchiseAssign:
+			return "TERRITORY_ASSIGNED", payload, nil
+		case ActionFranchiseSLA:
+			return "SLA_UPDATED", payload, nil
+		case ActionFranchiseCheckIn:
+			return "CHECKIN_VERIFIED", payload, nil
+		}
 	}
 	return "", nil, ErrInvalidRequest
 }

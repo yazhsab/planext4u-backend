@@ -26,12 +26,13 @@ var (
 const maxTokenBytes = 8 * 1024
 
 type Principal struct {
-	Subject   string
-	SessionID string
-	TenantID  string
-	Country   string
-	DeviceID  string
-	Roles     []string
+	Subject     string
+	SessionID   string
+	TenantID    string
+	Country     string
+	DeviceID    string
+	Roles       []string
+	MFAVerified bool
 }
 
 type Verifier interface {
@@ -78,17 +79,18 @@ type jwtHeader struct {
 }
 
 type jwtClaims struct {
-	Issuer    string        `json:"iss"`
-	Audience  audienceClaim `json:"aud"`
-	Subject   string        `json:"sub"`
-	SessionID string        `json:"sid"`
-	TenantID  string        `json:"tenant_id"`
-	Country   string        `json:"country"`
-	DeviceID  string        `json:"device_id"`
-	Roles     []string      `json:"roles"`
-	ExpiresAt json.Number   `json:"exp"`
-	NotBefore json.Number   `json:"nbf"`
-	IssuedAt  json.Number   `json:"iat"`
+	Issuer                string        `json:"iss"`
+	Audience              audienceClaim `json:"aud"`
+	Subject               string        `json:"sub"`
+	SessionID             string        `json:"sid"`
+	TenantID              string        `json:"tenant_id"`
+	Country               string        `json:"country"`
+	DeviceID              string        `json:"device_id"`
+	Roles                 []string      `json:"roles"`
+	AuthenticationMethods []string      `json:"amr"`
+	ExpiresAt             json.Number   `json:"exp"`
+	NotBefore             json.Number   `json:"nbf"`
+	IssuedAt              json.Number   `json:"iat"`
 }
 
 type audienceClaim []string
@@ -153,12 +155,13 @@ func (verifier *JWTVerifier) Verify(_ context.Context, token string) (Principal,
 	}
 
 	return Principal{
-		Subject:   claims.Subject,
-		SessionID: claims.SessionID,
-		TenantID:  claims.TenantID,
-		Country:   claims.Country,
-		DeviceID:  claims.DeviceID,
-		Roles:     append([]string(nil), claims.Roles...),
+		Subject:     claims.Subject,
+		SessionID:   claims.SessionID,
+		TenantID:    claims.TenantID,
+		Country:     claims.Country,
+		DeviceID:    claims.DeviceID,
+		Roles:       append([]string(nil), claims.Roles...),
+		MFAVerified: containsString(claims.AuthenticationMethods, "mfa"),
 	}, nil
 }
 

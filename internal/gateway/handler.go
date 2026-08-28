@@ -337,6 +337,9 @@ func (handler *Handler) rewrite(proxyRequest *httputil.ProxyRequest) {
 		proxyRequest.Out.Header.Set("X-Planext4u-Tenant", principal.TenantID)
 		proxyRequest.Out.Header.Set("X-Planext4u-Country", principal.Country)
 		proxyRequest.Out.Header.Set("X-Planext4u-Roles", strings.Join(principal.Roles, ","))
+		if principal.MFAVerified {
+			proxyRequest.Out.Header.Set("X-Planext4u-MFA", "verified")
+		}
 		if principal.DeviceID != "" {
 			proxyRequest.Out.Header.Set("X-Planext4u-Device", principal.DeviceID)
 		}
@@ -359,6 +362,9 @@ func (handler *Handler) prepareTrustedRequest(request *http.Request) {
 		request.Header.Set("X-Planext4u-Tenant", principal.TenantID)
 		request.Header.Set("X-Planext4u-Country", principal.Country)
 		request.Header.Set("X-Planext4u-Roles", strings.Join(principal.Roles, ","))
+		if principal.MFAVerified {
+			request.Header.Set("X-Planext4u-MFA", "verified")
+		}
 		if principal.DeviceID != "" {
 			request.Header.Set("X-Planext4u-Device", principal.DeviceID)
 		}

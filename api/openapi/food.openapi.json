@@ -1,0 +1,28 @@
+{
+  "openapi":"3.1.0",
+  "info":{"title":"Planext4u Food API","version":"1.0.0"},
+  "x-planext4u-reviewers":["architecture","security","payments","mobile"],
+  "security":[{"bearerAuth":[]}],
+  "paths":{
+    "/v1/restaurants":{"get":{"operationId":"listRestaurants","responses":{"200":{"description":"Restaurants"}}}},
+    "/v1/restaurants/{restaurant_id}/menu":{"get":{"operationId":"getRestaurantMenu","parameters":[{"$ref":"#/components/parameters/RestaurantID"}],"responses":{"200":{"description":"Menu"}}}},
+    "/v1/food-carts":{"post":{"operationId":"priceFoodCart","responses":{"201":{"description":"Server-priced cart"}}}},
+    "/v1/food-orders":{"get":{"operationId":"listFoodOrders","responses":{"200":{"description":"Orders"}}},"post":{"operationId":"createFoodOrder","responses":{"201":{"description":"Order"}}}},
+    "/v1/food-orders/{order_id}":{"get":{"operationId":"getFoodOrder","parameters":[{"$ref":"#/components/parameters/OrderID"}],"responses":{"200":{"description":"Order"}}}},
+    "/v1/food-orders/{order_id}/restaurant-transition":{"post":{"operationId":"transitionRestaurantOrder","parameters":[{"$ref":"#/components/parameters/OrderID"}],"responses":{"200":{"description":"Transitioned"}}}},
+    "/v1/food-orders/{order_id}/dispatch-transition":{"post":{"operationId":"transitionFoodDispatch","parameters":[{"$ref":"#/components/parameters/OrderID"}],"responses":{"200":{"description":"Transitioned"}}}}
+  },
+  "components":{
+    "securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer","bearerFormat":"JWT"}},
+    "parameters":{"RestaurantID":{"name":"restaurant_id","in":"path","required":true,"schema":{"type":"string"}},"OrderID":{"name":"order_id","in":"path","required":true,"schema":{"type":"string"}}},
+    "schemas":{
+      "FoodOrderStatus":{"type":"string","enum":["PENDING_RESTAURANT","ACCEPTED","PREPARING","READY","RIDER_ASSIGNED","PICKED_UP","DELIVERED","REJECTED","TIMED_OUT","CANCELLED"]},
+      "FoodCartRequest":{"type":"object","required":["restaurant_id","postal_code","lines"],"properties":{"restaurant_id":{"type":"string"},"postal_code":{"type":"string"},"lines":{"type":"array","minItems":1,"items":{"$ref":"#/components/schemas/FoodCartLineRequest"}}},"additionalProperties":false},
+      "FoodCartLineRequest":{"type":"object","required":["menu_item_id","quantity","option_ids"],"properties":{"menu_item_id":{"type":"string"},"quantity":{"type":"integer","minimum":1,"maximum":20},"option_ids":{"type":"array","items":{"type":"string"}},"note":{"type":"string","maxLength":240}},"additionalProperties":false},
+      "FoodCart":{"type":"object","required":["id","customer_id","restaurant","revision","lines","subtotal","delivery_fee","tax","total","pricing_version","expires_at"],"properties":{"id":{"type":"string"},"customer_id":{"type":"string"},"restaurant":{"type":"object"},"revision":{"type":"integer"},"lines":{"type":"array","items":{"type":"object"}},"subtotal":{"$ref":"#/components/schemas/Money"},"delivery_fee":{"$ref":"#/components/schemas/Money"},"tax":{"$ref":"#/components/schemas/Money"},"total":{"$ref":"#/components/schemas/Money"},"pricing_version":{"type":"string"},"expires_at":{"type":"string","format":"date-time"}}},
+      "FoodOrder":{"type":"object","required":["id","customer_id","restaurant_id","revision","status","lines","total","payment","pricing_version","accept_by","timeline","created_at","updated_at"],"properties":{"id":{"type":"string"},"customer_id":{"type":"string"},"restaurant_id":{"type":"string"},"revision":{"type":"integer"},"status":{"$ref":"#/components/schemas/FoodOrderStatus"},"lines":{"type":"array","items":{"type":"object"}},"total":{"$ref":"#/components/schemas/Money"},"payment":{"$ref":"#/components/schemas/FoodPayment"},"pricing_version":{"type":"string"},"accept_by":{"type":"string","format":"date-time"},"timeline":{"type":"array","items":{"type":"object"}},"created_at":{"type":"string","format":"date-time"},"updated_at":{"type":"string","format":"date-time"}}},
+      "FoodPayment":{"type":"object","required":["method","status","reference"],"properties":{"method":{"type":"string"},"status":{"type":"string"},"reference":{"type":"string","x-planext4u-sensitive":true},"refund_state":{"type":"string"}}},
+      "Money":{"type":"object","required":["amount_minor","currency"],"properties":{"amount_minor":{"type":"integer","format":"int64"},"currency":{"type":"string","pattern":"^[A-Z]{3}$"}}}
+    }
+  }
+}

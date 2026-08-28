@@ -1,0 +1,10 @@
+{
+  "operations":[
+    {"method":"GET","path":"/v1/restaurants"},{"method":"GET","path":"/v1/restaurants/{restaurant_id}/menu"},
+    {"method":"POST","path":"/v1/food-carts"},{"method":"GET","path":"/v1/food-orders"},
+    {"method":"POST","path":"/v1/food-orders"},{"method":"GET","path":"/v1/food-orders/{order_id}"},
+    {"method":"POST","path":"/v1/food-orders/{order_id}/restaurant-transition"}
+  ],
+  "required_properties":{"FoodCart":["id","customer_id","revision","lines","total","pricing_version"],"FoodOrder":["id","customer_id","restaurant_id","revision","status","total","payment","timeline"]},
+  "enum_values":{"FoodOrderStatus":["PENDING_RESTAURANT","ACCEPTED","PREPARING","READY","RIDER_ASSIGNED","PICKED_UP","DELIVERED","REJECTED","TIMED_OUT","CANCELLED"]}
+}

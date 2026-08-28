@@ -181,6 +181,11 @@ func grantAllOperations(result map[string]bool) {
 		adminops.CapabilityCMS,
 		adminops.CapabilitySupport,
 		adminops.CapabilityReporting,
+		adminops.CapabilitySupply,
+		adminops.CapabilityRestaurant,
+		adminops.CapabilityDispatch,
+		adminops.CapabilitySettlement,
+		adminops.CapabilityFranchise,
 	} {
 		result[capability] = true
 	}
