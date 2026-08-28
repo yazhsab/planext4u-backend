@@ -295,6 +295,33 @@ func TestFulfillmentContractCompatibilityBaseline(t *testing.T) {
 	assertOpenAPICompatibility(t, "api/openapi/fulfillment.openapi.json", "api/compatibility/fulfillment-v1-baseline.json")
 }
 
+func TestSocialContractCompatibilityBaseline(t *testing.T) {
+	t.Parallel()
+	assertOpenAPICompatibility(t, "api/openapi/social.openapi.json", "api/compatibility/social-v1-baseline.json")
+}
+
+func TestSocialContractProtectsPrivateMediaAndFixtureIsSynthetic(t *testing.T) {
+	t.Parallel()
+	var document map[string]any
+	readJSON(t, "api/openapi/social.openapi.json", &document)
+	schemas := document["components"].(map[string]any)["schemas"].(map[string]any)
+	postProperties := schemas["SocialPost"].(map[string]any)["properties"].(map[string]any)
+	mediaItems := postProperties["media_asset_ids"].(map[string]any)["items"].(map[string]any)
+	if mediaItems["x-planext4u-sensitive"] != true {
+		t.Fatal("social media asset references are not marked sensitive")
+	}
+	var feed struct {
+		RankingVersion string `json:"ranking_version"`
+		Items          []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(generated.SocialFeedFixtureJSON), &feed); err != nil || feed.RankingVersion != "socio-feed-v1" || len(feed.Items) != 1 || !strings.Contains(feed.Items[0].ID, "synthetic") || feed.Items[0].Status != "PUBLISHED" {
+		t.Fatalf("social fixture=%#v err=%v", feed, err)
+	}
+}
+
 func TestPhase4ContractsProtectSensitiveEvidenceAndFixturesAreSynthetic(t *testing.T) {
 	t.Parallel()
 	var fulfillment map[string]any

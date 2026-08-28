@@ -30,7 +30,10 @@ partial returns/refunds, wallet/referrals/refills/rewards, FCM push delivery and
 the secured administrator operation domains. Phase 4 adds contract-first service
 booking, vendor/KYC and supply operations, restaurant ordering, rider dispatch,
 background-location ingestion, order chat, settlement/payout, field operations
-and their administrator controls.
+and their administrator controls. Phase 5 has started with the Socio trust
+foundation: private/public profiles, follow requests, block/mute precedence,
+moderated posts, deterministic feed ranking, engagement, nested comments,
+reports and MFA-protected moderation.
 
 Phase 2 implementation includes the greenfield Go platform, versioned
 contracts, deterministic local dependencies, secure gateway, identity/customer,
@@ -109,5 +112,7 @@ environment files.
 - [Phase 4 executable backlog](docs/phase-4/PHASE_4_BACKLOG.md)
 - [Phase 4 service-booking entry slice](docs/phase-4/SERVICE_BOOKING_ENTRY_SLICE.md)
 - [Phase 4 exit review](docs/phase-4/PHASE_4_EXIT_REVIEW.md)
+- [Phase 5 executable backlog](docs/phase-5/PHASE_5_BACKLOG.md)
+- [Phase 5 Socio/trust entry slice](docs/phase-5/SOCIO_TRUST_ENTRY_SLICE.md)
 - [Six-phase programme plan](https://github.com/yazhsab/planext4u-moble/blob/main/docs/PROGRAM_PLAN.md)
 - [Flutter applications](https://github.com/yazhsab/planext4u-moble)

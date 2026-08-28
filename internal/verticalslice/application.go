@@ -78,6 +78,10 @@ func New(config Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	socialHandler, err := phase5Handler(config.Clock)
+	if err != nil {
+		return nil, err
+	}
 
 	upstream := http.NewServeMux()
 	upstream.Handle("/v1/auth/exchange", authHandler{tokens: tokens, clock: config.Clock})
@@ -108,6 +112,8 @@ func New(config Config) (http.Handler, error) {
 	upstream.Handle("/v1/payouts", fulfillmentHandler)
 	upstream.Handle("/v1/payouts/", fulfillmentHandler)
 	upstream.Handle("/v1/operations/", fulfillmentHandler)
+	upstream.Handle("/v1/social/", socialHandler)
+	upstream.Handle("/v1/moderation/", socialHandler)
 
 	gatewayConfig := gateway.DefaultConfig(nil)
 	gatewayConfig.UpstreamHandler = upstream
@@ -121,6 +127,9 @@ func New(config Config) (http.Handler, error) {
 }
 
 func Route(request *http.Request) string {
+	if route := phase5Route(request.URL.Path); route != "" {
+		return route
+	}
 	if route := phase4Route(request.URL.Path); route != "" {
 		return route
 	}

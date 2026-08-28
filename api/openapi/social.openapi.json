@@ -1,0 +1,40 @@
+{
+  "openapi":"3.1.0",
+  "info":{"title":"Planext4u Socio API","version":"1.0.0"},
+  "x-planext4u-reviewers":["architecture","security","privacy","trust-safety","mobile"],
+  "security":[{"bearerAuth":[]}],
+  "paths":{
+    "/v1/social/feed":{"get":{"operationId":"getSocialFeed","parameters":[{"name":"cursor","in":"query","schema":{"type":"string","maxLength":128}},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":50}}],"responses":{"200":{"description":"Eligible ranked feed"}}}},
+    "/v1/social/posts":{"post":{"operationId":"createSocialPost","parameters":[{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"201":{"description":"Created or pending-review post"}}}},
+    "/v1/social/posts/{post_id}":{"get":{"operationId":"getSocialPost","parameters":[{"$ref":"#/components/parameters/PostID"}],"responses":{"200":{"description":"Authorized post"}}}},
+    "/v1/social/posts/{post_id}/like":{"put":{"operationId":"setSocialPostLike","parameters":[{"$ref":"#/components/parameters/PostID"},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],"responses":{"200":{"description":"Revisioned post"}}}},
+    "/v1/social/posts/{post_id}/save":{"put":{"operationId":"setSocialPostSave","parameters":[{"$ref":"#/components/parameters/PostID"},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],"responses":{"200":{"description":"Revisioned post"}}}},
+    "/v1/social/posts/{post_id}/comments":{"get":{"operationId":"listSocialComments","parameters":[{"$ref":"#/components/parameters/PostID"}],"responses":{"200":{"description":"Visible comments"}}},"post":{"operationId":"createSocialComment","parameters":[{"$ref":"#/components/parameters/PostID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"201":{"description":"Created comment"}}}},
+    "/v1/social/posts/{post_id}/reports":{"post":{"operationId":"reportSocialPost","parameters":[{"$ref":"#/components/parameters/PostID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"201":{"description":"Opaque report receipt"}}}},
+    "/v1/social/profiles/{profile_id}":{"get":{"operationId":"getSocialProfile","parameters":[{"$ref":"#/components/parameters/ProfileID"}],"responses":{"200":{"description":"Authorized profile"}}}},
+    "/v1/social/profiles/{profile_id}/follow":{"post":{"operationId":"followSocialProfile","parameters":[{"$ref":"#/components/parameters/ProfileID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"201":{"description":"Accepted follow or private request"}}}},
+    "/v1/social/profiles/{profile_id}/relationship":{"put":{"operationId":"setSocialRelationship","parameters":[{"$ref":"#/components/parameters/ProfileID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"description":"Block or mute state"}}}},
+    "/v1/social/follow-requests/{follower_id}/accept":{"post":{"operationId":"acceptSocialFollow","parameters":[{"$ref":"#/components/parameters/FollowerID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"description":"Accepted follow"}}}},
+    "/v1/moderation/reports":{"get":{"operationId":"listModerationReports","x-planext4u-mfa-required":true,"responses":{"200":{"description":"MFA-scoped moderation queue"}}}},
+    "/v1/moderation/reports/{report_id}/decision":{"post":{"operationId":"decideModerationReport","x-planext4u-mfa-required":true,"parameters":[{"$ref":"#/components/parameters/ReportID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"description":"Auditable moderation decision"}}}}
+  },
+  "components":{
+    "securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer","bearerFormat":"JWT"}},
+    "parameters":{
+      "PostID":{"name":"post_id","in":"path","required":true,"schema":{"type":"string","maxLength":128}},
+      "ProfileID":{"name":"profile_id","in":"path","required":true,"schema":{"type":"string","maxLength":128}},
+      "FollowerID":{"name":"follower_id","in":"path","required":true,"schema":{"type":"string","maxLength":128}},
+      "ReportID":{"name":"report_id","in":"path","required":true,"schema":{"type":"string","maxLength":128}},
+      "IdempotencyKey":{"name":"Idempotency-Key","in":"header","required":true,"schema":{"type":"string","minLength":8,"maxLength":128}},
+      "IfMatch":{"name":"If-Match","in":"header","required":true,"schema":{"type":"string"}}
+    },
+    "schemas":{
+      "SocialPostStatus":{"type":"string","enum":["PUBLISHED","PENDING_REVIEW","REMOVED"]},
+      "SocialProfile":{"type":"object","required":["id","handle","display_name","private","verified","follower_count","following_count","relationship","allowed_actions"],"properties":{"id":{"type":"string"},"handle":{"type":"string"},"display_name":{"type":"string"},"bio":{"type":"string"},"avatar_asset_id":{"type":"string","x-planext4u-sensitive":true},"private":{"type":"boolean"},"verified":{"type":"boolean"},"follower_count":{"type":"integer"},"following_count":{"type":"integer"},"relationship":{"type":"string"},"allowed_actions":{"type":"array","items":{"type":"string"}}}},
+      "SocialPost":{"type":"object","required":["id","revision","author","body","media_asset_ids","hashtags","mentions","sponsored","status","like_count","comment_count","liked","saved","allowed_actions","ranking_version","created_at","updated_at"],"properties":{"id":{"type":"string"},"revision":{"type":"integer","minimum":1},"author":{"$ref":"#/components/schemas/SocialProfile"},"body":{"type":"string","maxLength":5000},"media_asset_ids":{"type":"array","maxItems":10,"items":{"type":"string","x-planext4u-sensitive":true}},"hashtags":{"type":"array","items":{"type":"string"}},"mentions":{"type":"array","items":{"type":"string"}},"product_sticker_id":{"type":"string"},"sponsored":{"type":"boolean"},"sponsor_label":{"type":"string"},"status":{"$ref":"#/components/schemas/SocialPostStatus"},"moderation_reason":{"type":"string"},"like_count":{"type":"integer"},"comment_count":{"type":"integer"},"liked":{"type":"boolean"},"saved":{"type":"boolean"},"allowed_actions":{"type":"array","items":{"type":"string"}},"ranking_version":{"type":"string"},"created_at":{"type":"string","format":"date-time"},"updated_at":{"type":"string","format":"date-time"}}},
+      "CreateSocialPostRequest":{"type":"object","required":["body","media_asset_ids"],"properties":{"body":{"type":"string","maxLength":5000},"media_asset_ids":{"type":"array","maxItems":10,"items":{"type":"string","x-planext4u-sensitive":true}},"product_sticker_id":{"type":"string"}},"additionalProperties":false},
+      "SocialComment":{"type":"object","required":["id","post_id","depth","author","body","mentions","status","allowed_actions","created_at"],"properties":{"id":{"type":"string"},"post_id":{"type":"string"},"parent_id":{"type":"string"},"depth":{"type":"integer","minimum":0,"maximum":2},"author":{"$ref":"#/components/schemas/SocialProfile"},"body":{"type":"string","maxLength":1000},"mentions":{"type":"array","items":{"type":"string"}},"status":{"type":"string"},"allowed_actions":{"type":"array","items":{"type":"string"}},"created_at":{"type":"string","format":"date-time"}}},
+      "SocialReport":{"type":"object","required":["id","post_id","reporter_id","reason","status","created_at","updated_at"],"properties":{"id":{"type":"string"},"post_id":{"type":"string"},"reporter_id":{"type":"string","x-planext4u-sensitive":true},"reason":{"type":"string"},"details":{"type":"string","x-planext4u-sensitive":true},"status":{"type":"string"},"decision":{"type":"string"},"decision_note":{"type":"string"},"created_at":{"type":"string","format":"date-time"},"updated_at":{"type":"string","format":"date-time"}}}
+    }
+  }
+}

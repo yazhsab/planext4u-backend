@@ -203,6 +203,7 @@ var syntheticIdentities = map[string]syntheticIdentity{
 	"synthetic-finance-two":   {subject: "finance-approver-002", role: "FINANCE", displayName: "Synthetic Finance Two", mfa: true},
 	"synthetic-dispatch":      {subject: "dispatch-001", role: "DISPATCH", displayName: "Synthetic Dispatch", mfa: true},
 	"synthetic-franchise":     {subject: "franchise-chennai-001", role: "FRANCHISE_ADMIN", displayName: "Synthetic Franchise", mfa: true},
+	"synthetic-moderator":     {subject: "moderator-synthetic-001", role: "MODERATOR", displayName: "Synthetic Moderator", mfa: true},
 }
 
 func secureID(prefix string) (string, error) {

@@ -35,6 +35,7 @@ var fixtures = []fixture{
 	{goName: "ProblemFixtureJSON", dartName: "problemFixtureJson", path: "api/fixtures/problem.json"},
 	{goName: "RiderAssignmentFixtureJSON", dartName: "riderAssignmentFixtureJson", path: "api/fixtures/rider_assignment.json"},
 	{goName: "ServiceBookingFixtureJSON", dartName: "serviceBookingFixtureJson", path: "api/fixtures/service_booking.json"},
+	{goName: "SocialFeedFixtureJSON", dartName: "socialFeedFixtureJson", path: "api/fixtures/social_feed.json"},
 	{goName: "VendorProgramFixtureJSON", dartName: "vendorProgramFixtureJson", path: "api/fixtures/vendor_program.json"},
 	{goName: "WalletFixtureJSON", dartName: "walletFixtureJson", path: "api/fixtures/wallet.json"},
 }
@@ -64,6 +65,7 @@ func run(root string, check bool) error {
 		"api/openapi/identity.openapi.json",
 		"api/openapi/media.openapi.json",
 		"api/openapi/notification.openapi.json",
+		"api/openapi/social.openapi.json",
 		"api/openapi/supply.openapi.json",
 		"api/openapi/transaction.openapi.json",
 		"api/asyncapi/common.asyncapi.json",
