@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./app";
-import { adminSession, auditPage, problem } from "./test/fixtures";
+import { adminSession, auditPage, operationPage, problem } from "./test/fixtures";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -42,6 +42,130 @@ describe("administrator application", () => {
     expect(await screen.findByText("admin.session.opened")).toBeVisible();
     expect(screen.getByText("corr-synthetic-admin-001")).toBeVisible();
     expect(screen.getByText("Succeeded")).toBeVisible();
+  });
+
+  it("renders country-scoped privileged changes and independent approval controls", async () => {
+    stubFetch((input) => input.endsWith("/operations") ? Response.json(operationPage) : Response.json(adminSession));
+    renderApp("/operations");
+
+    expect(await screen.findByRole("heading", {name: "Privileged operations"})).toBeVisible();
+    expect(await screen.findByText("customer-synthetic-001")).toBeVisible();
+    expect(screen.getByText("Pending Approval")).toBeVisible();
+    expect(screen.getByText("Review")).toBeVisible();
+  });
+
+  it("submits a controlled operation with CSRF and correlation evidence", async () => {
+    const user = userEvent.setup();
+    const executed = {...operationPage.changes[0], command: {...operationPage.changes[0]?.command, domain: "CATALOG" as const, action: "UPSERT", target_id: "item-synthetic-002"}, risk: "STANDARD" as const, status: "EXECUTED" as const};
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = requestURL(input);
+      if (path.endsWith("/operations") && init?.method === "POST") {
+        expect(new Headers(init.headers).get("X-CSRF-Token")).toBe(adminSession.csrf_token);
+        expect(new Headers(init.headers).get("X-Correlation-ID")).toMatch(/^admin-web-/);
+        expect(init.body).toContain("item-synthetic-002");
+        return Promise.resolve(Response.json(executed, {status: 201}));
+      }
+      if (path.endsWith("/operations")) return Promise.resolve(Response.json(operationPage));
+      return Promise.resolve(Response.json(adminSession));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/operations");
+    await screen.findByText("customer-synthetic-001");
+
+    await user.type(screen.getByLabelText("Target identifier"), "item-synthetic-002");
+    await user.type(screen.getByLabelText("Verified reason"), "Publish verified catalogue information");
+    await user.click(screen.getByRole("button", {name: "Submit controlled change"}));
+
+    expect(await screen.findByText("Change executed.")).toBeVisible();
+  });
+
+  it("does not request operations without the server navigation capability", async () => {
+    const restrictedSession = {...adminSession, capabilities: ["admin.shell.read"], navigation: [{id: "workspace", label: "Workspace", path: "/" as const, capability: "admin.shell.read"}]};
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json(restrictedSession)));
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/operations");
+
+    expect(await screen.findByRole("heading", {name: "Operations access unavailable"})).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders an explicit state when no operational domain is assigned", async () => {
+    const restrictedSession = {...adminSession, capabilities: ["admin.shell.read", "admin.operations.read"]};
+    stubFetch(() => Response.json(restrictedSession));
+    renderApp("/operations");
+
+    expect(await screen.findByRole("heading", {name: "No operational domain assigned"})).toBeVisible();
+  });
+
+  it("renders empty and permission failure operation states", async () => {
+    stubFetch((input) => input.endsWith("/operations") ? Response.json({changes: []}) : Response.json(adminSession));
+    const view = renderApp("/operations");
+    expect(await screen.findByRole("heading", {name: "No changes in this country"})).toBeVisible();
+    view.unmount();
+
+    stubFetch((input) => input.endsWith("/operations") ? problem(403, "ADMIN_OPERATION_FORBIDDEN", "Operations are not available for this role.") : Response.json(adminSession));
+    renderApp("/operations");
+    expect(await screen.findByRole("heading", {name: "Operations could not be loaded"})).toBeVisible();
+    expect(screen.getByText(/Reference: corr-synthetic-problem/)).toBeVisible();
+  });
+
+  it("validates operation identifiers, reasons, and sensitive payloads before submit", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => Promise.resolve(Response.json(requestURL(input).endsWith("/operations") ? operationPage : adminSession)));
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/operations");
+    await screen.findByText("customer-synthetic-001");
+    const initialCalls = fetchMock.mock.calls.length;
+
+    await user.type(screen.getByLabelText("Target identifier"), "invalid target");
+    await user.type(screen.getByLabelText("Verified reason"), "short");
+    fireEvent.change(screen.getByLabelText("Operation payload (JSON object)"), {target: {value: `{"provider_secret":"unsafe"}`}});
+    await user.click(screen.getByRole("button", {name: "Submit controlled change"}));
+
+    expect(await screen.findByText(/Use letters, numbers/)).toBeVisible();
+    expect(screen.getByText(/at least 8 characters/)).toBeVisible();
+    expect(screen.getByText(/without password, token, or secret fields/)).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(initialCalls);
+  });
+
+  it("requires another administrator and supports approve or reject decisions", async () => {
+    const user = userEvent.setup();
+    const selfPage = {changes: [{...operationPage.changes[0], requested_by: adminSession.subject_id}]};
+    stubFetch((input) => input.endsWith("/operations") ? Response.json(selfPage) : Response.json(adminSession));
+    const view = renderApp("/operations");
+    expect(await screen.findByText("Awaiting another administrator")).toBeVisible();
+    view.unmount();
+
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = requestURL(input);
+      if (path.endsWith("/approve")) return Promise.resolve(Response.json({...operationPage.changes[0], status: "EXECUTED", approved_by: adminSession.subject_id, revision: 2}));
+      if (path.endsWith("/reject")) return Promise.resolve(Response.json({...operationPage.changes[0], status: "REJECTED", approved_by: adminSession.subject_id, revision: 2}));
+      if (path.endsWith("/operations")) return Promise.resolve(Response.json(operationPage));
+      return Promise.resolve(Response.json(adminSession));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const approvalView = renderApp("/operations");
+    await screen.findByText("customer-synthetic-001");
+    await user.click(screen.getByText("Review"));
+    await user.click(screen.getByRole("button", {name: "Approve"}));
+    await waitFor(() => { expect(fetchMock.mock.calls.some(([input]) => requestURL(input).endsWith("/approve"))).toBe(true); });
+    approvalView.unmount();
+
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/operations");
+    await screen.findByText("customer-synthetic-001");
+    await user.click(screen.getByText("Review"));
+    await user.type(screen.getByLabelText("Rejection reason"), "Independent review found invalid evidence");
+    await user.click(screen.getByRole("button", {name: "Reject"}));
+    await waitFor(() => { expect(fetchMock.mock.calls.some(([input]) => requestURL(input).endsWith("/reject"))).toBe(true); });
+  });
+
+  it("blocks privileged submission when fresh authentication has expired", async () => {
+    stubFetch((input) => input.endsWith("/operations") ? Response.json(operationPage) : Response.json({...adminSession, assurance: {...adminSession.assurance, fresh_auth: false}}));
+    renderApp("/operations");
+    await screen.findByText("customer-synthetic-001");
+    expect(screen.getByRole("button", {name: "Submit controlled change"})).toBeDisabled();
+    expect(screen.getByRole("link", {name: "Re-authenticate before submitting"})).toHaveAttribute("href", "/login?reauth=mfa");
   });
 
   it("renders the audit empty state without inventing rows", async () => {

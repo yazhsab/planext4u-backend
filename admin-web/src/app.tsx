@@ -6,6 +6,7 @@ import { APIError, getSession, setCountry } from "./api/client";
 import { AppShell } from "./components/app-shell";
 import { StatePanel } from "./components/state-panel";
 import { AuditPage } from "./pages/audit-page";
+import { OperationsPage } from "./pages/operations-page";
 import { WorkspacePage } from "./pages/workspace-page";
 
 export function App() {
@@ -33,6 +34,7 @@ export function App() {
     <Routes>
 			<Route element={<AppShell session={sessionQuery.data} countryChanging={countryMutation.isPending} onCountryChange={(country) => { countryMutation.mutate(country); }} />}>
         <Route index element={<WorkspacePage />} />
+        <Route path="operations" element={<OperationsPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yazhsab/planext4u-backend/internal/adminops"
 	"github.com/yazhsab/planext4u-backend/internal/audit"
 )
 
@@ -19,9 +20,18 @@ type AuditReader interface {
 	Search(context.Context, audit.Principal, audit.SearchFilter) (audit.Page, error)
 }
 
+type OperationsService interface {
+	Submit(adminops.Principal, adminops.Command) (adminops.Change, error)
+	Approve(adminops.Principal, string, int64) (adminops.Change, error)
+	Reject(adminops.Principal, string, int64, string) (adminops.Change, error)
+	List(adminops.Principal) ([]adminops.Change, error)
+	Audit(adminops.Principal) ([]adminops.AuditEvent, error)
+}
+
 type Config struct {
 	Sessions       SessionResolver
 	Audit          AuditReader
+	Operations     OperationsService
 	Clock          func() time.Time
 	AllowedOrigins []string
 	RequireMFA     bool
@@ -30,13 +40,14 @@ type Config struct {
 type Handler struct {
 	sessions       SessionResolver
 	audit          AuditReader
+	operations     OperationsService
 	clock          func() time.Time
 	allowedOrigins map[string]bool
 	requireMFA     bool
 }
 
 func NewHandler(config Config) (http.Handler, error) {
-	if config.Sessions == nil || config.Audit == nil || config.Clock == nil || len(config.AllowedOrigins) == 0 {
+	if config.Sessions == nil || config.Audit == nil || config.Operations == nil || config.Clock == nil || len(config.AllowedOrigins) == 0 {
 		return nil, ErrInvalidRequest
 	}
 	origins := make(map[string]bool, len(config.AllowedOrigins))
@@ -47,11 +58,16 @@ func NewHandler(config Config) (http.Handler, error) {
 		}
 		origins[origin] = true
 	}
-	handler := &Handler{sessions: config.Sessions, audit: config.Audit, clock: config.Clock, allowedOrigins: origins, requireMFA: config.RequireMFA}
+	handler := &Handler{sessions: config.Sessions, audit: config.Audit, operations: config.Operations, clock: config.Clock, allowedOrigins: origins, requireMFA: config.RequireMFA}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /admin/api/v1/session", handler.session)
 	mux.HandleFunc("PUT /admin/api/v1/session/country", handler.updateCountry)
 	mux.HandleFunc("GET /admin/api/v1/audit/events", handler.auditEvents)
+	mux.HandleFunc("GET /admin/api/v1/operations", handler.listOperations)
+	mux.HandleFunc("POST /admin/api/v1/operations", handler.submitOperation)
+	mux.HandleFunc("GET /admin/api/v1/operations/audit", handler.operationsAudit)
+	mux.HandleFunc("POST /admin/api/v1/operations/{change_id}/approve", handler.approveOperation)
+	mux.HandleFunc("POST /admin/api/v1/operations/{change_id}/reject", handler.rejectOperation)
 	return securityHeaders(mux), nil
 }
 
@@ -168,6 +184,9 @@ func assuranceFor(principal Principal, now time.Time) Assurance {
 
 func navigation(capabilities map[string]bool) []NavigationItem {
 	items := []NavigationItem{{ID: "workspace", Label: "Workspace", Path: "/", Capability: CapabilityShellRead}}
+	if capabilities[CapabilityOperationsRead] {
+		items = append(items, NavigationItem{ID: "operations", Label: "Operations", Path: "/operations", Capability: CapabilityOperationsRead})
+	}
 	if capabilities[CapabilityAuditRead] {
 		items = append(items, NavigationItem{ID: "audit", Label: "Audit trail", Path: "/audit", Capability: CapabilityAuditRead})
 	}

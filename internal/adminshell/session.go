@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/yazhsab/planext4u-backend/internal/adminops"
 )
 
 const sessionCookieName = "__Host-p4u_admin"
@@ -139,24 +141,48 @@ func capabilities(roles []Role) map[string]bool {
 		switch role {
 		case RoleSuperAdmin:
 			result[CapabilityAuditRead] = true
+			grantAllOperations(result)
 			result[CapabilityContentManage] = true
 			result[CapabilitySupportManage] = true
 			result[CapabilityConfigManage] = true
 		case RoleCountryAdmin:
 			result[CapabilityAuditRead] = true
+			grantAllOperations(result)
 			result[CapabilityContentManage] = true
 			result[CapabilitySupportManage] = true
 			result[CapabilityConfigManage] = true
 		case RoleContentAdmin:
+			result[CapabilityOperationsRead] = true
+			result[adminops.CapabilityCatalog] = true
+			result[adminops.CapabilityCampaign] = true
 			result[CapabilityContentManage] = true
 			result[CapabilityConfigManage] = true
 		case RoleSupportAdmin:
+			result[CapabilityOperationsRead] = true
+			result[adminops.CapabilitySupport] = true
 			result[CapabilitySupportManage] = true
 		case RoleAuditor:
 			result[CapabilityAuditRead] = true
+			result[CapabilityOperationsRead] = true
+			result[adminops.CapabilityReporting] = true
 		}
 	}
 	return result
+}
+
+func grantAllOperations(result map[string]bool) {
+	result[CapabilityOperationsRead] = true
+	for _, capability := range []string{
+		adminops.CapabilityCatalog,
+		adminops.CapabilityOrder,
+		adminops.CapabilityPayment,
+		adminops.CapabilityWallet,
+		adminops.CapabilityCampaign,
+		adminops.CapabilitySupport,
+		adminops.CapabilityReporting,
+	} {
+		result[capability] = true
+	}
 }
 
 func capabilityList(values map[string]bool) []string {

@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-import { adminSession, auditPage } from "../src/test/fixtures";
+import { adminSession, auditPage, operationPage } from "../src/test/fixtures";
 
 test.beforeEach(async ({page}) => {
   await page.route("**/admin/api/v1/**", async (route) => {
@@ -12,6 +12,10 @@ test.beforeEach(async ({page}) => {
     }
     if (path === "/admin/api/v1/audit/events") {
       await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify(auditPage)});
+      return;
+    }
+    if (path === "/admin/api/v1/operations") {
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify(operationPage)});
       return;
     }
     if (path === "/admin/api/v1/session/country") {
@@ -27,6 +31,16 @@ test("authorized administrator can review the audit trail", async ({page}) => {
   await expect(page.getByRole("heading", {name: "Audit trail"})).toBeVisible();
   await expect(page.getByText("admin.session.opened")).toBeVisible();
   await expect(page.getByText("corr-synthetic-admin-001")).toBeVisible();
+
+  const results = await new AxeBuilder({page}).analyze();
+  expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
+});
+
+test("authorized administrator can review controlled operations", async ({page}) => {
+  await page.goto("/operations");
+  await expect(page.getByRole("heading", {name: "Privileged operations"})).toBeVisible();
+  await expect(page.getByText("customer-synthetic-001")).toBeVisible();
+  await expect(page.getByText("Pending Approval")).toBeVisible();
 
   const results = await new AxeBuilder({page}).analyze();
   expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);

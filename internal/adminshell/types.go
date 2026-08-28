@@ -13,11 +13,12 @@ const (
 )
 
 const (
-	CapabilityShellRead     = "admin.shell.read"
-	CapabilityAuditRead     = "admin.audit.read"
-	CapabilityContentManage = "admin.content.manage"
-	CapabilitySupportManage = "admin.support.manage"
-	CapabilityConfigManage  = "admin.config.manage"
+	CapabilityShellRead      = "admin.shell.read"
+	CapabilityAuditRead      = "admin.audit.read"
+	CapabilityOperationsRead = "admin.operations.read"
+	CapabilityContentManage  = "admin.content.manage"
+	CapabilitySupportManage  = "admin.support.manage"
+	CapabilityConfigManage   = "admin.config.manage"
 )
 
 type Principal struct {

@@ -5,12 +5,15 @@ import type { components } from "./schema.gen";
 export type AdminSession = components["schemas"]["AdminSession"];
 export type AuditEntry = components["schemas"]["AuditEntry"];
 export type AuditPage = components["schemas"]["AuditPage"];
+export type AdminOperationChange = components["schemas"]["AdminOperationChange"];
+export type AdminOperationInput = components["schemas"]["AdminOperationInput"];
+export type AdminOperationPage = components["schemas"]["AdminOperationPage"];
 
 const roleSchema = z.enum(["SUPER_ADMIN", "COUNTRY_ADMIN", "CONTENT_ADMIN", "SUPPORT_ADMIN", "AUDITOR"]);
 const navigationSchema = z.object({
   id: z.string().min(1).max(64),
   label: z.string().min(1).max(80),
-  path: z.enum(["/", "/audit"]),
+  path: z.enum(["/", "/operations", "/audit"]),
   capability: z.string().min(1).max(128),
 });
 const sessionSchema = z.object({
@@ -48,6 +51,28 @@ const auditPageSchema = z.object({
   next_cursor: z.string().optional(),
   has_more: z.boolean(),
 });
+const operationDomainSchema = z.enum(["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "SUPPORT", "REPORTING"]);
+const operationInputSchema = z.object({
+  domain: operationDomainSchema,
+  action: z.string().min(1).max(128),
+  target_id: z.string().min(1).max(128),
+  reason: z.string().min(8).max(500),
+  payload: z.record(z.string(), z.unknown()),
+});
+const operationChangeSchema = z.object({
+  id: z.string().min(1).max(128),
+  revision: z.number().int().positive(),
+  tenant_id: z.string().min(1).max(128),
+  country: z.string().regex(/^[A-Z]{2}$/),
+  command: operationInputSchema.extend({correlation_id: z.string().min(1).max(128)}),
+  risk: z.enum(["STANDARD", "HIGH"]),
+  status: z.enum(["PENDING_APPROVAL", "EXECUTED", "REJECTED"]),
+  requested_by: z.string().min(1).max(128),
+  approved_by: z.string().min(1).max(128).optional(),
+  created_at: z.iso.datetime({offset: true}),
+  updated_at: z.iso.datetime({offset: true}),
+});
+const operationPageSchema = z.object({changes: z.array(operationChangeSchema)});
 const problemSchema = z.object({
   error: z.object({
     code: z.string(),
@@ -123,4 +148,32 @@ export function listAuditEvents(filters: AuditFilters, signal?: AbortSignal): Pr
   if (filters.cursor) query.set("cursor", filters.cursor);
   query.set("limit", String(filters.limit ?? 50));
   return requestJSON(`/admin/api/v1/audit/events?${query.toString()}`, auditPageSchema, {signal});
+}
+
+export function listOperations(signal?: AbortSignal): Promise<AdminOperationPage> {
+  return requestJSON("/admin/api/v1/operations", operationPageSchema, {signal});
+}
+
+export function submitOperation(input: AdminOperationInput, csrfToken: string): Promise<AdminOperationChange> {
+  return operationMutation("/admin/api/v1/operations", input, csrfToken);
+}
+
+export function approveOperation(change: AdminOperationChange, csrfToken: string): Promise<AdminOperationChange> {
+  return operationMutation(`/admin/api/v1/operations/${encodeURIComponent(change.id)}/approve`, {expected_revision: change.revision}, csrfToken);
+}
+
+export function rejectOperation(change: AdminOperationChange, reason: string, csrfToken: string): Promise<AdminOperationChange> {
+  return operationMutation(`/admin/api/v1/operations/${encodeURIComponent(change.id)}/reject`, {expected_revision: change.revision, reason}, csrfToken);
+}
+
+function operationMutation(path: string, body: unknown, csrfToken: string): Promise<AdminOperationChange> {
+  return requestJSON(path, operationChangeSchema, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+      "X-Correlation-ID": `admin-web-${globalThis.crypto.randomUUID()}`,
+    },
+    body: JSON.stringify(body),
+  });
 }

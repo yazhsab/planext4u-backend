@@ -52,6 +52,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/api/v1/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["adminListOperations"];
+        put?: never;
+        post: operations["adminSubmitOperation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/operations/{change_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["adminApproveOperation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/operations/{change_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["adminRejectOperation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/operations/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["adminListOperationAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -83,6 +147,70 @@ export interface components {
         };
         CountrySelection: {
             country: string;
+        };
+        /** @enum {string} */
+        AdminOperationDomain: "CATALOG" | "ORDER" | "PAYMENT" | "WALLET" | "CAMPAIGN" | "SUPPORT" | "REPORTING";
+        /** @enum {string} */
+        AdminOperationRisk: "STANDARD" | "HIGH";
+        /** @enum {string} */
+        AdminOperationStatus: "PENDING_APPROVAL" | "EXECUTED" | "REJECTED";
+        AdminOperationInput: {
+            domain: components["schemas"]["AdminOperationDomain"];
+            action: string;
+            target_id: string;
+            reason: string;
+            payload: {
+                [key: string]: unknown;
+            };
+        };
+        AdminOperationCommand: components["schemas"]["AdminOperationInput"] & {
+            correlation_id: string;
+        };
+        AdminOperationChange: {
+            id: string;
+            /** Format: int64 */
+            revision: number;
+            tenant_id: string;
+            country: string;
+            command: components["schemas"]["AdminOperationCommand"];
+            risk: components["schemas"]["AdminOperationRisk"];
+            status: components["schemas"]["AdminOperationStatus"];
+            requested_by: string;
+            approved_by?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        AdminOperationPage: {
+            changes: components["schemas"]["AdminOperationChange"][];
+        };
+        AdminOperationDecision: {
+            /** Format: int64 */
+            expected_revision: number;
+        };
+        AdminOperationRejection: {
+            /** Format: int64 */
+            expected_revision: number;
+            reason: string;
+        };
+        AdminOperationAuditEvent: {
+            /** Format: int64 */
+            sequence: number;
+            tenant_id: string;
+            country: string;
+            actor_id: string;
+            action: string;
+            target_id: string;
+            /** @enum {string} */
+            outcome: "SUCCEEDED" | "DENIED" | "FAILED";
+            reason: string;
+            correlation_id: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        AdminOperationAuditPage: {
+            events: components["schemas"]["AdminOperationAuditEvent"][];
         };
         /** @enum {string} */
         AuditOutcome: "SUCCEEDED" | "DENIED" | "FAILED";
@@ -237,6 +365,145 @@ export interface operations {
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+        };
+    };
+    adminListOperations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Changes visible to the administrator in the selected country */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminOperationPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+        };
+    };
+    adminSubmitOperation: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": components["parameters"]["CSRFToken"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminOperationInput"];
+            };
+        };
+        responses: {
+            /** @description Executed standard-risk change or high-risk change awaiting four-eyes approval */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminOperationChange"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    adminApproveOperation: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": components["parameters"]["CSRFToken"];
+            };
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminOperationDecision"];
+            };
+        };
+        responses: {
+            /** @description Change approved and executed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminOperationChange"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    adminRejectOperation: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": components["parameters"]["CSRFToken"];
+            };
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminOperationRejection"];
+            };
+        };
+        responses: {
+            /** @description Change rejected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminOperationChange"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    adminListOperationAudit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Immutable privileged-operation audit evidence */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminOperationAuditPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
         };
     };
 }

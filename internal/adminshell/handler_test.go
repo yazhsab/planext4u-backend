@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yazhsab/planext4u-backend/internal/adminops"
 	"github.com/yazhsab/planext4u-backend/internal/audit"
 )
 
@@ -42,7 +43,7 @@ func TestSessionReturnsServerAuthorizedNavigationAndAssurance(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &view); err != nil {
 		t.Fatalf("decode session: %v", err)
 	}
-	if view.SelectedCountry != "IN" || len(view.Navigation) != 2 || view.Navigation[1].Path != "/audit" {
+	if view.SelectedCountry != "IN" || len(view.Navigation) != 3 || view.Navigation[1].Path != "/operations" || view.Navigation[2].Path != "/audit" {
 		t.Fatalf("unexpected session view: %#v", view)
 	}
 	if !view.Assurance.MFASatisfied || !view.Assurance.FreshAuth || view.CSRFToken == "" {
@@ -117,6 +118,68 @@ func TestSecurityHeadersAreAppliedToFailures(t *testing.T) {
 	}
 }
 
+func TestOperationsEnforceCSRFDomainRBACAndFourEyes(t *testing.T) {
+	handler, store := testHandler(t, true)
+	requester := testPrincipal(RoleCountryAdmin)
+	requester.SubjectID = "admin-requester"
+	requester.SessionID = "session-requester"
+	requesterToken := issue(t, store, requester)
+	requesterCSRF := resolveCSRF(t, store, requesterToken)
+	body := []byte(`{"domain":"WALLET","action":"ADJUST","target_id":"customer-001","reason":"Correct verified settlement discrepancy","payload":{"points":100}}`)
+
+	missingCSRF := serve(handler, http.MethodPost, "/admin/api/v1/operations", body, requesterToken, "", "https://admin.planext4u.net")
+	assertStatusAndCode(t, missingCSRF, http.StatusForbidden, "ADMIN_CSRF_INVALID")
+
+	created := serve(handler, http.MethodPost, "/admin/api/v1/operations", body, requesterToken, requesterCSRF, "https://admin.planext4u.net")
+	if created.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", created.Code, created.Body.String())
+	}
+	var change adminops.Change
+	if err := json.Unmarshal(created.Body.Bytes(), &change); err != nil || change.Status != adminops.StatusPending {
+		t.Fatalf("created=%#v err=%v", change, err)
+	}
+
+	approvalBody := []byte(`{"expected_revision":1}`)
+	selfApproval := serve(handler, http.MethodPost, "/admin/api/v1/operations/"+change.ID+"/approve", approvalBody, requesterToken, requesterCSRF, "https://admin.planext4u.net")
+	assertStatusAndCode(t, selfApproval, http.StatusConflict, "ADMIN_FOUR_EYES_REQUIRED")
+
+	approver := testPrincipal(RoleCountryAdmin)
+	approver.SubjectID = "admin-approver"
+	approver.SessionID = "session-approver"
+	approverToken := issue(t, store, approver)
+	approved := serve(handler, http.MethodPost, "/admin/api/v1/operations/"+change.ID+"/approve", approvalBody, approverToken, resolveCSRF(t, store, approverToken), "https://admin.planext4u.net")
+	if approved.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", approved.Code, approved.Body.String())
+	}
+
+	supportToken := issue(t, store, testPrincipal(RoleSupportAdmin))
+	forbidden := serve(handler, http.MethodPost, "/admin/api/v1/operations", body, supportToken, resolveCSRF(t, store, supportToken), "https://admin.planext4u.net")
+	assertStatusAndCode(t, forbidden, http.StatusForbidden, "ADMIN_OPERATION_FORBIDDEN")
+}
+
+func TestOperationsListIsCountryAndCapabilityScoped(t *testing.T) {
+	handler, store := testHandler(t, true)
+	principal := testPrincipal(RoleCountryAdmin)
+	token := issue(t, store, principal)
+	csrf := resolveCSRF(t, store, token)
+	created := serve(handler, http.MethodPost, "/admin/api/v1/operations", []byte(`{"domain":"CATALOG","action":"UPSERT","target_id":"item-001","reason":"Publish verified catalogue information","payload":{"name":"Synthetic item"}}`), token, csrf, "https://admin.planext4u.net")
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create=%d %s", created.Code, created.Body.String())
+	}
+
+	contentToken := issue(t, store, testPrincipal(RoleContentAdmin))
+	listed := serve(handler, http.MethodGet, "/admin/api/v1/operations", nil, contentToken, "", "")
+	if listed.Code != http.StatusOK || !bytes.Contains(listed.Body.Bytes(), []byte(`"domain":"CATALOG"`)) {
+		t.Fatalf("list=%d %s", listed.Code, listed.Body.String())
+	}
+
+	supportToken := issue(t, store, testPrincipal(RoleSupportAdmin))
+	filtered := serve(handler, http.MethodGet, "/admin/api/v1/operations", nil, supportToken, "", "")
+	if filtered.Code != http.StatusOK || bytes.Contains(filtered.Body.Bytes(), []byte(`"domain":"CATALOG"`)) {
+		t.Fatalf("filtered list=%d %s", filtered.Code, filtered.Body.String())
+	}
+}
+
 func testHandler(t *testing.T, requireMFA bool) (http.Handler, *MemorySessionStore) {
 	t.Helper()
 	store, err := NewMemorySessionStore(func() time.Time { return testNow })
@@ -138,8 +201,12 @@ func testHandler(t *testing.T, requireMFA bool) (http.Handler, *MemorySessionSto
 			t.Fatalf("seed audit: %v", err)
 		}
 	}
+	operations, err := adminops.NewService(func() time.Time { return testNow })
+	if err != nil {
+		t.Fatalf("create operations: %v", err)
+	}
 	handler, err := NewHandler(Config{
-		Sessions: store, Audit: auditService, Clock: func() time.Time { return testNow },
+		Sessions: store, Audit: auditService, Operations: operations, Clock: func() time.Time { return testNow },
 		AllowedOrigins: []string{"https://admin.planext4u.net"}, RequireMFA: requireMFA,
 	})
 	if err != nil {
@@ -176,6 +243,7 @@ func serve(handler http.Handler, method, path string, body []byte, token, csrf, 
 	if origin != "" {
 		request.Header.Set("Origin", origin)
 	}
+	request.Header.Set("X-Correlation-ID", "corr-admin-shell-test")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response

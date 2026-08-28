@@ -57,6 +57,88 @@
           "422": {"$ref": "#/components/responses/Problem"}
         }
       }
+    },
+    "/admin/api/v1/operations": {
+      "get": {
+        "operationId": "adminListOperations",
+        "responses": {
+          "200": {
+            "description": "Changes visible to the administrator in the selected country",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminOperationPage"}}}
+          },
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "post": {
+        "operationId": "adminSubmitOperation",
+        "parameters": [{"$ref": "#/components/parameters/CSRFToken"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminOperationInput"}}}
+        },
+        "responses": {
+          "201": {
+            "description": "Executed standard-risk change or high-risk change awaiting four-eyes approval",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminOperationChange"}}}
+          },
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/admin/api/v1/operations/{change_id}/approve": {
+      "post": {
+        "operationId": "adminApproveOperation",
+        "parameters": [
+          {"$ref": "#/components/parameters/CSRFToken"},
+          {"name": "change_id", "in": "path", "required": true, "schema": {"type": "string", "maxLength": 128}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminOperationDecision"}}}
+        },
+        "responses": {
+          "200": {"description": "Change approved and executed", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminOperationChange"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/admin/api/v1/operations/{change_id}/reject": {
+      "post": {
+        "operationId": "adminRejectOperation",
+        "parameters": [
+          {"$ref": "#/components/parameters/CSRFToken"},
+          {"name": "change_id", "in": "path", "required": true, "schema": {"type": "string", "maxLength": 128}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminOperationRejection"}}}
+        },
+        "responses": {
+          "200": {"description": "Change rejected", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminOperationChange"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/admin/api/v1/operations/audit": {
+      "get": {
+        "operationId": "adminListOperationAudit",
+        "responses": {
+          "200": {"description": "Immutable privileged-operation audit evidence", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminOperationAuditPage"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
     }
   },
   "components": {
@@ -129,6 +211,96 @@
         "additionalProperties": false,
         "required": ["country"],
         "properties": {"country": {"type": "string", "pattern": "^[A-Z]{2}$"}}
+      },
+      "AdminOperationDomain": {
+        "type": "string",
+        "enum": ["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "SUPPORT", "REPORTING"]
+      },
+      "AdminOperationRisk": {"type": "string", "enum": ["STANDARD", "HIGH"]},
+      "AdminOperationStatus": {"type": "string", "enum": ["PENDING_APPROVAL", "EXECUTED", "REJECTED"]},
+      "AdminOperationInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["domain", "action", "target_id", "reason", "payload"],
+        "properties": {
+          "domain": {"$ref": "#/components/schemas/AdminOperationDomain"},
+          "action": {"type": "string", "minLength": 1, "maxLength": 128},
+          "target_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "reason": {"type": "string", "minLength": 8, "maxLength": 500},
+          "payload": {"type": "object", "maxProperties": 64, "additionalProperties": true}
+        }
+      },
+      "AdminOperationCommand": {
+        "allOf": [
+          {"$ref": "#/components/schemas/AdminOperationInput"},
+          {
+            "type": "object",
+            "required": ["correlation_id"],
+            "properties": {"correlation_id": {"type": "string", "minLength": 1, "maxLength": 128}}
+          }
+        ]
+      },
+      "AdminOperationChange": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "revision", "tenant_id", "country", "command", "risk", "status", "requested_by", "created_at", "updated_at"],
+        "properties": {
+          "id": {"type": "string"},
+          "revision": {"type": "integer", "format": "int64", "minimum": 1},
+          "tenant_id": {"type": "string"},
+          "country": {"type": "string", "pattern": "^[A-Z]{2}$"},
+          "command": {"$ref": "#/components/schemas/AdminOperationCommand"},
+          "risk": {"$ref": "#/components/schemas/AdminOperationRisk"},
+          "status": {"$ref": "#/components/schemas/AdminOperationStatus"},
+          "requested_by": {"type": "string"},
+          "approved_by": {"type": "string"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "AdminOperationPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["changes"],
+        "properties": {"changes": {"type": "array", "items": {"$ref": "#/components/schemas/AdminOperationChange"}}}
+      },
+      "AdminOperationDecision": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expected_revision"],
+        "properties": {"expected_revision": {"type": "integer", "format": "int64", "minimum": 1}}
+      },
+      "AdminOperationRejection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expected_revision", "reason"],
+        "properties": {
+          "expected_revision": {"type": "integer", "format": "int64", "minimum": 1},
+          "reason": {"type": "string", "minLength": 8, "maxLength": 500}
+        }
+      },
+      "AdminOperationAuditEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sequence", "tenant_id", "country", "actor_id", "action", "target_id", "outcome", "reason", "correlation_id", "created_at"],
+        "properties": {
+          "sequence": {"type": "integer", "format": "int64", "minimum": 1},
+          "tenant_id": {"type": "string"},
+          "country": {"type": "string", "pattern": "^[A-Z]{2}$"},
+          "actor_id": {"type": "string"},
+          "action": {"type": "string"},
+          "target_id": {"type": "string"},
+          "outcome": {"type": "string", "enum": ["SUCCEEDED", "DENIED", "FAILED"]},
+          "reason": {"type": "string"},
+          "correlation_id": {"type": "string"},
+          "created_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "AdminOperationAuditPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["events"],
+        "properties": {"events": {"type": "array", "items": {"$ref": "#/components/schemas/AdminOperationAuditEvent"}}}
       },
       "AuditOutcome": {"type": "string", "enum": ["SUCCEEDED", "DENIED", "FAILED"]},
       "AuditActor": {

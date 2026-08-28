@@ -53,7 +53,7 @@ func (handler *Handler) items(writer http.ResponseWriter, request *http.Request)
 }
 
 func (handler *Handler) search(writer http.ResponseWriter, request *http.Request) {
-	handler.itemPage(writer, request, "", request.URL.Query().Get("q"))
+	handler.itemPage(writer, request, request.URL.Query().Get("category_id"), request.URL.Query().Get("q"))
 }
 
 func (handler *Handler) itemPage(writer http.ResponseWriter, request *http.Request, categoryID, query string) {

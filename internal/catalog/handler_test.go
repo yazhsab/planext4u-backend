@@ -15,7 +15,7 @@ func TestCatalogHandlerRoutesProjectionAndLocation(t *testing.T) {
 	service, _ := NewService(repository, []Zone{{ID: "zone-chennai", Country: "IN", Locality: "Chennai", MinimumLatitude: 12.8, MaximumLatitude: 13.3, MinimumLongitude: 80, MaximumLongitude: 80.4}}, 15*time.Minute, func() time.Time { return now })
 	handler, _ := NewHandler(service)
 
-	request := httptest.NewRequest(http.MethodGet, "/v1/catalog/search?q=filter&limit=1", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/catalog/search?q=filter&category_id=home-services&limit=1", nil)
 	request.Header.Set("X-Planext4u-Tenant", "tenant-synthetic")
 	request.Header.Set("X-Planext4u-Country", "IN")
 	response := httptest.NewRecorder()
