@@ -435,6 +435,36 @@ func (repository *PostgresRepository) RecordConsent(ctx context.Context, identit
 	return consent, nil
 }
 
+func (repository *PostgresRepository) CreateDeletionRequest(ctx context.Context, request DeletionRequest) (DeletionRequest, error) {
+	transaction, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return DeletionRequest{}, fmt.Errorf("begin deletion request: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	err = transaction.QueryRow(ctx, `
+		INSERT INTO identity.account_deletion_requests
+			(id, identity_id, status, reason, requested_at, effective_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (identity_id) WHERE status = 'SCHEDULED'
+		DO UPDATE SET reason = EXCLUDED.reason
+		RETURNING id, identity_id, status, reason, requested_at, effective_at`,
+		request.ID, request.IdentityID, request.Status, request.Reason, request.RequestedAt, request.EffectiveAt).Scan(
+		&request.ID, &request.IdentityID, &request.Status, &request.Reason, &request.RequestedAt, &request.EffectiveAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return DeletionRequest{}, ErrNotFound
+	}
+	if err != nil {
+		return DeletionRequest{}, fmt.Errorf("create deletion request: %w", err)
+	}
+	if err := insertSecurityEvent(ctx, transaction, "ACCOUNT_DELETION_REQUESTED", request.IdentityID, "", "", "", "SCHEDULED", request.RequestedAt); err != nil {
+		return DeletionRequest{}, err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return DeletionRequest{}, fmt.Errorf("commit deletion request: %w", err)
+	}
+	return request, nil
+}
+
 type queryRower interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }

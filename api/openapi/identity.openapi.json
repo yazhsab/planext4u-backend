@@ -326,6 +326,31 @@
           }
         }
       }
+    },
+    "/v1/me/data-export": {
+      "get": {
+        "operationId": "identityExportCurrentAccountData",
+        "summary": "Export the current account profile, sessions and consent evidence",
+        "responses": {
+          "200": {
+            "description": "Redacted current-account data export",
+            "content": {"application/json":{"schema":{"$ref":"#/components/schemas/DataExport"}}}
+          },
+          "401": {"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
+    "/v1/me/deletion-requests": {
+      "post": {
+        "operationId": "identityRequestCurrentAccountDeletion",
+        "summary": "Schedule current-account erasure after a recovery period",
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/DeletionRequestInput"}}}},
+        "responses": {
+          "202": {"description":"Deletion scheduled","content":{"application/json":{"schema":{"$ref":"#/components/schemas/DeletionRequest"}}}},
+          "401": {"$ref":"#/components/responses/Problem"},
+          "422": {"$ref":"#/components/responses/Problem"}
+        }
+      }
     }
   },
   "components": {
@@ -671,6 +696,29 @@
             "$ref": "#/components/schemas/SafeIdentifier"
           }
         }
+      },
+      "DataExport": {
+        "type":"object","additionalProperties":false,
+        "required":["generated_at","identity_id","tenant_id","country","roles","profile","sessions","consents"],
+        "properties":{
+          "generated_at":{"type":"string","format":"date-time"},
+          "identity_id":{"$ref":"#/components/schemas/SafeIdentifier"},
+          "tenant_id":{"$ref":"#/components/schemas/SafeIdentifier"},
+          "country":{"type":"string","pattern":"^[A-Z]{2}$"},
+          "roles":{"type":"array","items":{"$ref":"#/components/schemas/Role"}},
+          "profile":{"$ref":"#/components/schemas/Profile"},
+          "sessions":{"type":"array","items":{"$ref":"#/components/schemas/Session"}},
+          "consents":{"type":"array","items":{"$ref":"#/components/schemas/Consent"}}
+        }
+      },
+      "DeletionRequestInput": {
+        "type":"object","additionalProperties":false,"required":["confirmation"],
+        "properties":{"confirmation":{"type":"string","const":"DELETE MY ACCOUNT"},"reason":{"type":"string","maxLength":500}}
+      },
+      "DeletionRequest": {
+        "type":"object","additionalProperties":false,
+        "required":["id","identity_id","status","requested_at","effective_at"],
+        "properties":{"id":{"$ref":"#/components/schemas/SafeIdentifier"},"identity_id":{"$ref":"#/components/schemas/SafeIdentifier"},"status":{"type":"string","enum":["SCHEDULED"]},"reason":{"type":"string","maxLength":500},"requested_at":{"type":"string","format":"date-time"},"effective_at":{"type":"string","format":"date-time"}}
       },
       "Consent": {
         "type": "object",

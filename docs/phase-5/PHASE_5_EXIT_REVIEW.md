@@ -24,6 +24,8 @@ no Lovable/Vercel source is used.
 - Country-scoped governance dashboards, finance/operations reports, maps,
   heatmaps, leaderboards and intelligence projections, plus controlled content,
   policy, country, emergency and intelligence operations.
+- Authenticated, redacted account data export and auditable deletion scheduling
+  with a 30-day recovery period.
 
 ## Safety and production controls
 

@@ -158,6 +158,26 @@ type ConsentUpdate struct {
 	PolicyVersion string
 }
 
+type DataExport struct {
+	GeneratedAt time.Time     `json:"generated_at"`
+	IdentityID  string        `json:"identity_id"`
+	TenantID    string        `json:"tenant_id"`
+	Country     string        `json:"country"`
+	Roles       []Role        `json:"roles"`
+	Profile     Profile       `json:"profile"`
+	Sessions    []SessionView `json:"sessions"`
+	Consents    []Consent     `json:"consents"`
+}
+
+type DeletionRequest struct {
+	ID          string    `json:"id"`
+	IdentityID  string    `json:"identity_id"`
+	Status      string    `json:"status"`
+	Reason      string    `json:"reason,omitempty"`
+	RequestedAt time.Time `json:"requested_at"`
+	EffectiveAt time.Time `json:"effective_at"`
+}
+
 type StartSessionParams struct {
 	Provider        ProviderIdentity
 	IdentityID      string
@@ -187,6 +207,7 @@ type Repository interface {
 	UpdateProfile(context.Context, string, ProfileUpdate, time.Time) (Profile, error)
 	ListConsents(context.Context, string) ([]Consent, error)
 	RecordConsent(context.Context, string, Consent, time.Time) (Consent, error)
+	CreateDeletionRequest(context.Context, DeletionRequest) (DeletionRequest, error)
 }
 
 type AccessTokenIssuer interface {

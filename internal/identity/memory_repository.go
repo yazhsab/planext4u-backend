@@ -18,6 +18,7 @@ type MemoryRepository struct {
 	activeRefresh      map[string]string
 	consumedRefresh    map[string]string
 	consents           map[string][]Consent
+	deletions          map[string]DeletionRequest
 	auditEvents        []AuditEvent
 }
 
@@ -29,6 +30,7 @@ func NewMemoryRepository() *MemoryRepository {
 		activeRefresh:      make(map[string]string),
 		consumedRefresh:    make(map[string]string),
 		consents:           make(map[string][]Consent),
+		deletions:          make(map[string]DeletionRequest),
 	}
 }
 
@@ -287,6 +289,20 @@ func (repository *MemoryRepository) RecordConsent(_ context.Context, identityID 
 		SecurityEvent: true,
 	})
 	return consent, nil
+}
+
+func (repository *MemoryRepository) CreateDeletionRequest(_ context.Context, request DeletionRequest) (DeletionRequest, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	if _, exists := repository.identities[request.IdentityID]; !exists {
+		return DeletionRequest{}, ErrNotFound
+	}
+	if existing, exists := repository.deletions[request.IdentityID]; exists && existing.Status == "SCHEDULED" {
+		return existing, nil
+	}
+	repository.deletions[request.IdentityID] = request
+	repository.appendAudit(AuditEvent{ID: request.ID, Type: "ACCOUNT_DELETION_REQUESTED", IdentityID: request.IdentityID, Outcome: "SCHEDULED", OccurredAt: request.RequestedAt, SecurityEvent: true})
+	return request, nil
 }
 
 func (repository *MemoryRepository) AuditEvents() []AuditEvent {

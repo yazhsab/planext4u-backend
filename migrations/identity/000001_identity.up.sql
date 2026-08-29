@@ -103,6 +103,20 @@ CREATE TABLE identity.consent_evidence (
 CREATE INDEX consent_evidence_current_idx
     ON identity.consent_evidence (identity_id, purpose, version DESC);
 
+CREATE TABLE identity.account_deletion_requests (
+    id text PRIMARY KEY,
+    identity_id text NOT NULL REFERENCES identity.identities(id),
+    status text NOT NULL CHECK (status IN ('SCHEDULED', 'CANCELLED', 'COMPLETED')),
+    reason text NOT NULL DEFAULT '',
+    requested_at timestamptz NOT NULL,
+    effective_at timestamptz NOT NULL,
+    CONSTRAINT account_deletion_reason_length CHECK (char_length(reason) <= 500),
+    CONSTRAINT account_deletion_effective_after_request CHECK (effective_at > requested_at)
+);
+CREATE UNIQUE INDEX account_deletion_one_scheduled_idx
+    ON identity.account_deletion_requests (identity_id)
+    WHERE status = 'SCHEDULED';
+
 CREATE TABLE identity.security_events (
     sequence_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     event_type text NOT NULL,

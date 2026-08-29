@@ -44,6 +44,8 @@ func NewHandler(service *Service, readiness func() bool) (*Handler, error) {
 	handler.mux.HandleFunc("DELETE /v1/me/sessions/{session_id}", handler.handleSessionRevoke)
 	handler.mux.HandleFunc("GET /v1/me/consents", handler.handleConsents)
 	handler.mux.HandleFunc("PUT /v1/me/consents/{purpose}", handler.handleConsentUpdate)
+	handler.mux.HandleFunc("GET /v1/me/data-export", handler.handleDataExport)
+	handler.mux.HandleFunc("POST /v1/me/deletion-requests", handler.handleDeletionRequest)
 	return handler, nil
 }
 
@@ -264,6 +266,45 @@ func (handler *Handler) handleConsentUpdate(writer http.ResponseWriter, request 
 	writeJSON(writer, http.StatusOK, consent)
 }
 
+func (handler *Handler) handleDataExport(writer http.ResponseWriter, request *http.Request) {
+	trusted, err := trustedIdentity(request)
+	if err != nil {
+		handler.writeFailure(writer, request, err)
+		return
+	}
+	value, err := handler.service.ExportData(request.Context(), trusted)
+	if err != nil {
+		handler.writeFailure(writer, request, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, value)
+}
+
+func (handler *Handler) handleDeletionRequest(writer http.ResponseWriter, request *http.Request) {
+	trusted, err := trustedIdentity(request)
+	if err != nil {
+		handler.writeFailure(writer, request, err)
+		return
+	}
+	var input struct {
+		Confirmation string `json:"confirmation"`
+		Reason       string `json:"reason"`
+	}
+	if err := decodeJSON(request, &input); err != nil || input.Confirmation != "DELETE MY ACCOUNT" {
+		if err == nil {
+			err = ErrInvalidInput
+		}
+		handler.writeFailure(writer, request, err)
+		return
+	}
+	value, err := handler.service.RequestDeletion(request.Context(), trusted, input.Reason)
+	if err != nil {
+		handler.writeFailure(writer, request, err)
+		return
+	}
+	writeJSON(writer, http.StatusAccepted, value)
+}
+
 func (handler *Handler) writeFailure(writer http.ResponseWriter, request *http.Request, err error) {
 	status := http.StatusInternalServerError
 	code := "INTERNAL_ERROR"
@@ -381,7 +422,7 @@ func newCorrelationID() string {
 func knownIdentityPath(path string) bool {
 	switch path {
 	case "/healthz", "/readyz", "/v1/auth/exchange", "/v1/auth/refresh", "/v1/auth/revoke",
-		"/v1/me", "/v1/me/sessions", "/v1/me/consents":
+		"/v1/me", "/v1/me/sessions", "/v1/me/consents", "/v1/me/data-export", "/v1/me/deletion-requests":
 		return true
 	}
 	for _, prefix := range []string{"/v1/me/sessions/", "/v1/me/consents/"} {

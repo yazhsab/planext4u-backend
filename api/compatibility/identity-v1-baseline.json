@@ -35,6 +35,14 @@
     {
       "method": "PUT",
       "path": "/v1/me/consents/{purpose}"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/me/data-export"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/me/deletion-requests"
     }
   ],
   "required_properties": {
@@ -83,6 +91,23 @@
       "policy_version",
       "recorded_at",
       "version"
+    ],
+    "DataExport": [
+      "generated_at",
+      "identity_id",
+      "tenant_id",
+      "country",
+      "roles",
+      "profile",
+      "sessions",
+      "consents"
+    ],
+    "DeletionRequest": [
+      "id",
+      "identity_id",
+      "status",
+      "requested_at",
+      "effective_at"
     ]
   },
   "enum_values": {

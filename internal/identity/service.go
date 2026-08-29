@@ -278,6 +278,43 @@ func (service *Service) RecordConsent(ctx context.Context, trusted TrustedIdenti
 	}, now)
 }
 
+func (service *Service) ExportData(ctx context.Context, trusted TrustedIdentity) (DataExport, error) {
+	principal, profile, err := service.Principal(ctx, trusted)
+	if err != nil {
+		return DataExport{}, err
+	}
+	sessions, err := service.repository.ListSessions(ctx, principal.Subject)
+	if err != nil {
+		return DataExport{}, err
+	}
+	consents, err := service.repository.ListConsents(ctx, principal.Subject)
+	if err != nil {
+		return DataExport{}, err
+	}
+	views := make([]SessionView, len(sessions))
+	for index, session := range sessions {
+		views[index] = sessionView(session, session.ID == principal.Session)
+	}
+	return DataExport{GeneratedAt: service.now().UTC(), IdentityID: principal.Subject, TenantID: principal.TenantID, Country: principal.Country, Roles: append([]Role(nil), principal.Roles...), Profile: profile, Sessions: views, Consents: consents}, nil
+}
+
+func (service *Service) RequestDeletion(ctx context.Context, trusted TrustedIdentity, reason string) (DeletionRequest, error) {
+	principal, _, err := service.Principal(ctx, trusted)
+	if err != nil {
+		return DeletionRequest{}, err
+	}
+	reason = strings.TrimSpace(reason)
+	if !utf8.ValidString(reason) || utf8.RuneCountInString(reason) > 500 {
+		return DeletionRequest{}, ErrInvalidInput
+	}
+	id, err := service.newID("deletion")
+	if err != nil {
+		return DeletionRequest{}, fmt.Errorf("create deletion request ID: %w", err)
+	}
+	now := service.now().UTC()
+	return service.repository.CreateDeletionRequest(ctx, DeletionRequest{ID: id, IdentityID: principal.Subject, Status: "SCHEDULED", Reason: reason, RequestedAt: now, EffectiveAt: now.Add(30 * 24 * time.Hour)})
+}
+
 func (service *Service) authentication(account Identity, session Session, refreshToken string) (Authentication, error) {
 	accessToken, accessExpiry, err := service.tokenIssuer.Issue(principalFor(account, session))
 	if err != nil {

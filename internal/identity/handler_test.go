@@ -117,6 +117,18 @@ func TestHandlerProfileConsentSessionsAndTrustedContext(t *testing.T) {
 	if revoked.Code != http.StatusNoContent {
 		t.Fatalf("session revoke = %d %s", revoked.Code, revoked.Body.String())
 	}
+	exported := identityRequest(handler, http.MethodGet, "/v1/me/data-export", "", headers)
+	if exported.Code != http.StatusOK || !strings.Contains(exported.Body.String(), `"identity_id":"`+first.IdentityID+`"`) || !strings.Contains(exported.Body.String(), `"consents"`) || strings.Contains(exported.Body.String(), "provider-http-profile") {
+		t.Fatalf("data export = %d %s", exported.Code, exported.Body.String())
+	}
+	invalidDeletion := identityRequest(handler, http.MethodPost, "/v1/me/deletion-requests", `{"confirmation":"delete"}`, headers)
+	if invalidDeletion.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid deletion = %d %s", invalidDeletion.Code, invalidDeletion.Body.String())
+	}
+	deletion := identityRequest(handler, http.MethodPost, "/v1/me/deletion-requests", `{"confirmation":"DELETE MY ACCOUNT","reason":"Customer requested erasure"}`, headers)
+	if deletion.Code != http.StatusAccepted || !strings.Contains(deletion.Body.String(), `"status":"SCHEDULED"`) {
+		t.Fatalf("deletion request = %d %s", deletion.Code, deletion.Body.String())
+	}
 }
 
 func TestHandlerReadinessAndRevokeDoNotCreateTokenOracle(t *testing.T) {
