@@ -32,6 +32,14 @@ type Service struct {
 	muted         map[string]bool
 	reports       map[string]*Report
 	idempotency   map[string]idempotentResult
+	mediaJobs     map[string]*MediaJob
+	ephemeral     map[string]*EphemeralContent
+	collections   map[string]*Collection
+	conversations map[string]*Conversation
+	messages      map[string][]DirectMessage
+	presence      map[string]Presence
+	calls         map[string]*CallSession
+	tombstones    map[string]time.Time
 }
 
 func NewService(configuration Configuration, clock func() time.Time) (*Service, error) {
@@ -45,6 +53,8 @@ func NewService(configuration Configuration, clock func() time.Time) (*Service, 
 		clock: clock, configuration: configuration, profiles: map[string]*Profile{}, posts: map[string]*Post{},
 		comments: map[string]*Comment{}, follows: map[string]*Follow{}, blocked: map[string]bool{}, muted: map[string]bool{},
 		reports: map[string]*Report{}, idempotency: map[string]idempotentResult{},
+		mediaJobs: map[string]*MediaJob{}, ephemeral: map[string]*EphemeralContent{}, collections: map[string]*Collection{},
+		conversations: map[string]*Conversation{}, messages: map[string][]DirectMessage{}, presence: map[string]Presence{}, calls: map[string]*CallSession{}, tombstones: map[string]time.Time{},
 	}
 	for index := range configuration.Profiles {
 		value := cloneProfile(configuration.Profiles[index])

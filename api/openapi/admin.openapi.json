@@ -130,6 +130,17 @@
         }
       }
     },
+    "/admin/api/v1/governance": {
+      "get": {
+        "operationId": "adminGetGovernance",
+        "x-planext4u-mfa-required": true,
+        "responses": {
+          "200": {"description": "Country-scoped aggregate governance dashboard", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GovernanceView"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/admin/api/v1/operations/audit": {
       "get": {
         "operationId": "adminListOperationAudit",
@@ -214,7 +225,17 @@
       },
       "AdminOperationDomain": {
         "type": "string",
-        "enum": ["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING", "SUPPLY", "RESTAURANT", "DISPATCH", "SETTLEMENT", "FRANCHISE"]
+        "enum": ["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING", "SUPPLY", "RESTAURANT", "DISPATCH", "SETTLEMENT", "FRANCHISE", "CONTENT", "POLICY", "COUNTRY", "EMERGENCY", "INTELLIGENCE"]
+      },
+      "GovernanceMetric": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "title", "value", "unit", "freshness", "masked"],
+        "properties": {"id":{"type":"string"},"title":{"type":"string"},"value":{"type":"integer","format":"int64"},"unit":{"type":"string"},"freshness":{"type":"string","format":"date-time"},"masked":{"type":"boolean"}}
+      },
+      "GovernanceView": {
+        "type": "object", "additionalProperties": false,
+        "required": ["country", "policy_version", "feature_flags", "metrics", "privacy_mode", "generated_at"],
+        "properties": {"country":{"type":"string","pattern":"^[A-Z]{2}$"},"policy_version":{"type":"string"},"feature_flags":{"type":"object","additionalProperties":{"type":"boolean"}},"metrics":{"type":"array","items":{"$ref":"#/components/schemas/GovernanceMetric"}},"privacy_mode":{"type":"string","enum":["aggregate_and_masked"]},"generated_at":{"type":"string","format":"date-time"}}
       },
       "AdminOperationRisk": {"type": "string", "enum": ["STANDARD", "HIGH"]},
       "AdminOperationStatus": {"type": "string", "enum": ["PENDING_APPROVAL", "EXECUTED", "REJECTED"]},

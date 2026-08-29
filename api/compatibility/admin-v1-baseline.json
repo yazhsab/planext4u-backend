@@ -2,18 +2,21 @@
   "operations": [
     {"method": "GET", "path": "/admin/api/v1/session"},
     {"method": "PUT", "path": "/admin/api/v1/session/country"},
-    {"method": "GET", "path": "/admin/api/v1/audit/events"}
+    {"method": "GET", "path": "/admin/api/v1/audit/events"},
+    {"method": "GET", "path": "/admin/api/v1/governance"}
   ],
   "required_properties": {
     "AdminSession": ["subject_id", "display_name", "roles", "capabilities", "allowed_countries", "selected_country", "assurance", "navigation", "csrf_token"],
     "AdminAssurance": ["mfa_satisfied", "fresh_auth", "auth_time"],
     "NavigationItem": ["id", "label", "path", "capability"],
     "CountrySelection": ["country"],
-    "AuditPage": ["entries", "has_more"]
+    "AuditPage": ["entries", "has_more"],
+    "GovernanceMetric": ["id", "title", "value", "unit", "freshness", "masked"],
+    "GovernanceView": ["country", "policy_version", "feature_flags", "metrics", "privacy_mode", "generated_at"]
   },
   "enum_values": {
     "AdminRole": ["SUPER_ADMIN", "COUNTRY_ADMIN", "CONTENT_ADMIN", "SUPPORT_ADMIN", "AUDITOR"],
     "AuditOutcome": ["SUCCEEDED", "DENIED", "FAILED"],
-    "AdminOperationDomain": ["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING", "SUPPLY", "RESTAURANT", "DISPATCH", "SETTLEMENT", "FRANCHISE"]
+    "AdminOperationDomain": ["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING", "SUPPLY", "RESTAURANT", "DISPATCH", "SETTLEMENT", "FRANCHISE", "CONTENT", "POLICY", "COUNTRY", "EMERGENCY", "INTELLIGENCE"]
   }
 }

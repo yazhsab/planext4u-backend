@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./app";
-import { adminSession, auditPage, operationPage, problem } from "./test/fixtures";
+import { adminSession, auditPage, governanceView, operationPage, problem } from "./test/fixtures";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -52,6 +52,74 @@ describe("administrator application", () => {
     expect(await screen.findByText("customer-synthetic-001")).toBeVisible();
     expect(screen.getByText("Pending Approval")).toBeVisible();
     expect(screen.getByText("Review")).toBeVisible();
+  });
+
+  it("renders the masked country governance workspace", async () => {
+    stubFetch((input) => input.endsWith("/governance") ? Response.json(governanceView) : Response.json(adminSession));
+    renderApp("/governance");
+
+    expect(await screen.findByRole("heading", {name: "Governance & intelligence"})).toBeVisible();
+    expect(screen.getByText("policy-IN-2026.08")).toBeVisible();
+    expect(screen.getByText("Emergency within SLA")).toBeVisible();
+    expect(screen.getAllByText(/PII masked/)).not.toHaveLength(0);
+  });
+
+  it("does not request governance without its server capability", async () => {
+    const restricted = {
+      ...adminSession,
+      capabilities: ["admin.shell.read"],
+      navigation: [
+        {
+          id: "workspace",
+          label: "Workspace",
+          path: "/" as const,
+          capability: "admin.shell.read",
+        },
+      ],
+    };
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json(restricted)));
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/governance");
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Governance access unavailable",
+      }),
+    ).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders governance failures and disabled or restricted projections", async () => {
+    stubFetch((input) =>
+      input.endsWith("/governance")
+        ? problem(403, "ADMIN_GOVERNANCE_FORBIDDEN", "Governance is unavailable.")
+        : Response.json(adminSession),
+    );
+    const failureView = renderApp("/governance");
+    expect(
+      await screen.findByRole("heading", { name: "Governance could not be loaded" }),
+    ).toBeVisible();
+    expect(screen.getByText(/Reference: corr-synthetic-problem/)).toBeVisible();
+    failureView.unmount();
+
+    stubFetch((input) =>
+      input.endsWith("/governance")
+        ? Response.json({
+            ...governanceView,
+            metrics: [
+              {
+                ...governanceView.metrics[0],
+                unit: "count",
+                masked: false,
+              },
+            ],
+            feature_flags: { emergency: false },
+          })
+        : Response.json(adminSession),
+    );
+    renderApp("/governance");
+    expect(await screen.findByText("Restricted", { exact: false })).toBeVisible();
+    expect(screen.getByText("Disabled")).toBeVisible();
   });
 
   it("submits a controlled operation with CSRF and correlation evidence", async () => {

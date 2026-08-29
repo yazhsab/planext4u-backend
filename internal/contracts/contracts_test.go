@@ -300,6 +300,32 @@ func TestSocialContractCompatibilityBaseline(t *testing.T) {
 	assertOpenAPICompatibility(t, "api/openapi/social.openapi.json", "api/compatibility/social-v1-baseline.json")
 }
 
+func TestPhase5VerticalContractsCompatibility(t *testing.T) {
+	t.Parallel()
+	assertOpenAPICompatibility(t, "api/openapi/local_verticals.openapi.json", "api/compatibility/local_verticals-v1-baseline.json")
+	assertOpenAPICompatibility(t, "api/openapi/emergency.openapi.json", "api/compatibility/emergency-v1-baseline.json")
+	assertOpenAPICompatibility(t, "api/openapi/governance.openapi.json", "api/compatibility/governance-v1-baseline.json")
+}
+
+func TestPhase5ContractsMarkLocationContactMediaAndIdentitySensitive(t *testing.T) {
+	t.Parallel()
+	checks := []struct{ file, schema, property string }{
+		{"api/openapi/local_verticals.openapi.json", "HomeListing", "latitude"},
+		{"api/openapi/local_verticals.openapi.json", "ClassifiedListing", "contact_revealed"},
+		{"api/openapi/emergency.openapi.json", "EmergencyLocation", "latitude"},
+		{"api/openapi/emergency.openapi.json", "EmergencyRequest", "requester_id"},
+		{"api/openapi/social.openapi.json", "SocialDirectMessage", "body"},
+	}
+	for _, check := range checks {
+		var document map[string]any
+		readJSON(t, check.file, &document)
+		properties := document["components"].(map[string]any)["schemas"].(map[string]any)[check.schema].(map[string]any)["properties"].(map[string]any)
+		if properties[check.property].(map[string]any)["x-planext4u-sensitive"] != true {
+			t.Errorf("%s %s.%s is not sensitive", check.file, check.schema, check.property)
+		}
+	}
+}
+
 func TestSocialContractProtectsPrivateMediaAndFixtureIsSynthetic(t *testing.T) {
 	t.Parallel()
 	var document map[string]any

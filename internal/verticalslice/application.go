@@ -78,7 +78,7 @@ func New(config Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	socialHandler, err := phase5Handler(config.Clock)
+	socialHandler, localVerticalHandler, emergencyHandler, governanceHandler, err := phase5Handlers(config.Clock)
 	if err != nil {
 		return nil, err
 	}
@@ -114,6 +114,10 @@ func New(config Config) (http.Handler, error) {
 	upstream.Handle("/v1/operations/", fulfillmentHandler)
 	upstream.Handle("/v1/social/", socialHandler)
 	upstream.Handle("/v1/moderation/", socialHandler)
+	upstream.Handle("/v1/homes/", localVerticalHandler)
+	upstream.Handle("/v1/classifieds/", localVerticalHandler)
+	upstream.Handle("/v1/emergency/", emergencyHandler)
+	upstream.Handle("/v1/governance/", governanceHandler)
 
 	gatewayConfig := gateway.DefaultConfig(nil)
 	gatewayConfig.UpstreamHandler = upstream
@@ -295,7 +299,7 @@ func configurationHandler(clock func() time.Time) (http.Handler, error) {
 			{Purpose: "ESSENTIAL", PolicyVersion: "privacy-2026-01", Required: true},
 			{Purpose: "LOCATION_SERVICEABILITY", PolicyVersion: "location-2026-01", Required: true},
 		},
-		Flags: map[string]bool{"customer_home": true, "catalog_read": true, "service_booking": true, "food_ordering": true, "vendor_operations": true, "rider_fulfillment": true, "order_chat": true, "settlements": true},
+		Flags: map[string]bool{"customer_home": true, "catalog_read": true, "service_booking": true, "food_ordering": true, "vendor_operations": true, "rider_fulfillment": true, "order_chat": true, "settlements": true, "socio": true, "homes": true, "classifieds": true, "emergency": true},
 		HomeSections: []configcms.HomeSection{
 			{ID: "featured", Kind: "FEATURED_ITEMS", TitleKey: "home.featured", Enabled: true, Priority: 10},
 			{ID: "categories", Kind: "CATEGORY_GRID", TitleKey: "home.categories", Enabled: true, Priority: 20},

@@ -29,3 +29,9 @@ privacy relationships, a moderated feed and core engagement. The entry slice is
 accepted only when private posts cannot leak, blocks override follows, pending
 content cannot rank, mutations are idempotent/revisioned and moderator actions
 require an MFA-authenticated privileged role.
+
+## Completion
+
+All stories `BE-P5-001` through `BE-P5-012` are implemented. Contract,
+migration, domain, gateway, concurrency, race, administrator UI and controlled
+load evidence is recorded in the [Phase 5 exit review](PHASE_5_EXIT_REVIEW.md).

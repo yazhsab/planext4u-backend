@@ -100,6 +100,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/api/v1/governance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["adminGetGovernance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/api/v1/operations/audit": {
         parameters: {
             query?: never;
@@ -149,7 +165,29 @@ export interface components {
             country: string;
         };
         /** @enum {string} */
-        AdminOperationDomain: "CATALOG" | "ORDER" | "PAYMENT" | "WALLET" | "CAMPAIGN" | "CMS" | "SUPPORT" | "REPORTING" | "SUPPLY" | "RESTAURANT" | "DISPATCH" | "SETTLEMENT" | "FRANCHISE";
+        AdminOperationDomain: "CATALOG" | "ORDER" | "PAYMENT" | "WALLET" | "CAMPAIGN" | "CMS" | "SUPPORT" | "REPORTING" | "SUPPLY" | "RESTAURANT" | "DISPATCH" | "SETTLEMENT" | "FRANCHISE" | "CONTENT" | "POLICY" | "COUNTRY" | "EMERGENCY" | "INTELLIGENCE";
+        GovernanceMetric: {
+            id: string;
+            title: string;
+            /** Format: int64 */
+            value: number;
+            unit: string;
+            /** Format: date-time */
+            freshness: string;
+            masked: boolean;
+        };
+        GovernanceView: {
+            country: string;
+            policy_version: string;
+            feature_flags: {
+                [key: string]: boolean;
+            };
+            metrics: components["schemas"]["GovernanceMetric"][];
+            /** @enum {string} */
+            privacy_mode: "aggregate_and_masked";
+            /** Format: date-time */
+            generated_at: string;
+        };
         /** @enum {string} */
         AdminOperationRisk: "STANDARD" | "HIGH";
         /** @enum {string} */
@@ -482,6 +520,28 @@ export interface operations {
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+        };
+    };
+    adminGetGovernance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Country-scoped aggregate governance dashboard */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GovernanceView"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
         };
     };
     adminListOperationAudit: {

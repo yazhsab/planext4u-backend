@@ -213,7 +213,7 @@ func commandRisk(command Command) Risk {
 	return RiskHigh
 }
 func capability(domain Domain) string {
-	return map[Domain]string{DomainCatalog: CapabilityCatalog, DomainOrder: CapabilityOrder, DomainPayment: CapabilityPayment, DomainWallet: CapabilityWallet, DomainCampaign: CapabilityCampaign, DomainCMS: CapabilityCMS, DomainSupport: CapabilitySupport, DomainReporting: CapabilityReporting, DomainSupply: CapabilitySupply, DomainRestaurant: CapabilityRestaurant, DomainDispatch: CapabilityDispatch, DomainSettlement: CapabilitySettlement, DomainFranchise: CapabilityFranchise}[domain]
+	return map[Domain]string{DomainCatalog: CapabilityCatalog, DomainOrder: CapabilityOrder, DomainPayment: CapabilityPayment, DomainWallet: CapabilityWallet, DomainCampaign: CapabilityCampaign, DomainCMS: CapabilityCMS, DomainSupport: CapabilitySupport, DomainReporting: CapabilityReporting, DomainSupply: CapabilitySupply, DomainRestaurant: CapabilityRestaurant, DomainDispatch: CapabilityDispatch, DomainSettlement: CapabilitySettlement, DomainFranchise: CapabilityFranchise, DomainContent: CapabilityContent, DomainPolicy: CapabilityPolicy, DomainCountry: CapabilityCountry, DomainEmergency: CapabilityEmergency, DomainIntelligence: CapabilityIntelligence}[domain]
 }
 func fresh(value Principal, now time.Time) bool {
 	age := now.Sub(value.AuthenticatedAt.UTC())
@@ -262,11 +262,16 @@ func validAction(domain Domain, action string) bool {
 		DomainReporting: {
 			ActionReportingExport: true,
 		},
-		DomainSupply:     {ActionSupplyApprove: true, ActionSupplyReject: true, ActionSupplyVisitVerify: true},
-		DomainRestaurant: {ActionRestaurantApprove: true, ActionRestaurantSuspend: true, ActionRestaurantOverride: true},
-		DomainDispatch:   {ActionDispatchOffer: true, ActionDispatchReassign: true, ActionDispatchSuspend: true},
-		DomainSettlement: {ActionSettlementApprove: true, ActionSettlementReconcile: true, ActionSettlementRetry: true},
-		DomainFranchise:  {ActionFranchiseAssign: true, ActionFranchiseSLA: true, ActionFranchiseCheckIn: true},
+		DomainSupply:       {ActionSupplyApprove: true, ActionSupplyReject: true, ActionSupplyVisitVerify: true},
+		DomainRestaurant:   {ActionRestaurantApprove: true, ActionRestaurantSuspend: true, ActionRestaurantOverride: true},
+		DomainDispatch:     {ActionDispatchOffer: true, ActionDispatchReassign: true, ActionDispatchSuspend: true},
+		DomainSettlement:   {ActionSettlementApprove: true, ActionSettlementReconcile: true, ActionSettlementRetry: true},
+		DomainFranchise:    {ActionFranchiseAssign: true, ActionFranchiseSLA: true, ActionFranchiseCheckIn: true},
+		DomainContent:      {ActionContentModerate: true, ActionContentRestore: true},
+		DomainPolicy:       {ActionPolicyUpsert: true, ActionPolicyPublish: true},
+		DomainCountry:      {ActionCountryUpdate: true},
+		DomainEmergency:    {ActionEmergencyEscalate: true, ActionEmergencySLA: true},
+		DomainIntelligence: {ActionIntelligencePublish: true, ActionIntelligenceDismiss: true},
 	}
 	return allowed[domain][action]
 }

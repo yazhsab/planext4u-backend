@@ -13,7 +13,7 @@ const roleSchema = z.enum(["SUPER_ADMIN", "COUNTRY_ADMIN", "CONTENT_ADMIN", "SUP
 const navigationSchema = z.object({
   id: z.string().min(1).max(64),
   label: z.string().min(1).max(80),
-  path: z.enum(["/", "/operations", "/audit"]),
+  path: z.enum(["/", "/operations", "/governance", "/audit"]),
   capability: z.string().min(1).max(128),
 });
 const sessionSchema = z.object({
@@ -51,7 +51,7 @@ const auditPageSchema = z.object({
   next_cursor: z.string().optional(),
   has_more: z.boolean(),
 });
-const operationDomainSchema = z.enum(["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING", "SUPPLY", "RESTAURANT", "DISPATCH", "SETTLEMENT", "FRANCHISE"]);
+const operationDomainSchema = z.enum(["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING", "SUPPLY", "RESTAURANT", "DISPATCH", "SETTLEMENT", "FRANCHISE", "CONTENT", "POLICY", "COUNTRY", "EMERGENCY", "INTELLIGENCE"]);
 const operationInputSchema = z.object({
   domain: operationDomainSchema,
   action: z.string().min(1).max(128),
@@ -73,6 +73,15 @@ const operationChangeSchema = z.object({
   updated_at: z.iso.datetime({offset: true}),
 });
 const operationPageSchema = z.object({changes: z.array(operationChangeSchema)});
+const governanceSchema = z.object({
+  country: z.string().regex(/^[A-Z]{2}$/),
+  policy_version: z.string().min(1).max(128),
+  feature_flags: z.record(z.string(), z.boolean()),
+  metrics: z.array(z.object({id: z.string(), title: z.string(), value: z.number().int(), unit: z.string(), freshness: z.iso.datetime({offset: true}), masked: z.boolean()})),
+  privacy_mode: z.literal("aggregate_and_masked"),
+  generated_at: z.iso.datetime({offset: true}),
+});
+export type GovernanceView = z.infer<typeof governanceSchema>;
 const problemSchema = z.object({
   error: z.object({
     code: z.string(),
@@ -152,6 +161,10 @@ export function listAuditEvents(filters: AuditFilters, signal?: AbortSignal): Pr
 
 export function listOperations(signal?: AbortSignal): Promise<AdminOperationPage> {
   return requestJSON("/admin/api/v1/operations", operationPageSchema, {signal});
+}
+
+export function getGovernance(signal?: AbortSignal): Promise<GovernanceView> {
+  return requestJSON("/admin/api/v1/governance", governanceSchema, {signal});
 }
 
 export function submitOperation(input: AdminOperationInput, csrfToken: string): Promise<AdminOperationChange> {

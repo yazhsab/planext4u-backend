@@ -1,0 +1,17 @@
+{
+  "openapi":"3.1.0","info":{"title":"Planext4u Governance and Intelligence API","version":"1.0.0"},"x-planext4u-reviewers":["architecture","security","privacy","finance","operations"],"security":[{"bearerAuth":[]}],
+  "paths":{
+    "/v1/governance/dashboard":{"get":{"operationId":"getGovernanceDashboard","x-planext4u-mfa-required":true,"responses":{"200":{"description":"Country-scoped governance dashboard"}}}},
+    "/v1/governance/reports":{"get":{"operationId":"listGovernanceReports","x-planext4u-mfa-required":true,"responses":{"200":{"description":"Masked operational and finance reports"}}}},
+    "/v1/governance/maps":{"get":{"operationId":"getGovernanceMaps","x-planext4u-mfa-required":true,"responses":{"200":{"description":"Aggregate-region heatmap cells"}}}},
+    "/v1/governance/leaderboards":{"get":{"operationId":"getGovernanceLeaderboards","x-planext4u-mfa-required":true,"responses":{"200":{"description":"PII-masked rankings"}}}},
+    "/v1/governance/intelligence":{"get":{"operationId":"getGovernanceIntelligence","x-planext4u-mfa-required":true,"responses":{"200":{"description":"Evidence-labelled insights"}}}},
+    "/v1/governance/countries":{"get":{"operationId":"listGovernanceCountries","x-planext4u-mfa-required":true,"responses":{"200":{"description":"Authorized country configuration"}}}}
+  },
+  "components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer","bearerFormat":"JWT"}},"schemas":{
+    "GovernanceReport":{"type":"object","required":["id","title","domain","metric","value","unit","freshness","masked","export_policy"],"properties":{"id":{"type":"string"},"title":{"type":"string"},"domain":{"type":"string"},"metric":{"type":"string"},"value":{"type":"integer"},"unit":{"type":"string"},"freshness":{"type":"string","format":"date-time"},"masked":{"type":"boolean"},"export_policy":{"type":"string","enum":["MFA_AND_AUDIT_REQUIRED"]}}},
+    "GovernanceMapCell":{"type":"object","required":["region_code","label","count","intensity","precision"],"properties":{"region_code":{"type":"string"},"label":{"type":"string"},"count":{"type":"integer"},"intensity":{"type":"integer"},"precision":{"type":"string","enum":["aggregate_region"]}}},
+    "GovernanceLeaderboardEntry":{"type":"object","required":["rank","label","score","badge","pii_masked"],"properties":{"rank":{"type":"integer"},"label":{"type":"string"},"score":{"type":"integer"},"badge":{"type":"string"},"pii_masked":{"type":"boolean"}}},
+    "GovernanceInsight":{"type":"object","required":["id","title","summary","confidence","evidence","generated_at"],"properties":{"id":{"type":"string"},"title":{"type":"string"},"summary":{"type":"string"},"confidence":{"type":"string","enum":["LOW","MEDIUM","HIGH"]},"evidence":{"type":"array","items":{"type":"string"}},"generated_at":{"type":"string","format":"date-time"}}}
+  }}
+}

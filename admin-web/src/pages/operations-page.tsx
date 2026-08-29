@@ -20,7 +20,7 @@ import { Badge } from "../components/badge";
 import { Button } from "../components/button";
 import { StatePanel } from "../components/state-panel";
 
-const domainSchema = z.enum(["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING", "SUPPLY", "RESTAURANT", "DISPATCH", "SETTLEMENT", "FRANCHISE"]);
+const domainSchema = z.enum(["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING", "SUPPLY", "RESTAURANT", "DISPATCH", "SETTLEMENT", "FRANCHISE", "CONTENT", "POLICY", "COUNTRY", "EMERGENCY", "INTELLIGENCE"]);
 const operationSchema = z.object({
   domain: domainSchema,
   action: z.string().min(1),
@@ -45,6 +45,11 @@ const domainCapabilities: Record<OperationDomain, string> = {
   DISPATCH: "admin.dispatch.manage",
   SETTLEMENT: "admin.settlement.manage",
   FRANCHISE: "admin.franchise.manage",
+  CONTENT: "admin.content.manage",
+  POLICY: "admin.policy.manage",
+  COUNTRY: "admin.country.manage",
+  EMERGENCY: "admin.emergency.manage",
+  INTELLIGENCE: "admin.intelligence.manage",
 };
 
 const actionOptions: Record<OperationDomain, {value: string; label: string}[]> = {
@@ -61,6 +66,11 @@ const actionOptions: Record<OperationDomain, {value: string; label: string}[]> =
   DISPATCH: [{value: "OFFER_TASK", label: "Offer task"}, {value: "REASSIGN_TASK", label: "Reassign task"}, {value: "SUSPEND_RIDER", label: "Suspend rider"}],
   SETTLEMENT: [{value: "APPROVE_PAYOUT", label: "Approve payout"}, {value: "RECONCILE", label: "Reconcile ledger"}, {value: "RETRY_PAYOUT", label: "Retry payout"}],
   FRANCHISE: [{value: "ASSIGN_TERRITORY", label: "Assign territory"}, {value: "UPDATE_SLA", label: "Update SLA"}, {value: "CHECKIN_OVERRIDE", label: "Override check-in"}],
+  CONTENT: [{value: "MODERATE", label: "Moderate content"}, {value: "RESTORE", label: "Restore content"}],
+  POLICY: [{value: "UPSERT", label: "Save policy revision"}, {value: "PUBLISH", label: "Publish policy"}],
+  COUNTRY: [{value: "UPDATE", label: "Update country configuration"}],
+  EMERGENCY: [{value: "ESCALATE", label: "Escalate request"}, {value: "SLA_OVERRIDE", label: "Override SLA policy"}],
+  INTELLIGENCE: [{value: "PUBLISH", label: "Publish insight"}, {value: "DISMISS", label: "Dismiss insight"}],
 };
 
 export function OperationsPage() {

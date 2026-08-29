@@ -145,18 +145,23 @@ func capabilities(roles []Role) map[string]bool {
 			result[CapabilityContentManage] = true
 			result[CapabilitySupportManage] = true
 			result[CapabilityConfigManage] = true
+			result[CapabilityGovernanceRead] = true
 		case RoleCountryAdmin:
 			result[CapabilityAuditRead] = true
 			grantAllOperations(result)
 			result[CapabilityContentManage] = true
 			result[CapabilitySupportManage] = true
 			result[CapabilityConfigManage] = true
+			result[CapabilityGovernanceRead] = true
 		case RoleContentAdmin:
 			result[CapabilityOperationsRead] = true
 			result[adminops.CapabilityCatalog] = true
 			result[adminops.CapabilityCampaign] = true
 			result[CapabilityContentManage] = true
 			result[CapabilityConfigManage] = true
+			result[CapabilityGovernanceRead] = true
+			result[adminops.CapabilityPolicy] = true
+			result[adminops.CapabilityIntelligence] = true
 		case RoleSupportAdmin:
 			result[CapabilityOperationsRead] = true
 			result[adminops.CapabilitySupport] = true
@@ -165,6 +170,7 @@ func capabilities(roles []Role) map[string]bool {
 			result[CapabilityAuditRead] = true
 			result[CapabilityOperationsRead] = true
 			result[adminops.CapabilityReporting] = true
+			result[CapabilityGovernanceRead] = true
 		}
 	}
 	return result
@@ -186,6 +192,11 @@ func grantAllOperations(result map[string]bool) {
 		adminops.CapabilityDispatch,
 		adminops.CapabilitySettlement,
 		adminops.CapabilityFranchise,
+		adminops.CapabilityContent,
+		adminops.CapabilityPolicy,
+		adminops.CapabilityCountry,
+		adminops.CapabilityEmergency,
+		adminops.CapabilityIntelligence,
 	} {
 		result[capability] = true
 	}

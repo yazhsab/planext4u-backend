@@ -193,17 +193,21 @@ type syntheticIdentity struct {
 }
 
 var syntheticIdentities = map[string]syntheticIdentity{
-	"synthetic-customer":      {subject: "customer-synthetic-001", role: "CUSTOMER", displayName: "Synthetic Customer"},
-	"synthetic-vendor":        {subject: "vendor-synthetic-001", role: "VENDOR", displayName: "Synthetic Vendor"},
-	"synthetic-restaurant":    {subject: "restaurant-owner-001", role: "RESTAURANT_VENDOR", displayName: "Synthetic Restaurant"},
-	"synthetic-rider":         {subject: "rider-synthetic-001", role: "RIDER", displayName: "Synthetic Rider"},
-	"synthetic-ops-admin":     {subject: "ops-admin-001", role: "OPS_ADMIN", displayName: "Synthetic Operations Admin", mfa: true},
-	"synthetic-field-officer": {subject: "field-officer-001", role: "FIELD_OFFICER", displayName: "Synthetic Field Officer"},
-	"synthetic-finance-one":   {subject: "finance-approver-001", role: "FINANCE", displayName: "Synthetic Finance One", mfa: true},
-	"synthetic-finance-two":   {subject: "finance-approver-002", role: "FINANCE", displayName: "Synthetic Finance Two", mfa: true},
-	"synthetic-dispatch":      {subject: "dispatch-001", role: "DISPATCH", displayName: "Synthetic Dispatch", mfa: true},
-	"synthetic-franchise":     {subject: "franchise-chennai-001", role: "FRANCHISE_ADMIN", displayName: "Synthetic Franchise", mfa: true},
-	"synthetic-moderator":     {subject: "moderator-synthetic-001", role: "MODERATOR", displayName: "Synthetic Moderator", mfa: true},
+	"synthetic-customer":        {subject: "customer-synthetic-001", role: "CUSTOMER", displayName: "Synthetic Customer"},
+	"synthetic-public-customer": {subject: "customer-public-synthetic-001", role: "CUSTOMER", displayName: "Synthetic Public Customer"},
+	"synthetic-vendor":          {subject: "vendor-synthetic-001", role: "VENDOR", displayName: "Synthetic Vendor"},
+	"synthetic-restaurant":      {subject: "restaurant-owner-001", role: "RESTAURANT_VENDOR", displayName: "Synthetic Restaurant"},
+	"synthetic-rider":           {subject: "rider-synthetic-001", role: "RIDER", displayName: "Synthetic Rider"},
+	"synthetic-ops-admin":       {subject: "ops-admin-001", role: "OPS_ADMIN", displayName: "Synthetic Operations Admin", mfa: true},
+	"synthetic-field-officer":   {subject: "field-officer-001", role: "FIELD_OFFICER", displayName: "Synthetic Field Officer"},
+	"synthetic-finance-one":     {subject: "finance-approver-001", role: "FINANCE", displayName: "Synthetic Finance One", mfa: true},
+	"synthetic-finance-two":     {subject: "finance-approver-002", role: "FINANCE", displayName: "Synthetic Finance Two", mfa: true},
+	"synthetic-dispatch":        {subject: "dispatch-001", role: "DISPATCH", displayName: "Synthetic Dispatch", mfa: true},
+	"synthetic-franchise":       {subject: "franchise-chennai-001", role: "FRANCHISE_ADMIN", displayName: "Synthetic Franchise", mfa: true},
+	"synthetic-moderator":       {subject: "moderator-synthetic-001", role: "MODERATOR", displayName: "Synthetic Moderator", mfa: true},
+	"synthetic-moderator-two":   {subject: "moderator-synthetic-002", role: "CONTENT_ADMIN", displayName: "Synthetic Content Administrator", mfa: true},
+	"synthetic-emergency":       {subject: "emergency-responder-001", role: "EMERGENCY_RESPONDER", displayName: "Synthetic Emergency Responder", mfa: true},
+	"synthetic-emergency-admin": {subject: "emergency-admin-001", role: "EMERGENCY_ADMIN", displayName: "Synthetic Emergency Administrator", mfa: true},
 }
 
 func secureID(prefix string) (string, error) {

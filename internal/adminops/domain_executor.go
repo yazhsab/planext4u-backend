@@ -239,6 +239,43 @@ func applyDomainCommand(current DomainRecord, command Command) (string, map[stri
 		case ActionFranchiseCheckIn:
 			return "CHECKIN_VERIFIED", payload, nil
 		}
+	case DomainContent:
+		merge()
+		if command.Action == ActionContentModerate {
+			return "MODERATED", payload, nil
+		}
+		if command.Action == ActionContentRestore {
+			return "RESTORED", payload, nil
+		}
+	case DomainPolicy:
+		merge()
+		if command.Action == ActionPolicyUpsert {
+			return "DRAFT", payload, nil
+		}
+		if command.Action == ActionPolicyPublish {
+			return "PUBLISHED", payload, nil
+		}
+	case DomainCountry:
+		merge()
+		if command.Action == ActionCountryUpdate {
+			return "UPDATED", payload, nil
+		}
+	case DomainEmergency:
+		merge()
+		if command.Action == ActionEmergencyEscalate {
+			return "ESCALATED", payload, nil
+		}
+		if command.Action == ActionEmergencySLA {
+			return "SLA_UPDATED", payload, nil
+		}
+	case DomainIntelligence:
+		merge()
+		if command.Action == ActionIntelligencePublish {
+			return "PUBLISHED", payload, nil
+		}
+		if command.Action == ActionIntelligenceDismiss {
+			return "DISMISSED", payload, nil
+		}
 	}
 	return "", nil, ErrInvalidRequest
 }

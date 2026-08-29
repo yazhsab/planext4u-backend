@@ -147,6 +147,18 @@ code { color: #44534d; font-size: 11px; }
 .state-panel p { max-width: 570px; margin: 0; color: var(--foreground-muted); font-size: 13px; line-height: 1.5; }
 .state-icon { display: grid; width: 40px; height: 40px; flex: 0 0 auto; place-items: center; border-radius: 9px; background: var(--surface-muted); color: var(--foreground-muted); }
 .state-icon[data-tone="danger"] { background: var(--danger-surface); color: var(--danger); }
+.governance-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.metric-card { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 18px; }
+.metric-card svg { color: var(--primary); }
+.metric-card span { color: var(--foreground-muted); font-size: 12px; }
+.metric-card strong { font-size: 25px; }
+.metric-card small, .governance-controls p, .governance-action small { color: var(--foreground-muted); font-size: 11px; }
+.governance-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.governance-controls > div { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 20px; }
+.flag-list { display: grid; gap: 7px; padding: 0; list-style: none; }
+.flag-list li { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--border); padding-top: 7px; }
+.flag-list li span:nth-child(2) { flex: 1; text-transform: capitalize; }
+.governance-action { display: flex; align-items: center; gap: 14px; }
 
 .session-gate { display: grid; min-height: 100vh; place-content: center; gap: 22px; background: radial-gradient(circle at 50% 0, #eef6f2 0, var(--background) 42%); padding: 24px; }
 .gate-brand { justify-content: center; color: var(--brand-deep); }
@@ -183,6 +195,7 @@ code { color: #44534d; font-size: 11px; }
   .operation-submit { align-items: stretch; flex-direction: column; }
   .operation-submit button { width: 100%; }
   .state-panel { flex-direction: column; text-align: center; }
+  .governance-summary, .governance-controls { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 440px) {

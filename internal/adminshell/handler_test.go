@@ -43,11 +43,28 @@ func TestSessionReturnsServerAuthorizedNavigationAndAssurance(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &view); err != nil {
 		t.Fatalf("decode session: %v", err)
 	}
-	if view.SelectedCountry != "IN" || len(view.Navigation) != 3 || view.Navigation[1].Path != "/operations" || view.Navigation[2].Path != "/audit" {
+	if view.SelectedCountry != "IN" || len(view.Navigation) != 4 || view.Navigation[1].Path != "/operations" || view.Navigation[2].Path != "/governance" || view.Navigation[3].Path != "/audit" {
 		t.Fatalf("unexpected session view: %#v", view)
 	}
 	if !view.Assurance.MFASatisfied || !view.Assurance.FreshAuth || view.CSRFToken == "" {
 		t.Fatalf("expected MFA, fresh authentication and CSRF state: %#v", view.Assurance)
+	}
+}
+
+func TestBEP5010GovernanceDashboardIsMFAProtectedCountryScopedAndMasked(t *testing.T) {
+	handler, store := testHandler(t, true)
+	principal := testPrincipal(RoleCountryAdmin)
+	token := issue(t, store, principal)
+	response := serve(handler, http.MethodGet, "/admin/api/v1/governance", nil, token, "", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var view GovernanceView
+	if err := json.Unmarshal(response.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Country != "IN" || view.PrivacyMode != "aggregate_and_masked" || len(view.Metrics) != 4 || !view.Metrics[0].Masked || !view.FeatureFlags["emergency"] {
+		t.Fatalf("governance=%#v", view)
 	}
 }
 

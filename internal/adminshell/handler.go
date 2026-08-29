@@ -66,6 +66,7 @@ func NewHandler(config Config) (http.Handler, error) {
 	mux.HandleFunc("GET /admin/api/v1/operations", handler.listOperations)
 	mux.HandleFunc("POST /admin/api/v1/operations", handler.submitOperation)
 	mux.HandleFunc("GET /admin/api/v1/operations/audit", handler.operationsAudit)
+	mux.HandleFunc("GET /admin/api/v1/governance", handler.governance)
 	mux.HandleFunc("POST /admin/api/v1/operations/{change_id}/approve", handler.approveOperation)
 	mux.HandleFunc("POST /admin/api/v1/operations/{change_id}/reject", handler.rejectOperation)
 	return securityHeaders(mux), nil
@@ -89,6 +90,20 @@ func (handler *Handler) session(writer http.ResponseWriter, request *http.Reques
 		CSRFToken:        session.CSRFToken,
 	}
 	writeJSON(writer, http.StatusOK, view)
+}
+
+func (handler *Handler) governance(writer http.ResponseWriter, request *http.Request) {
+	session, _, ok := handler.authorize(writer, request, CapabilityGovernanceRead)
+	if !ok {
+		return
+	}
+	now := handler.clock().UTC()
+	writeJSON(writer, http.StatusOK, GovernanceView{
+		Country: session.Principal.SelectedCountry, PolicyVersion: "policy-" + session.Principal.SelectedCountry + "-2026.08",
+		FeatureFlags: map[string]bool{"socio": true, "homes": true, "classifieds": true, "emergency": true},
+		Metrics:      []GovernanceMetric{{ID: "social-active", Title: "Socio active", Value: 5600, Unit: "count", Freshness: now, Masked: true}, {ID: "homes-active", Title: "Homes active", Value: 98, Unit: "count", Freshness: now, Masked: true}, {ID: "classifieds-active", Title: "Classifieds active", Value: 340, Unit: "count", Freshness: now, Masked: true}, {ID: "emergency-sla", Title: "Emergency within SLA", Value: 99, Unit: "percent", Freshness: now, Masked: true}},
+		PrivacyMode:  "aggregate_and_masked", GeneratedAt: now,
+	})
 }
 
 func (handler *Handler) updateCountry(writer http.ResponseWriter, request *http.Request) {
@@ -186,6 +201,9 @@ func navigation(capabilities map[string]bool) []NavigationItem {
 	items := []NavigationItem{{ID: "workspace", Label: "Workspace", Path: "/", Capability: CapabilityShellRead}}
 	if capabilities[CapabilityOperationsRead] {
 		items = append(items, NavigationItem{ID: "operations", Label: "Operations", Path: "/operations", Capability: CapabilityOperationsRead})
+	}
+	if capabilities[CapabilityGovernanceRead] {
+		items = append(items, NavigationItem{ID: "governance", Label: "Governance", Path: "/governance", Capability: CapabilityGovernanceRead})
 	}
 	if capabilities[CapabilityAuditRead] {
 		items = append(items, NavigationItem{ID: "audit", Label: "Audit trail", Path: "/audit", Capability: CapabilityAuditRead})

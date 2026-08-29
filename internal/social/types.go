@@ -157,3 +157,153 @@ type Configuration struct {
 	ReviewTerms  []string
 	RankingModel string
 }
+
+type MediaState string
+
+const (
+	MediaQuarantined MediaState = "QUARANTINED"
+	MediaReady       MediaState = "READY"
+	MediaRejected    MediaState = "REJECTED"
+	MediaTombstoned  MediaState = "TOMBSTONED"
+)
+
+type MediaJob struct {
+	ID              string     `json:"id"`
+	OwnerID         string     `json:"owner_id"`
+	AssetID         string     `json:"asset_id"`
+	Kind            string     `json:"kind"`
+	State           MediaState `json:"state"`
+	ScanStatus      string     `json:"scan_status"`
+	BlurStatus      string     `json:"blur_status"`
+	TranscodeStatus string     `json:"transcode_status"`
+	ModeratedBy     string     `json:"moderated_by,omitempty"`
+	AppealStatus    string     `json:"appeal_status,omitempty"`
+	RetentionUntil  time.Time  `json:"retention_until"`
+	CreatedAt       time.Time  `json:"created_at"`
+	tenantID        string
+	country         string
+}
+
+type EphemeralContent struct {
+	ID             string    `json:"id"`
+	Author         Profile   `json:"author"`
+	Kind           string    `json:"kind"`
+	MediaJobID     string    `json:"media_job_id"`
+	Caption        string    `json:"caption"`
+	Status         string    `json:"status"`
+	Highlighted    bool      `json:"highlighted"`
+	ExpiresAt      time.Time `json:"expires_at"`
+	AllowedActions []string  `json:"allowed_actions"`
+	CreatedAt      time.Time `json:"created_at"`
+	tenantID       string
+	country        string
+}
+
+type Collection struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	PostIDs   []string  `json:"post_ids"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	ownerID   string
+	tenantID  string
+	country   string
+}
+
+type Conversation struct {
+	ID             string    `json:"id"`
+	ParticipantIDs []string  `json:"participant_ids"`
+	Status         string    `json:"status"`
+	RequestedBy    string    `json:"requested_by"`
+	AllowedActions []string  `json:"allowed_actions"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	tenantID       string
+	country        string
+}
+
+type DirectMessage struct {
+	ID             string    `json:"id"`
+	ConversationID string    `json:"conversation_id"`
+	SenderID       string    `json:"sender_id"`
+	Body           string    `json:"body,omitempty"`
+	VoiceMediaID   string    `json:"voice_media_id,omitempty"`
+	Status         string    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+	tenantID       string
+	country        string
+}
+
+type Presence struct {
+	ProfileID string    `json:"profile_id"`
+	State     string    `json:"state"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type CallSession struct {
+	ID             string    `json:"id"`
+	ConversationID string    `json:"conversation_id"`
+	InitiatorID    string    `json:"initiator_id"`
+	Kind           string    `json:"kind"`
+	Status         string    `json:"status"`
+	SignalCount    int       `json:"signal_count"`
+	ExpiresAt      time.Time `json:"expires_at"`
+	CreatedAt      time.Time `json:"created_at"`
+	tenantID       string
+	country        string
+}
+
+type CreateMediaRequest struct {
+	AssetID string `json:"asset_id"`
+	Kind    string `json:"kind"`
+}
+
+type ProcessMediaRequest struct {
+	Clean bool `json:"clean"`
+}
+
+type AppealDecisionRequest struct {
+	Approve bool   `json:"approve"`
+	Note    string `json:"note"`
+}
+
+type CreateEphemeralRequest struct {
+	Kind       string `json:"kind"`
+	MediaJobID string `json:"media_job_id"`
+	Caption    string `json:"caption"`
+}
+
+type HighlightRequest struct {
+	Active bool `json:"active"`
+}
+
+type CreateCollectionRequest struct {
+	Name string `json:"name"`
+}
+
+type CollectionPostRequest struct {
+	PostID string `json:"post_id"`
+	Active bool   `json:"active"`
+}
+
+type CreateConversationRequest struct {
+	ProfileID string `json:"profile_id"`
+}
+
+type SendMessageRequest struct {
+	Body         string `json:"body"`
+	VoiceMediaID string `json:"voice_media_id,omitempty"`
+}
+
+type PresenceRequest struct {
+	State string `json:"state"`
+}
+
+type CreateCallRequest struct {
+	Kind string `json:"kind"`
+}
+
+type SignalRequest struct {
+	Type    string `json:"type"`
+	Payload string `json:"payload"`
+}

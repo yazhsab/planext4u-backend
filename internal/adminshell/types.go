@@ -19,6 +19,7 @@ const (
 	CapabilityContentManage  = "admin.content.manage"
 	CapabilitySupportManage  = "admin.support.manage"
 	CapabilityConfigManage   = "admin.config.manage"
+	CapabilityGovernanceRead = "admin.governance.read"
 )
 
 type Principal struct {
@@ -61,4 +62,22 @@ type SessionView struct {
 	Assurance        Assurance        `json:"assurance"`
 	Navigation       []NavigationItem `json:"navigation"`
 	CSRFToken        string           `json:"csrf_token"`
+}
+
+type GovernanceMetric struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Value     int64     `json:"value"`
+	Unit      string    `json:"unit"`
+	Freshness time.Time `json:"freshness"`
+	Masked    bool      `json:"masked"`
+}
+
+type GovernanceView struct {
+	Country       string             `json:"country"`
+	PolicyVersion string             `json:"policy_version"`
+	FeatureFlags  map[string]bool    `json:"feature_flags"`
+	Metrics       []GovernanceMetric `json:"metrics"`
+	PrivacyMode   string             `json:"privacy_mode"`
+	GeneratedAt   time.Time          `json:"generated_at"`
 }
