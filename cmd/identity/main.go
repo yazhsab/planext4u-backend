@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/yazhsab/planext4u-backend/internal/identity"
 	"github.com/yazhsab/planext4u-backend/internal/platform/logging"
@@ -262,7 +263,7 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 	if config.databaseURLFile == "" || config.tenantID == "" || config.issuer == "" ||
 		config.audience == "" || config.keyID == "" || config.privateKeyFile == "" ||
 		config.refreshHMACKeyFile == "" || len(config.allowedCountries) == 0 ||
-		strings.ContainsAny(config.tenantID, " \t\r\n") || len(config.tenantID) > 128 ||
+		uuid.Validate(config.tenantID) != nil ||
 		strings.ContainsAny(config.keyID, " \t\r\n") || len(config.keyID) > 128 ||
 		config.providerTimeout <= 0 || config.providerTimeout > 15*time.Second ||
 		config.accessTTL < time.Minute || config.accessTTL > 15*time.Minute ||

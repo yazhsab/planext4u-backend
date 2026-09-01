@@ -6,6 +6,26 @@
   },
   "security": [{"adminSession": []}],
   "paths": {
+    "/internal/v1/admin-sessions": {
+      "post": {
+        "operationId": "adminExchangeVerifiedSession",
+        "security": [],
+        "parameters": [
+          {"name": "X-P4U-Admin-Timestamp", "in": "header", "required": true, "schema": {"type": "string", "pattern": "^[0-9]{10,12}$"}},
+          {"name": "X-P4U-Admin-Signature", "in": "header", "required": true, "schema": {"type": "string", "pattern": "^v1=[a-f0-9]{64}$"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminSessionAssertion"}}}},
+        "responses": {
+          "201": {"description": "Opaque browser session issued from a verified upstream identity assertion", "headers": {"Set-Cookie": {"schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminSessionExchangeResult"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "413": {"$ref": "#/components/responses/Problem"},
+          "415": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/admin/api/v1/session": {
       "get": {
         "operationId": "adminGetSession",
@@ -16,6 +36,16 @@
           },
           "401": {"$ref": "#/components/responses/Problem"},
           "403": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "delete": {
+        "operationId": "adminEndSession",
+        "parameters": [{"$ref": "#/components/parameters/CSRFToken"}],
+        "responses": {
+          "204": {"description": "Administrator session revoked and cookie cleared"},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"}
         }
       }
     },
@@ -130,6 +160,58 @@
         }
       }
     },
+    "/admin/api/v1/cms/pages": {
+      "get": {
+        "operationId": "adminListCMSPageDrafts",
+        "responses": {
+          "200": {"description": "Country-scoped CMS page drafts", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CMSPageDraftPage"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/admin/api/v1/cms/pages/{page_id}/draft": {
+      "put": {
+        "operationId": "adminSaveCMSPageDraft",
+        "parameters": [
+          {"$ref": "#/components/parameters/CSRFToken"},
+          {"name": "page_id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CMSPageDraftInput"}}}},
+        "responses": {
+          "200": {"description": "Revision-safe CMS page draft", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CMSPageDraft"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/admin/api/v1/cms/workspace": {
+      "get": {
+        "operationId": "adminGetCMSWorkspaceDraft",
+        "responses": {
+          "200": {"description": "Country-scoped global mobile configuration draft", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CMSWorkspaceDraft"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/admin/api/v1/cms/workspace/draft": {
+      "put": {
+        "operationId": "adminSaveCMSWorkspaceDraft",
+        "parameters": [{"$ref": "#/components/parameters/CSRFToken"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CMSWorkspaceDraftInput"}}}},
+        "responses": {
+          "200": {"description": "Revision-safe global mobile configuration draft", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CMSWorkspaceDraft"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/admin/api/v1/governance": {
       "get": {
         "operationId": "adminGetGovernance",
@@ -180,6 +262,18 @@
         "type": "string",
         "enum": ["SUPER_ADMIN", "COUNTRY_ADMIN", "CONTENT_ADMIN", "SUPPORT_ADMIN", "AUDITOR"]
       },
+      "AdminSessionAssertion": {
+        "type": "object", "additionalProperties": false,
+        "required": ["subject_id", "session_id", "tenant_id", "display_name", "roles", "allowed_countries", "selected_country", "authenticated_at", "auth_methods"],
+        "properties": {
+          "subject_id": {"type": "string", "format": "uuid"}, "session_id": {"type": "string", "format": "uuid"}, "tenant_id": {"type": "string", "format": "uuid"},
+          "display_name": {"type": "string", "minLength": 1, "maxLength": 128}, "roles": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"$ref": "#/components/schemas/AdminRole"}},
+          "allowed_countries": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"type": "string", "pattern": "^[A-Z]{2}$"}},
+          "selected_country": {"type": "string", "pattern": "^[A-Z]{2}$"}, "authenticated_at": {"type": "string", "format": "date-time"},
+          "auth_methods": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"type": "string"}}
+        }
+      },
+      "AdminSessionExchangeResult": {"type": "object", "additionalProperties": false, "required": ["expires_at"], "properties": {"expires_at": {"type": "string", "format": "date-time"}}},
       "AdminAssurance": {
         "type": "object",
         "additionalProperties": false,
@@ -239,6 +333,11 @@
       },
       "AdminOperationRisk": {"type": "string", "enum": ["STANDARD", "HIGH"]},
       "AdminOperationStatus": {"type": "string", "enum": ["PENDING_APPROVAL", "EXECUTED", "REJECTED"]},
+      "CMSPageDraftInput": {"type": "object", "additionalProperties": false, "required": ["expected_revision", "page"], "properties": {"expected_revision": {"type": "integer", "format": "int64", "minimum": 0}, "page": {"$ref": "./configuration.openapi.json#/components/schemas/Page"}}},
+      "CMSPageDraft": {"type": "object", "additionalProperties": false, "required": ["tenant_id", "country", "page", "revision", "updated_by", "updated_at"], "properties": {"tenant_id": {"type": "string"}, "country": {"type": "string", "pattern": "^[A-Z]{2}$"}, "page": {"$ref": "./configuration.openapi.json#/components/schemas/Page"}, "revision": {"type": "integer", "format": "int64", "minimum": 1}, "updated_by": {"type": "string"}, "updated_at": {"type": "string", "format": "date-time"}}},
+      "CMSPageDraftPage": {"type": "object", "additionalProperties": false, "required": ["items"], "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/CMSPageDraft"}}}},
+      "CMSWorkspaceDraftInput": {"type": "object", "additionalProperties": false, "required": ["expected_revision", "workspace"], "properties": {"expected_revision": {"type": "integer", "format": "int64", "minimum": 0}, "workspace": {"$ref": "./configuration.openapi.json#/components/schemas/Workspace"}}},
+      "CMSWorkspaceDraft": {"type": "object", "additionalProperties": false, "required": ["tenant_id", "country", "workspace", "revision", "updated_by", "updated_at"], "properties": {"tenant_id": {"type": "string", "format": "uuid"}, "country": {"type": "string", "pattern": "^[A-Z]{2}$"}, "workspace": {"$ref": "./configuration.openapi.json#/components/schemas/Workspace"}, "revision": {"type": "integer", "format": "int64", "minimum": 1}, "updated_by": {"type": "string"}, "updated_at": {"type": "string", "format": "date-time"}}},
       "AdminOperationInput": {
         "type": "object",
         "additionalProperties": false,

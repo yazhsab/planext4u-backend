@@ -50,3 +50,14 @@ type Reservation struct {
 	ExpiresAt      time.Time        `json:"expires_at"`
 	UpdatedAt      time.Time        `json:"updated_at"`
 }
+
+// ReservationService is the checkout-facing inventory boundary. Production
+// uses PostgresService while unit tests can retain the deterministic in-memory
+// implementation.
+type ReservationService interface {
+	Get(Scope, string) (Reservation, error)
+	Reserve(Scope, string, string, []Line, time.Time) (Reservation, bool, error)
+	Commit(Scope, string) (Reservation, error)
+	Release(Scope, string) (Reservation, error)
+	Restock(Scope, string, string, []Line) (Reservation, bool, error)
+}

@@ -73,6 +73,23 @@ func TestGeocodeProviderUsesFixedSyntheticResults(t *testing.T) {
 	}
 }
 
+func TestMalwareScannerRequiresLocalCredentialAndRejectsSyntheticInfection(t *testing.T) {
+	t.Parallel()
+	request := httptest.NewRequest(http.MethodPost, "/v1/media/scan", strings.NewReader(`{"object_key":"tenants/t/owners/o/media/infected"}`))
+	request.Header.Set("Authorization", "Bearer local-media-scanner-token")
+	response := httptest.NewRecorder()
+	NewHandler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "MALWARE_DETECTED") {
+		t.Fatalf("scanner response=%d %s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, "/v1/media/scan", strings.NewReader(`{"object_key":"tenants/t/owners/o/media/clean"}`))
+	response = httptest.NewRecorder()
+	NewHandler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated scanner response=%d", response.Code)
+	}
+}
+
 func request(t *testing.T, method, path, body, idempotencyKey string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))

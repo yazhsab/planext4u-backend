@@ -1,8 +1,8 @@
 data "aws_caller_identity" "current" {}
 
 locals {
-  tags        = { Product = "planext4u", Environment = var.environment, ManagedBy = "terraform" }
-  service_ids = { for index, service in sort(keys(var.services)) : service => index + 1 }
+  tags                   = { Product = "planext4u", Environment = var.environment, ManagedBy = "terraform" }
+  additional_secret_arns = distinct(flatten([for values_by_name in values(var.service_secret_arns) : values(values_by_name)]))
 }
 
 resource "aws_kms_key" "logs" {
@@ -72,7 +72,7 @@ resource "aws_iam_role_policy" "execution_secrets" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = concat(values(var.database_secret_arns), [var.event_bus_secret_arn], var.synthetic_slice_signing_key_secret_arn == null ? [] : [var.synthetic_slice_signing_key_secret_arn]) },
+      { Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = concat(values(var.database_secret_arns), [var.event_bus_secret_arn, var.migration_database_secret_arn], local.additional_secret_arns) },
       { Effect = "Allow", Action = ["kms:Decrypt"], Resource = [var.data_kms_key_arn] }
     ]
   })
@@ -83,6 +83,12 @@ resource "aws_iam_role" "task" {
   name               = "${var.name}-${var.environment}-${each.key}-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
   tags               = merge(local.tags, { Service = each.key })
+}
+
+resource "aws_iam_role" "migration_task" {
+  name               = "${var.name}-${var.environment}-migration-task"
+  assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
+  tags               = merge(local.tags, { Service = "migration" })
 }
 
 resource "aws_iam_role_policy" "task" {
@@ -184,21 +190,21 @@ resource "aws_lb_listener" "https" {
   certificate_arn   = var.certificate_arn
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.service["platform"].arn
+    target_group_arn = aws_lb_target_group.service["gateway"].arn
   }
 }
 
-resource "aws_lb_listener_rule" "service" {
-  for_each     = { for service, config in var.services : service => config if service != "platform" }
+resource "aws_lb_listener_rule" "admin" {
+  for_each     = contains(keys(var.services), "admin") ? { admin = var.services["admin"] } : {}
   listener_arn = aws_lb_listener.https.arn
-  priority     = 100 + local.service_ids[each.key]
+  priority     = 10
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.service[each.key].arn
   }
   condition {
     path_pattern {
-      values = ["/${each.key}/*"]
+      values = ["/admin/*", "/internal/v1/admin-sessions"]
     }
   }
 }
@@ -216,6 +222,7 @@ resource "aws_ecs_task_definition" "service" {
     operating_system_family = "LINUX"
     cpu_architecture        = "X86_64"
   }
+  volume { name = "runtime-secrets" }
   container_definitions = jsonencode([{
     name                   = each.key
     image                  = each.value.image
@@ -228,18 +235,44 @@ resource "aws_ecs_task_definition" "service" {
       { name = "HTTP_ADDRESS", value = ":${each.value.port}" },
       { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = var.otel_endpoint },
       { name = "OTEL_EXPORTER_OTLP_PROTOCOL", value = "http/protobuf" }
-      ], each.key == "platform" && var.environment == "staging" ? [
-      { name = "SYNTHETIC_SLICE_ENABLED", value = "true" }
-    ] : [])
+    ], [for name, value in lookup(var.service_environment, each.key, {}) : { name = name, value = value }])
     secrets = concat([
-      { name = "DATABASE_URL", valueFrom = var.database_secret_arns[each.key] },
+      {
+        name      = "DATABASE_URL_FILE_VALUE"
+        valueFrom = var.database_secret_arns[each.key]
+      },
       { name = "EVENT_BUS_URL", valueFrom = var.event_bus_secret_arn }
-      ], each.key == "platform" && var.environment == "staging" ? [
-      { name = "SYNTHETIC_SLICE_SIGNING_KEY", valueFrom = var.synthetic_slice_signing_key_secret_arn }
-    ] : [])
+    ], [for name, arn in lookup(var.service_secret_arns, each.key, {}) : { name = name, valueFrom = arn }])
+    mountPoints      = [{ sourceVolume = "runtime-secrets", containerPath = "/run/planext4u-secrets", readOnly = false }]
     logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.service[each.key].name, awslogs-region = var.region, awslogs-stream-prefix = "service", mode = "non-blocking", max-buffer-size = "25m" } }
   }])
   tags = merge(local.tags, { Service = each.key })
+}
+
+resource "aws_ecs_task_definition" "migration" {
+  family                   = "${var.name}-${var.environment}-migration"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = 1024
+  memory                   = 2048
+  execution_role_arn       = aws_iam_role.execution.arn
+  task_role_arn            = aws_iam_role.migration_task.arn
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "X86_64"
+  }
+  volume { name = "runtime-secrets" }
+  container_definitions = jsonencode([{
+    name                   = "migration"
+    image                  = var.services["platform"].image
+    essential              = true
+    readonlyRootFilesystem = true
+    command                = ["/migrate", "-service", "all"]
+    secrets                = [{ name = "MIGRATION_DATABASE_URL_FILE_VALUE", valueFrom = var.migration_database_secret_arn }]
+    mountPoints            = [{ sourceVolume = "runtime-secrets", containerPath = "/run/planext4u-secrets", readOnly = false }]
+    logConfiguration       = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.service["platform"].name, awslogs-region = var.region, awslogs-stream-prefix = "migration", mode = "non-blocking", max-buffer-size = "25m" } }
+  }])
+  tags = merge(local.tags, { Service = "migration" })
 }
 
 resource "aws_ecs_service" "service" {
@@ -369,3 +402,7 @@ resource "aws_wafv2_web_acl_association" "this" {
 output "cluster_name" { value = aws_ecs_cluster.this.name }
 output "load_balancer_dns_name" { value = aws_lb.this.dns_name }
 output "service_names" { value = keys(aws_ecs_service.service) }
+output "migration_task_definition_arn" { value = aws_ecs_task_definition.migration.arn }
+output "migration_task_role_arn" { value = aws_iam_role.migration_task.arn }
+output "private_subnet_ids" { value = var.private_subnet_ids }
+output "service_security_group_id" { value = aws_security_group.service.id }

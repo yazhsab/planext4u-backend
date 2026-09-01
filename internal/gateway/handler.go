@@ -35,6 +35,7 @@ const (
 
 type Config struct {
 	Upstream         *url.URL
+	UpstreamRoutes   map[string]*url.URL
 	UpstreamHandler  http.Handler
 	RequestTimeout   time.Duration
 	MaxRequestBytes  int64
@@ -76,6 +77,7 @@ type Handler struct {
 func NewHandler(config Config, verifier Verifier, logger *slog.Logger) (*Handler, error) {
 	if (config.Upstream == nil) == (config.UpstreamHandler == nil) ||
 		(config.Upstream != nil && ((config.Upstream.Scheme != "http" && config.Upstream.Scheme != "https") || config.Upstream.Host == "")) ||
+		(config.UpstreamHandler != nil && len(config.UpstreamRoutes) > 0) ||
 		config.RequestTimeout <= 0 || config.RequestTimeout > time.Minute ||
 		config.MaxRequestBytes < 1 || config.MaxRequestBytes > 16<<20 ||
 		config.AnonymousLimiter == nil || config.PrincipalLimiter == nil ||
@@ -86,6 +88,16 @@ func NewHandler(config Config, verifier Verifier, logger *slog.Logger) (*Handler
 		upstream := *config.Upstream
 		config.Upstream = &upstream
 	}
+	upstreamRoutes := make(map[string]*url.URL, len(config.UpstreamRoutes))
+	for prefix, candidate := range config.UpstreamRoutes {
+		if !validRoutePrefix(prefix) || candidate == nil ||
+			(candidate.Scheme != "http" && candidate.Scheme != "https") || candidate.Host == "" {
+			return nil, ErrInvalidConfiguration
+		}
+		cloned := *candidate
+		upstreamRoutes[prefix] = &cloned
+	}
+	config.UpstreamRoutes = upstreamRoutes
 	publicPaths := make(map[string]struct{}, len(config.PublicPaths))
 	for path := range config.PublicPaths {
 		publicPaths[path] = struct{}{}
@@ -325,7 +337,7 @@ func (handler *Handler) rewrite(proxyRequest *httputil.ProxyRequest) {
 	principal, _ := proxyRequest.In.Context().Value(principalContextKey).(Principal)
 	correlationID := correlationIDFromContext(proxyRequest.In.Context())
 
-	proxyRequest.SetURL(handler.config.Upstream)
+	proxyRequest.SetURL(handler.upstreamForPath(proxyRequest.In.URL.Path))
 	proxyRequest.SetXForwarded()
 	removeTrustedHeaders(proxyRequest.Out.Header)
 	proxyRequest.Out.Header.Del("Authorization")
@@ -348,6 +360,33 @@ func (handler *Handler) rewrite(proxyRequest *httputil.ProxyRequest) {
 		proxyRequest.Out.Header.Del("traceparent")
 		proxyRequest.Out.Header.Del("tracestate")
 	}
+}
+
+func (handler *Handler) upstreamForPath(path string) *url.URL {
+	selected := handler.config.Upstream
+	selectedLength := -1
+	for prefix, candidate := range handler.config.UpstreamRoutes {
+		if routePrefixMatches(prefix, path) && len(prefix) > selectedLength {
+			selected, selectedLength = candidate, len(prefix)
+		}
+	}
+	return selected
+}
+
+func validRoutePrefix(value string) bool {
+	if value == "" || value == "/" || value[0] != '/' || strings.HasSuffix(value, "/") || strings.ContainsAny(value, "?#") {
+		return false
+	}
+	for _, character := range value {
+		if character <= 0x20 || character >= 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func routePrefixMatches(prefix, path string) bool {
+	return path == prefix || strings.HasPrefix(path, prefix+"/")
 }
 
 func (handler *Handler) prepareTrustedRequest(request *http.Request) {
@@ -516,7 +555,7 @@ func correlationIDFromContext(ctx context.Context) string {
 
 func removeTrustedHeaders(header http.Header) {
 	for name := range header {
-		if strings.HasPrefix(strings.ToLower(name), "x-planext4u-") {
+		if strings.HasPrefix(strings.ToLower(name), "x-planext4u-") && !strings.EqualFold(name, "X-Planext4u-Provider-Signature") {
 			header.Del(name)
 		}
 	}

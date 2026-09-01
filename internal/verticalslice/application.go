@@ -44,6 +44,7 @@ func New(config Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	consentHandler := newSyntheticConsentHandler(config.Clock)
 	catalogHandler, err := customerCatalogHandler(config.Clock)
 	if err != nil {
 		return nil, err
@@ -85,7 +86,10 @@ func New(config Config) (http.Handler, error) {
 
 	upstream := http.NewServeMux()
 	upstream.Handle("/v1/auth/exchange", authHandler{tokens: tokens, clock: config.Clock})
+	upstream.Handle("/v1/me/consents", consentHandler)
+	upstream.Handle("/v1/me/consents/", consentHandler)
 	upstream.Handle("/v1/bootstrap", configuration)
+	upstream.Handle("/v1/pages/", configuration)
 	upstream.Handle("/v1/home", catalogHandler)
 	upstream.Handle("/v1/catalog/", catalogHandler)
 	upstream.Handle("/v1/serviceability/check", catalogHandler)
@@ -138,9 +142,15 @@ func Route(request *http.Request) string {
 		return route
 	}
 	switch request.URL.Path {
-	case "/healthz", "/readyz", "/health/ready", "/v1/auth/exchange", "/v1/bootstrap", "/v1/home", "/v1/catalog/categories", "/v1/catalog/items", "/v1/catalog/search", "/v1/catalog/suggestions", "/v1/serviceability/check", "/v1/geocoding/search", "/v1/cart", "/v1/addresses", "/v1/delivery-slots", "/v1/checkout/quotes", "/v1/checkout/orders", "/v1/orders", "/v1/wallet", "/v1/wallet/experience", "/v1/wallet/referrals", "/v1/wallet/refills", "/v1/notifications/devices/current", "/v1/payments/webhooks/razorpay", "/v1/payments/webhooks/paystack", "/v1/services", "/v1/service-slot-holds", "/v1/service-bookings":
+	case "/healthz", "/readyz", "/health/ready", "/v1/auth/exchange", "/v1/me/consents", "/v1/bootstrap", "/v1/home", "/v1/catalog/categories", "/v1/catalog/items", "/v1/catalog/search", "/v1/catalog/suggestions", "/v1/serviceability/check", "/v1/geocoding/search", "/v1/cart", "/v1/addresses", "/v1/delivery-slots", "/v1/checkout/quotes", "/v1/checkout/orders", "/v1/orders", "/v1/wallet", "/v1/wallet/experience", "/v1/wallet/referrals", "/v1/wallet/refills", "/v1/notifications/devices/current", "/v1/payments/webhooks/razorpay", "/v1/payments/webhooks/paystack", "/v1/services", "/v1/service-slot-holds", "/v1/service-bookings":
 		return request.URL.Path
 	default:
+		if strings.HasPrefix(request.URL.Path, "/v1/me/consents/") {
+			return "/v1/me/consents/{purpose}"
+		}
+		if strings.HasPrefix(request.URL.Path, "/v1/pages/") {
+			return "/v1/pages/{page_id}"
+		}
 		if strings.HasPrefix(request.URL.Path, "/v1/catalog/items/") {
 			parts := strings.Split(strings.Trim(request.URL.Path, "/"), "/")
 			if len(parts) == 5 && parts[4] == "questions" {
@@ -248,14 +258,25 @@ func customerTransactionHandlers(clock func() time.Time, notifier order.Notifier
 		return nil, nil, nil, err
 	}
 	now := clock().UTC()
-	checkoutService, err := checkout.NewService(checkout.Dependencies{Cart: service, Inventory: inventoryService, Wallet: walletService, Payment: paymentService, Orders: orderService}, checkout.Configuration{
+	commercialTerms, err := checkout.NewStaticCommercialTermsResolver([]checkout.CommercialTermsPolicy{{
+		TenantID: syntheticTenant, Country: "IN", Version: "commercial-2026-08", DefaultVendorTier: "LOCAL_BASIC", DefaultCommissionBasisPoints: 1200, DefaultWalletBasisPoints: 150,
+		Vendors: []checkout.VendorCommercialRule{
+			{VendorID: "vendor-dairy-001", VendorTier: "LOCAL_BASIC", CommissionBasisPoints: 1200, WalletRedemptionBasisPoints: 150},
+			{VendorID: "vendor-mart-001", VendorTier: "LOCAL_STANDARD", CommissionBasisPoints: 1200, WalletRedemptionBasisPoints: 500},
+			{VendorID: "vendor-foods-001", VendorTier: "LOCAL_PREMIUM", CommissionBasisPoints: 1200, WalletRedemptionBasisPoints: 1000},
+		},
+	}})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	checkoutService, err := checkout.NewService(checkout.Dependencies{Cart: service, Inventory: inventoryService, Wallet: walletService, Payment: paymentService, Orders: orderService, CommercialTerms: commercialTerms}, checkout.Configuration{
 		Addresses: []checkout.Address{{ID: "address-home-001", Label: "Home", Line1: "12 Marina Road", PostalCode: "600001", Locality: "Chennai", Serviceable: true, Default: true, Revision: 1, TenantID: syntheticTenant, Country: "IN", CustomerID: "customer-synthetic-001"}},
 		Slots: []checkout.DeliverySlot{
 			{ID: "slot-standard-001", Country: "IN", WindowStart: now.Add(24 * time.Hour), WindowEnd: now.Add(28 * time.Hour), Fee: checkout.Money{AmountMinor: 3000, Currency: "INR"}, Capacity: 100},
 			{ID: "slot-express-001", Country: "IN", WindowStart: now.Add(2 * time.Hour), WindowEnd: now.Add(4 * time.Hour), Fee: checkout.Money{AmountMinor: 9000, Currency: "INR"}, Capacity: 25},
 		},
 		Promotions:  []checkout.Promotion{{Code: "LOCAL10", Country: "IN", MinimumSubtotal: 10000, DiscountBasisPts: 1000, MaximumDiscount: 10000, StartsAt: now.Add(-24 * time.Hour), EndsAt: now.AddDate(0, 1, 0)}},
-		Policies:    []checkout.PricingPolicy{{Version: "pricing-2026-01", Country: "IN", TaxBasisPoints: 500, PlatformFeeMinor: 500, WalletPointValueMinor: 1, WalletMode: checkout.WalletHybrid, QuoteTTL: 10 * time.Minute, ReservationTTL: 15 * time.Minute}},
+		Policies:    []checkout.PricingPolicy{{Version: "pricing-2026-08", Country: "IN", ProductTaxBasisPoints: 1800, ProductTaxTreatment: checkout.ProductTaxInclusive, PlatformFeeMinor: 5000, PlatformFeeTaxBasisPoints: 1800, WalletPointValueMinor: 100, WalletMode: checkout.WalletHybrid, QuoteTTL: 10 * time.Minute, ReservationTTL: 15 * time.Minute}},
 		PostalZones: []checkout.PostalZone{{Country: "IN", PostalCode: "600001", Locality: "Chennai"}},
 	}, clock)
 	if err != nil {
@@ -307,6 +328,33 @@ func configurationHandler(clock func() time.Time) (http.Handler, error) {
 			{ID: "leaders", Kind: "LEADERBOARD", TitleKey: "home.local_leaders", Enabled: true, Priority: 40},
 			{ID: "help", Kind: "HELP_SHORTCUTS", TitleKey: "home.help", Enabled: true, Priority: 50},
 		},
+		Pages: []configcms.Page{
+			{
+				ID: "customer-home", Route: "/home", TitleKey: "page.customer_home", Audience: []string{"CUSTOMER"}, Enabled: true,
+				Blocks: []configcms.PageBlock{
+					{ID: "hero", Kind: "HERO", TitleKey: "home.hero", Enabled: true, Priority: 10, Content: map[string]any{"campaign_id": "independence-day-2026", "media_asset_id": "media-home-hero-2026-08"}},
+					{ID: "categories", Kind: "CATEGORY_RAIL", TitleKey: "home.categories", Enabled: true, Priority: 20, Content: map[string]any{"source": "catalog", "maximum_items": 8}},
+					{ID: "bestsellers", Kind: "PRODUCT_RAIL", TitleKey: "home.bestsellers", Enabled: true, Priority: 30, Content: map[string]any{"collection_id": "bestsellers", "maximum_items": 12}},
+					{ID: "services", Kind: "SERVICE_RAIL", TitleKey: "home.services", Enabled: true, Priority: 40, Content: map[string]any{"collection_id": "popular-services", "maximum_items": 8}},
+				},
+			},
+			{
+				ID: "vendor-home", Route: "/vendor/home", TitleKey: "page.vendor_home", Audience: []string{"VENDOR"}, Enabled: true,
+				Blocks: []configcms.PageBlock{
+					{ID: "performance", Kind: "KPI_GRID", TitleKey: "vendor.performance", Enabled: true, Priority: 10, Content: map[string]any{"metric_set": "vendor-daily"}},
+					{ID: "orders", Kind: "ORDER_QUEUE", TitleKey: "vendor.orders", Enabled: true, Priority: 20, Content: map[string]any{"statuses": []any{"PLACED", "CONFIRMED", "READY"}}},
+					{ID: "catalog-actions", Kind: "ACTION_GRID", TitleKey: "vendor.catalog_actions", Enabled: true, Priority: 30, Content: map[string]any{"action_set": "vendor-catalog"}},
+				},
+			},
+			{
+				ID: "rider-home", Route: "/rider/home", TitleKey: "page.rider_home", Audience: []string{"RIDER"}, Enabled: true,
+				Blocks: []configcms.PageBlock{
+					{ID: "duty", Kind: "DUTY_CONTROL", TitleKey: "rider.duty", Enabled: true, Priority: 10, Content: map[string]any{"availability_modes": []any{"ONLINE", "OFFLINE"}}},
+					{ID: "tasks", Kind: "TASK_QUEUE", TitleKey: "rider.tasks", Enabled: true, Priority: 20, Content: map[string]any{"statuses": []any{"ASSIGNED", "ACCEPTED", "PICKED_UP"}}},
+					{ID: "earnings", Kind: "EARNINGS_SUMMARY", TitleKey: "rider.earnings", Enabled: true, Priority: 30, Content: map[string]any{"period": "TODAY"}},
+				},
+			},
+		},
 	}
 	repository, err := configcms.NewMemoryRepository(snapshot)
 	if err != nil {
@@ -332,7 +380,7 @@ func customerCatalogHandler(clock func() time.Time) (http.Handler, error) {
 		return nil, err
 	}
 	service, err := catalog.NewService(repository, []catalog.Zone{{
-		ID: "chennai-core", Country: "IN", Locality: "Chennai", PostalCodes: []string{"600001", "600002", "600003"},
+		TenantID: syntheticTenant, ID: "chennai-core", Country: "IN", Locality: "Chennai", PostalCodes: []string{"600001", "600002", "600003"},
 		MinimumLatitude: 12.75, MaximumLatitude: 13.35, MinimumLongitude: 79.90, MaximumLongitude: 80.50,
 	}}, 5*time.Minute, clock)
 	if err != nil {

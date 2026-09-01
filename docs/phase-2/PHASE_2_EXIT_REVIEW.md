@@ -24,7 +24,7 @@ Backend Delivery run [33054074271](https://github.com/yazhsab/planext4u-backend/
 Activation requires authorized AWS resources and protected `staging`/`production` environments with these non-secret repository variables:
 
 - `DELIVERY_ENABLED`, `AWS_REGION`, `AWS_ARTIFACT_ROLE_ARN`, `AWS_DEPLOY_ROLE_ARN`
-- `ECR_REPOSITORY`, `ECS_CLUSTER`, `SMOKE_URL`, `VERTICAL_SLICE_SMOKE_ORIGIN`
+- `ECR_REGISTRY`, `ECS_CLUSTER`, `SMOKE_URL`, `VERTICAL_SLICE_SMOKE_ORIGIN`, and protected staging provider credentials
 - optional `ENABLE_GITHUB_ATTESTATIONS` when the private-repository feature is available
 
 The OIDC roles, ECR repository, ECS cluster/service, certificate/DNS, service secrets and environment approval rules must be supplied by the authorized AWS owner. Once supplied, `backend-delivery.yml` publishes an immutable digest, keyless-signs it, deploys it, performs the smoke journey and retains rollback evidence.

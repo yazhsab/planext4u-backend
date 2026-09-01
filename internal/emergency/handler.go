@@ -10,9 +10,22 @@ import (
 	"strings"
 )
 
-type Handler struct{ service *Service }
+type Application interface {
+	Create(Actor, string, CreateRequest) (Request, bool, error)
+	Get(Actor, string) (Request, error)
+	List(Actor) ([]Request, error)
+	Accept(Actor, string, string) (Request, bool, error)
+	UpdateLocation(Actor, string, LocationRequest) (Request, error)
+	Transition(Actor, string, string, int64, TransitionRequest) (Request, bool, error)
+	Messages(Actor, string) ([]Message, error)
+	SendMessage(Actor, string, string, MessageRequest) (Message, bool, error)
+	RunEscalations(Actor) (int, error)
+	SLA(Actor) (SLAReport, error)
+}
 
-func NewHandler(service *Service) (http.Handler, error) {
+type Handler struct{ service Application }
+
+func NewHandler(service Application) (http.Handler, error) {
 	if service == nil {
 		return nil, ErrInvalidRequest
 	}

@@ -1,67 +1,1719 @@
 {
-  "openapi":"3.1.0",
-  "info":{"title":"Planext4u Socio API","version":"1.0.0"},
-  "x-planext4u-reviewers":["architecture","security","privacy","trust-safety","mobile"],
-  "security":[{"bearerAuth":[]}],
-  "paths":{
-    "/v1/social/feed":{"get":{"operationId":"getSocialFeed","parameters":[{"name":"cursor","in":"query","schema":{"type":"string","maxLength":128}},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":50}}],"responses":{"200":{"description":"Eligible ranked feed"}}}},
-    "/v1/social/posts":{"post":{"operationId":"createSocialPost","parameters":[{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"201":{"description":"Created or pending-review post"}}}},
-    "/v1/social/posts/{post_id}":{"get":{"operationId":"getSocialPost","parameters":[{"$ref":"#/components/parameters/PostID"}],"responses":{"200":{"description":"Authorized post"}}}},
-    "/v1/social/posts/{post_id}/like":{"put":{"operationId":"setSocialPostLike","parameters":[{"$ref":"#/components/parameters/PostID"},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],"responses":{"200":{"description":"Revisioned post"}}}},
-    "/v1/social/posts/{post_id}/save":{"put":{"operationId":"setSocialPostSave","parameters":[{"$ref":"#/components/parameters/PostID"},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],"responses":{"200":{"description":"Revisioned post"}}}},
-    "/v1/social/posts/{post_id}/comments":{"get":{"operationId":"listSocialComments","parameters":[{"$ref":"#/components/parameters/PostID"}],"responses":{"200":{"description":"Visible comments"}}},"post":{"operationId":"createSocialComment","parameters":[{"$ref":"#/components/parameters/PostID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"201":{"description":"Created comment"}}}},
-    "/v1/social/posts/{post_id}/reports":{"post":{"operationId":"reportSocialPost","parameters":[{"$ref":"#/components/parameters/PostID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"201":{"description":"Opaque report receipt"}}}},
-    "/v1/social/profiles/{profile_id}":{"get":{"operationId":"getSocialProfile","parameters":[{"$ref":"#/components/parameters/ProfileID"}],"responses":{"200":{"description":"Authorized profile"}}}},
-    "/v1/social/profiles/{profile_id}/follow":{"post":{"operationId":"followSocialProfile","parameters":[{"$ref":"#/components/parameters/ProfileID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"201":{"description":"Accepted follow or private request"}}}},
-    "/v1/social/profiles/{profile_id}/relationship":{"put":{"operationId":"setSocialRelationship","parameters":[{"$ref":"#/components/parameters/ProfileID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"description":"Block or mute state"}}}},
-    "/v1/social/follow-requests/{follower_id}/accept":{"post":{"operationId":"acceptSocialFollow","parameters":[{"$ref":"#/components/parameters/FollowerID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"description":"Accepted follow"}}}},
-    "/v1/social/media":{"post":{"operationId":"createSocialMediaJob","parameters":[{"$ref":"#/components/parameters/IdempotencyKey"}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CreateSocialMediaRequest"}}}},"responses":{"202":{"description":"Quarantined media job","content":{"application/json":{"schema":{"$ref":"#/components/schemas/SocialMediaJob"}}}}}}},
-    "/v1/social/media/{media_id}/appeals":{"post":{"operationId":"appealSocialMedia","parameters":[{"$ref":"#/components/parameters/MediaID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"202":{"description":"Appeal accepted"}}}},
-    "/v1/social/ephemeral":{"get":{"operationId":"listSocialEphemeral","responses":{"200":{"description":"Eligible stories, highlights and reels"}}},"post":{"operationId":"createSocialEphemeral","parameters":[{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"201":{"description":"Created story or reel"}}}},
-    "/v1/social/ephemeral/{content_id}/highlight":{"put":{"operationId":"setSocialHighlight","parameters":[{"$ref":"#/components/parameters/ContentID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"description":"Updated highlight"}}}},
-    "/v1/social/collections":{"post":{"operationId":"createSocialCollection","parameters":[{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"201":{"description":"Created collection"}}}},
-    "/v1/social/collections/{collection_id}/posts":{"put":{"operationId":"setSocialCollectionPost","parameters":[{"$ref":"#/components/parameters/CollectionID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"description":"Updated collection"}}}},
-    "/v1/social/conversations":{"get":{"operationId":"listSocialConversations","responses":{"200":{"description":"Authorized conversations"}}},"post":{"operationId":"openSocialConversation","parameters":[{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"201":{"description":"Conversation or message request"}}}},
-    "/v1/social/conversations/{conversation_id}/accept":{"post":{"operationId":"acceptSocialConversation","parameters":[{"$ref":"#/components/parameters/ConversationID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"description":"Accepted conversation"}}}},
-    "/v1/social/conversations/{conversation_id}/messages":{"get":{"operationId":"listSocialMessages","parameters":[{"$ref":"#/components/parameters/ConversationID"}],"responses":{"200":{"description":"Authorized messages"}}},"post":{"operationId":"sendSocialMessage","parameters":[{"$ref":"#/components/parameters/ConversationID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"201":{"description":"Delivered text or voice message"}}}},
-    "/v1/social/presence":{"put":{"operationId":"setSocialPresence","responses":{"200":{"description":"Updated expiring presence"}}}},
-    "/v1/social/presence/{profile_id}":{"get":{"operationId":"getSocialPresence","parameters":[{"$ref":"#/components/parameters/ProfileID"}],"responses":{"200":{"description":"Privacy-filtered presence"}}}},
-    "/v1/social/conversations/{conversation_id}/calls":{"post":{"operationId":"createSocialCall","parameters":[{"$ref":"#/components/parameters/ConversationID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"201":{"description":"Created expiring WebRTC session"}}}},
-    "/v1/social/calls/{call_id}/signals":{"post":{"operationId":"signalSocialCall","parameters":[{"$ref":"#/components/parameters/CallID"}],"responses":{"200":{"description":"Opaque WebRTC signal accepted"}}}},
-    "/v1/moderation/reports":{"get":{"operationId":"listModerationReports","x-planext4u-mfa-required":true,"responses":{"200":{"description":"MFA-scoped moderation queue"}}}},
-    "/v1/moderation/reports/{report_id}/decision":{"post":{"operationId":"decideModerationReport","x-planext4u-mfa-required":true,"parameters":[{"$ref":"#/components/parameters/ReportID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"description":"Auditable moderation decision"}}}},
-    "/v1/moderation/media/{media_id}/process":{"post":{"operationId":"processSocialMedia","x-planext4u-mfa-required":true,"parameters":[{"$ref":"#/components/parameters/MediaID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"description":"Scan, blur and transcode decision"}}}},
-    "/v1/moderation/media/{media_id}/appeal-decision":{"post":{"operationId":"decideSocialMediaAppeal","x-planext4u-mfa-required":true,"x-planext4u-four-eyes-required":true,"parameters":[{"$ref":"#/components/parameters/MediaID"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"description":"Independent appeal decision"}}}},
-    "/v1/moderation/retention/purge":{"post":{"operationId":"purgeSocialRetention","x-planext4u-mfa-required":true,"responses":{"200":{"description":"Expired content tombstoned"}}}}
-  },
-  "components":{
-    "securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer","bearerFormat":"JWT"}},
-    "parameters":{
-      "PostID":{"name":"post_id","in":"path","required":true,"schema":{"type":"string","maxLength":128}},
-      "ProfileID":{"name":"profile_id","in":"path","required":true,"schema":{"type":"string","maxLength":128}},
-      "FollowerID":{"name":"follower_id","in":"path","required":true,"schema":{"type":"string","maxLength":128}},
-      "ReportID":{"name":"report_id","in":"path","required":true,"schema":{"type":"string","maxLength":128}},
-      "MediaID":{"name":"media_id","in":"path","required":true,"schema":{"type":"string","maxLength":128}},
-      "ContentID":{"name":"content_id","in":"path","required":true,"schema":{"type":"string","maxLength":128}},
-      "CollectionID":{"name":"collection_id","in":"path","required":true,"schema":{"type":"string","maxLength":128}},
-      "ConversationID":{"name":"conversation_id","in":"path","required":true,"schema":{"type":"string","maxLength":128}},
-      "CallID":{"name":"call_id","in":"path","required":true,"schema":{"type":"string","maxLength":128}},
-      "IdempotencyKey":{"name":"Idempotency-Key","in":"header","required":true,"schema":{"type":"string","minLength":8,"maxLength":128}},
-      "IfMatch":{"name":"If-Match","in":"header","required":true,"schema":{"type":"string"}}
+  "components": {
+    "parameters": {
+      "CallID": {
+        "in": "path",
+        "name": "call_id",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "type": "string"
+        }
+      },
+      "CollectionID": {
+        "in": "path",
+        "name": "collection_id",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "type": "string"
+        }
+      },
+      "ContentID": {
+        "in": "path",
+        "name": "content_id",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "type": "string"
+        }
+      },
+      "ConversationID": {
+        "in": "path",
+        "name": "conversation_id",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "type": "string"
+        }
+      },
+      "FollowerID": {
+        "in": "path",
+        "name": "follower_id",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "type": "string"
+        }
+      },
+      "IdempotencyKey": {
+        "in": "header",
+        "name": "Idempotency-Key",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "minLength": 8,
+          "type": "string"
+        }
+      },
+      "IfMatch": {
+        "in": "header",
+        "name": "If-Match",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "MediaID": {
+        "in": "path",
+        "name": "media_id",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "type": "string"
+        }
+      },
+      "PostID": {
+        "in": "path",
+        "name": "post_id",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "type": "string"
+        }
+      },
+      "ProfileID": {
+        "in": "path",
+        "name": "profile_id",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "type": "string"
+        }
+      },
+      "ReportID": {
+        "in": "path",
+        "name": "report_id",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "type": "string"
+        }
+      }
     },
-    "schemas":{
-      "SocialPostStatus":{"type":"string","enum":["PUBLISHED","PENDING_REVIEW","REMOVED"]},
-      "SocialProfile":{"type":"object","required":["id","handle","display_name","private","verified","follower_count","following_count","relationship","allowed_actions"],"properties":{"id":{"type":"string"},"handle":{"type":"string"},"display_name":{"type":"string"},"bio":{"type":"string"},"avatar_asset_id":{"type":"string","x-planext4u-sensitive":true},"private":{"type":"boolean"},"verified":{"type":"boolean"},"follower_count":{"type":"integer"},"following_count":{"type":"integer"},"relationship":{"type":"string"},"allowed_actions":{"type":"array","items":{"type":"string"}}}},
-      "SocialPost":{"type":"object","required":["id","revision","author","body","media_asset_ids","hashtags","mentions","sponsored","status","like_count","comment_count","liked","saved","allowed_actions","ranking_version","created_at","updated_at"],"properties":{"id":{"type":"string"},"revision":{"type":"integer","minimum":1},"author":{"$ref":"#/components/schemas/SocialProfile"},"body":{"type":"string","maxLength":5000},"media_asset_ids":{"type":"array","maxItems":10,"items":{"type":"string","x-planext4u-sensitive":true}},"hashtags":{"type":"array","items":{"type":"string"}},"mentions":{"type":"array","items":{"type":"string"}},"product_sticker_id":{"type":"string"},"sponsored":{"type":"boolean"},"sponsor_label":{"type":"string"},"status":{"$ref":"#/components/schemas/SocialPostStatus"},"moderation_reason":{"type":"string"},"like_count":{"type":"integer"},"comment_count":{"type":"integer"},"liked":{"type":"boolean"},"saved":{"type":"boolean"},"allowed_actions":{"type":"array","items":{"type":"string"}},"ranking_version":{"type":"string"},"created_at":{"type":"string","format":"date-time"},"updated_at":{"type":"string","format":"date-time"}}},
-      "CreateSocialPostRequest":{"type":"object","required":["body","media_asset_ids"],"properties":{"body":{"type":"string","maxLength":5000},"media_asset_ids":{"type":"array","maxItems":10,"items":{"type":"string","x-planext4u-sensitive":true}},"product_sticker_id":{"type":"string"}},"additionalProperties":false},
-      "SocialComment":{"type":"object","required":["id","post_id","depth","author","body","mentions","status","allowed_actions","created_at"],"properties":{"id":{"type":"string"},"post_id":{"type":"string"},"parent_id":{"type":"string"},"depth":{"type":"integer","minimum":0,"maximum":2},"author":{"$ref":"#/components/schemas/SocialProfile"},"body":{"type":"string","maxLength":1000},"mentions":{"type":"array","items":{"type":"string"}},"status":{"type":"string"},"allowed_actions":{"type":"array","items":{"type":"string"}},"created_at":{"type":"string","format":"date-time"}}},
-      "SocialReport":{"type":"object","required":["id","post_id","reporter_id","reason","status","created_at","updated_at"],"properties":{"id":{"type":"string"},"post_id":{"type":"string"},"reporter_id":{"type":"string","x-planext4u-sensitive":true},"reason":{"type":"string"},"details":{"type":"string","x-planext4u-sensitive":true},"status":{"type":"string"},"decision":{"type":"string"},"decision_note":{"type":"string"},"created_at":{"type":"string","format":"date-time"},"updated_at":{"type":"string","format":"date-time"}}}
-      ,"SocialMediaState":{"type":"string","enum":["QUARANTINED","READY","REJECTED","TOMBSTONED"]}
-      ,"CreateSocialMediaRequest":{"type":"object","additionalProperties":false,"required":["asset_id","kind"],"properties":{"asset_id":{"type":"string","x-planext4u-sensitive":true},"kind":{"type":"string","enum":["IMAGE","VIDEO","VOICE"]}}}
-      ,"SocialMediaJob":{"type":"object","required":["id","owner_id","asset_id","kind","state","scan_status","blur_status","transcode_status","retention_until","created_at"],"properties":{"id":{"type":"string"},"owner_id":{"type":"string","x-planext4u-sensitive":true},"asset_id":{"type":"string","x-planext4u-sensitive":true},"kind":{"type":"string"},"state":{"$ref":"#/components/schemas/SocialMediaState"},"scan_status":{"type":"string"},"blur_status":{"type":"string"},"transcode_status":{"type":"string"},"appeal_status":{"type":"string"},"retention_until":{"type":"string","format":"date-time"},"created_at":{"type":"string","format":"date-time"}}}
-      ,"SocialEphemeral":{"type":"object","required":["id","author","kind","media_job_id","caption","status","highlighted","expires_at","allowed_actions","created_at"],"properties":{"id":{"type":"string"},"author":{"$ref":"#/components/schemas/SocialProfile"},"kind":{"type":"string","enum":["STORY","REEL"]},"media_job_id":{"type":"string","x-planext4u-sensitive":true},"caption":{"type":"string"},"status":{"type":"string"},"highlighted":{"type":"boolean"},"expires_at":{"type":"string","format":"date-time"},"allowed_actions":{"type":"array","items":{"type":"string"}},"created_at":{"type":"string","format":"date-time"}}}
-      ,"SocialConversation":{"type":"object","required":["id","participant_ids","status","requested_by","allowed_actions","created_at","updated_at"],"properties":{"id":{"type":"string"},"participant_ids":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"string","x-planext4u-sensitive":true}},"status":{"type":"string"},"requested_by":{"type":"string","x-planext4u-sensitive":true},"allowed_actions":{"type":"array","items":{"type":"string"}},"created_at":{"type":"string","format":"date-time"},"updated_at":{"type":"string","format":"date-time"}}}
-      ,"SocialDirectMessage":{"type":"object","required":["id","conversation_id","sender_id","status","created_at"],"properties":{"id":{"type":"string"},"conversation_id":{"type":"string"},"sender_id":{"type":"string","x-planext4u-sensitive":true},"body":{"type":"string","x-planext4u-sensitive":true},"voice_media_id":{"type":"string","x-planext4u-sensitive":true},"status":{"type":"string"},"created_at":{"type":"string","format":"date-time"}}}
+    "schemas": {
+      "CallSession": {
+        "additionalProperties": false,
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "initiator_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "signal_count": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "created_at",
+          "expires_at",
+          "id",
+          "initiator_id",
+          "kind",
+          "signal_count",
+          "status"
+        ],
+        "type": "object"
+      },
+      "Collection": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "post_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "id",
+          "name",
+          "post_ids",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "CreateSocialMediaRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "kind": {
+            "enum": [
+              "IMAGE",
+              "VIDEO",
+              "VOICE"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "CreateSocialPostRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 5000,
+            "type": "string"
+          },
+          "media_asset_ids": {
+            "items": {
+              "type": "string",
+              "x-planext4u-sensitive": true
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
+          "product_sticker_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "body",
+          "media_asset_ids"
+        ],
+        "type": "object"
+      },
+      "FeedPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SocialPost"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "type": "string"
+          },
+          "ranking_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "ranking_version"
+        ],
+        "type": "object"
+      },
+      "Follow": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "follower_id": {
+            "type": "string"
+          },
+          "following_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "follower_id",
+          "following_id",
+          "id",
+          "status",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "Presence": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "profile_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expires_at",
+          "profile_id",
+          "state"
+        ],
+        "type": "object"
+      },
+      "ShareSocialPostRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "enum": [
+              "IN_APP",
+              "LINK",
+              "EXTERNAL"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel"
+        ],
+        "type": "object"
+      },
+      "SocialComment": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "author": {
+            "$ref": "#/components/schemas/SocialProfile"
+          },
+          "body": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "depth": {
+            "maximum": 2,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "mentions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "parent_id": {
+            "type": "string"
+          },
+          "post_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "post_id",
+          "depth",
+          "author",
+          "body",
+          "mentions",
+          "status",
+          "allowed_actions",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "SocialConversation": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "participant_ids": {
+            "items": {
+              "type": "string",
+              "x-planext4u-sensitive": true
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "requested_by": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "participant_ids",
+          "status",
+          "requested_by",
+          "allowed_actions",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "SocialDirectMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "conversation_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "sender_id": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "voice_media_id": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          }
+        },
+        "required": [
+          "id",
+          "conversation_id",
+          "sender_id",
+          "status",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "SocialEphemeral": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "author": {
+            "$ref": "#/components/schemas/SocialProfile"
+          },
+          "caption": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "highlighted": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "STORY",
+              "REEL"
+            ],
+            "type": "string"
+          },
+          "media_job_id": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "author",
+          "kind",
+          "media_job_id",
+          "caption",
+          "status",
+          "highlighted",
+          "expires_at",
+          "allowed_actions",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "SocialMediaJob": {
+        "additionalProperties": false,
+        "properties": {
+          "appeal_status": {
+            "type": "string"
+          },
+          "asset_id": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "blur_status": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "moderated_by": {
+            "type": "string"
+          },
+          "owner_id": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "retention_until": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "scan_status": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SocialMediaState"
+          },
+          "transcode_status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "asset_id",
+          "kind",
+          "state",
+          "scan_status",
+          "blur_status",
+          "transcode_status",
+          "retention_until",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "SocialMediaState": {
+        "enum": [
+          "QUARANTINED",
+          "READY",
+          "REJECTED",
+          "TOMBSTONED"
+        ],
+        "type": "string"
+      },
+      "SocialPost": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "author": {
+            "$ref": "#/components/schemas/SocialProfile"
+          },
+          "body": {
+            "maxLength": 5000,
+            "type": "string"
+          },
+          "comment_count": {
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "hashtags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "like_count": {
+            "type": "integer"
+          },
+          "liked": {
+            "type": "boolean"
+          },
+          "media_asset_ids": {
+            "items": {
+              "type": "string",
+              "x-planext4u-sensitive": true
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
+          "mentions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "moderation_reason": {
+            "type": "string"
+          },
+          "product_sticker_id": {
+            "type": "string"
+          },
+          "ranking_version": {
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "saved": {
+            "type": "boolean"
+          },
+          "share_count": {
+            "type": "integer"
+          },
+          "sponsor_label": {
+            "type": "string"
+          },
+          "sponsored": {
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SocialPostStatus"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "revision",
+          "author",
+          "body",
+          "media_asset_ids",
+          "hashtags",
+          "mentions",
+          "sponsored",
+          "status",
+          "like_count",
+          "comment_count",
+          "share_count",
+          "liked",
+          "saved",
+          "allowed_actions",
+          "ranking_version",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "SocialPostStatus": {
+        "enum": [
+          "PUBLISHED",
+          "PENDING_REVIEW",
+          "REMOVED"
+        ],
+        "type": "string"
+      },
+      "SocialProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "avatar_asset_id": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "bio": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "follower_count": {
+            "type": "integer"
+          },
+          "following_count": {
+            "type": "integer"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "private": {
+            "type": "boolean"
+          },
+          "relationship": {
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "handle",
+          "display_name",
+          "private",
+          "verified",
+          "follower_count",
+          "following_count",
+          "relationship",
+          "allowed_actions",
+          "bio"
+        ],
+        "type": "object"
+      },
+      "SocialReport": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "decision_note": {
+            "type": "string"
+          },
+          "details": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "id": {
+            "type": "string"
+          },
+          "post_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "reporter_id": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "post_id",
+          "reporter_id",
+          "reason",
+          "status",
+          "created_at",
+          "updated_at",
+          "details"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
     }
-  }
+  },
+  "info": {
+    "title": "Planext4u Socio API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/moderation/media/{media_id}/appeal-decision": {
+      "post": {
+        "operationId": "decideSocialMediaAppeal",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MediaID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialMediaJob"
+                }
+              }
+            },
+            "description": "Independent appeal decision"
+          }
+        },
+        "x-planext4u-four-eyes-required": true,
+        "x-planext4u-mfa-required": true
+      }
+    },
+    "/v1/moderation/media/{media_id}/process": {
+      "post": {
+        "operationId": "processSocialMedia",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MediaID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialMediaJob"
+                }
+              }
+            },
+            "description": "Scan, blur and transcode decision"
+          }
+        },
+        "x-planext4u-mfa-required": true
+      }
+    },
+    "/v1/moderation/reports": {
+      "get": {
+        "operationId": "listModerationReports",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/SocialReport"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "MFA-scoped moderation queue"
+          }
+        },
+        "x-planext4u-mfa-required": true
+      }
+    },
+    "/v1/moderation/reports/{report_id}/decision": {
+      "post": {
+        "operationId": "decideModerationReport",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReportID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialReport"
+                }
+              }
+            },
+            "description": "Auditable moderation decision"
+          }
+        },
+        "x-planext4u-mfa-required": true
+      }
+    },
+    "/v1/moderation/retention/purge": {
+      "post": {
+        "operationId": "purgeSocialRetention",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "purged": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "purged"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Expired content tombstoned"
+          }
+        },
+        "x-planext4u-mfa-required": true
+      }
+    },
+    "/v1/social/calls/{call_id}/signals": {
+      "post": {
+        "operationId": "signalSocialCall",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CallID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallSession"
+                }
+              }
+            },
+            "description": "Opaque WebRTC signal accepted"
+          }
+        }
+      }
+    },
+    "/v1/social/collections": {
+      "post": {
+        "operationId": "createSocialCollection",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Collection"
+                }
+              }
+            },
+            "description": "Created collection"
+          }
+        }
+      }
+    },
+    "/v1/social/collections/{collection_id}/posts": {
+      "put": {
+        "operationId": "setSocialCollectionPost",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CollectionID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Collection"
+                }
+              }
+            },
+            "description": "Updated collection"
+          }
+        }
+      }
+    },
+    "/v1/social/conversations": {
+      "get": {
+        "operationId": "listSocialConversations",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/SocialConversation"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authorized conversations"
+          }
+        }
+      },
+      "post": {
+        "operationId": "openSocialConversation",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialConversation"
+                }
+              }
+            },
+            "description": "Conversation or message request"
+          }
+        }
+      }
+    },
+    "/v1/social/conversations/{conversation_id}/accept": {
+      "post": {
+        "operationId": "acceptSocialConversation",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ConversationID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialConversation"
+                }
+              }
+            },
+            "description": "Accepted conversation"
+          }
+        }
+      }
+    },
+    "/v1/social/conversations/{conversation_id}/calls": {
+      "post": {
+        "operationId": "createSocialCall",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ConversationID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallSession"
+                }
+              }
+            },
+            "description": "Created expiring WebRTC session"
+          }
+        }
+      }
+    },
+    "/v1/social/conversations/{conversation_id}/messages": {
+      "get": {
+        "operationId": "listSocialMessages",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ConversationID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/SocialDirectMessage"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authorized messages"
+          }
+        }
+      },
+      "post": {
+        "operationId": "sendSocialMessage",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ConversationID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialDirectMessage"
+                }
+              }
+            },
+            "description": "Delivered text or voice message"
+          }
+        }
+      }
+    },
+    "/v1/social/ephemeral": {
+      "get": {
+        "operationId": "listSocialEphemeral",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/SocialEphemeral"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Eligible stories, highlights and reels"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createSocialEphemeral",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialEphemeral"
+                }
+              }
+            },
+            "description": "Created story or reel"
+          }
+        }
+      }
+    },
+    "/v1/social/ephemeral/{content_id}/highlight": {
+      "put": {
+        "operationId": "setSocialHighlight",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialEphemeral"
+                }
+              }
+            },
+            "description": "Updated highlight"
+          }
+        }
+      }
+    },
+    "/v1/social/feed": {
+      "get": {
+        "operationId": "getSocialFeed",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedPage"
+                }
+              }
+            },
+            "description": "Eligible ranked feed"
+          }
+        }
+      }
+    },
+    "/v1/social/follow-requests/{follower_id}/accept": {
+      "post": {
+        "operationId": "acceptSocialFollow",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FollowerID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Follow"
+                }
+              }
+            },
+            "description": "Accepted follow"
+          }
+        }
+      }
+    },
+    "/v1/social/media": {
+      "post": {
+        "operationId": "createSocialMediaJob",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSocialMediaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialMediaJob"
+                }
+              }
+            },
+            "description": "Quarantined media job"
+          }
+        }
+      }
+    },
+    "/v1/social/media/{media_id}/appeals": {
+      "post": {
+        "operationId": "appealSocialMedia",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MediaID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialMediaJob"
+                }
+              }
+            },
+            "description": "Appeal accepted"
+          }
+        }
+      }
+    },
+    "/v1/social/posts": {
+      "post": {
+        "operationId": "createSocialPost",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialPost"
+                }
+              }
+            },
+            "description": "Created or pending-review post"
+          }
+        }
+      }
+    },
+    "/v1/social/posts/{post_id}": {
+      "get": {
+        "operationId": "getSocialPost",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PostID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialPost"
+                }
+              }
+            },
+            "description": "Authorized post"
+          }
+        }
+      }
+    },
+    "/v1/social/posts/{post_id}/comments": {
+      "get": {
+        "operationId": "listSocialComments",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PostID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/SocialComment"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Visible comments"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createSocialComment",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PostID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialComment"
+                }
+              }
+            },
+            "description": "Created comment"
+          }
+        }
+      }
+    },
+    "/v1/social/posts/{post_id}/like": {
+      "put": {
+        "operationId": "setSocialPostLike",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PostID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialPost"
+                }
+              }
+            },
+            "description": "Revisioned post"
+          }
+        }
+      }
+    },
+    "/v1/social/posts/{post_id}/reports": {
+      "post": {
+        "operationId": "reportSocialPost",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PostID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialReport"
+                }
+              }
+            },
+            "description": "Opaque report receipt"
+          }
+        }
+      }
+    },
+    "/v1/social/posts/{post_id}/save": {
+      "put": {
+        "operationId": "setSocialPostSave",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PostID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialPost"
+                }
+              }
+            },
+            "description": "Revisioned post"
+          }
+        }
+      }
+    },
+    "/v1/social/posts/{post_id}/shares": {
+      "post": {
+        "operationId": "shareSocialPost",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PostID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareSocialPostRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialPost"
+                }
+              }
+            },
+            "description": "Idempotent share with revisioned post"
+          }
+        }
+      }
+    },
+    "/v1/social/presence": {
+      "put": {
+        "operationId": "setSocialPresence",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Presence"
+                }
+              }
+            },
+            "description": "Updated expiring presence"
+          }
+        }
+      }
+    },
+    "/v1/social/presence/{profile_id}": {
+      "get": {
+        "operationId": "getSocialPresence",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProfileID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Presence"
+                }
+              }
+            },
+            "description": "Privacy-filtered presence"
+          }
+        }
+      }
+    },
+    "/v1/social/profiles/{profile_id}": {
+      "get": {
+        "operationId": "getSocialProfile",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProfileID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialProfile"
+                }
+              }
+            },
+            "description": "Authorized profile"
+          }
+        }
+      }
+    },
+    "/v1/social/profiles/{profile_id}/follow": {
+      "post": {
+        "operationId": "followSocialProfile",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProfileID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Follow"
+                }
+              }
+            },
+            "description": "Accepted follow or private request"
+          }
+        }
+      }
+    },
+    "/v1/social/profiles/{profile_id}/relationship": {
+      "put": {
+        "operationId": "setSocialRelationship",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProfileID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialProfile"
+                }
+              }
+            },
+            "description": "Block or mute state"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "x-planext4u-reviewers": [
+    "architecture",
+    "security",
+    "privacy",
+    "trust-safety",
+    "mobile"
+  ]
 }

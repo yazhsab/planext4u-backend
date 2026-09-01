@@ -14,6 +14,8 @@ import (
 
 	"github.com/yazhsab/planext4u-backend/internal/adminops"
 	"github.com/yazhsab/planext4u-backend/internal/audit"
+	"github.com/yazhsab/planext4u-backend/internal/configcms"
+	"github.com/yazhsab/planext4u-backend/internal/governance"
 )
 
 type AuditReader interface {
@@ -28,26 +30,46 @@ type OperationsService interface {
 	Audit(adminops.Principal) ([]adminops.AuditEvent, error)
 }
 
+type CMSAuthoringService interface {
+	List(context.Context, string, string) ([]configcms.PageDraft, error)
+	Save(context.Context, string, string, string, configcms.Page, int64) (configcms.PageDraft, error)
+}
+
+type CMSWorkspaceAuthoringService interface {
+	Get(context.Context, string, string) (configcms.WorkspaceDraft, error)
+	Save(context.Context, string, string, string, configcms.Workspace, int64) (configcms.WorkspaceDraft, error)
+}
+
+type GovernanceService interface {
+	Dashboard(governance.Actor) (governance.Dashboard, error)
+}
+
 type Config struct {
 	Sessions       SessionResolver
 	Audit          AuditReader
 	Operations     OperationsService
+	CMS            CMSAuthoringService
+	CMSWorkspace   CMSWorkspaceAuthoringService
+	Governance     GovernanceService
 	Clock          func() time.Time
 	AllowedOrigins []string
 	RequireMFA     bool
 }
 
 type Handler struct {
-	sessions       SessionResolver
-	audit          AuditReader
-	operations     OperationsService
-	clock          func() time.Time
-	allowedOrigins map[string]bool
-	requireMFA     bool
+	sessions          SessionResolver
+	audit             AuditReader
+	operations        OperationsService
+	cms               CMSAuthoringService
+	cmsWorkspace      CMSWorkspaceAuthoringService
+	governanceService GovernanceService
+	clock             func() time.Time
+	allowedOrigins    map[string]bool
+	requireMFA        bool
 }
 
 func NewHandler(config Config) (http.Handler, error) {
-	if config.Sessions == nil || config.Audit == nil || config.Operations == nil || config.Clock == nil || len(config.AllowedOrigins) == 0 {
+	if config.Sessions == nil || config.Audit == nil || config.Operations == nil || config.Governance == nil || config.Clock == nil || len(config.AllowedOrigins) == 0 {
 		return nil, ErrInvalidRequest
 	}
 	origins := make(map[string]bool, len(config.AllowedOrigins))
@@ -58,9 +80,10 @@ func NewHandler(config Config) (http.Handler, error) {
 		}
 		origins[origin] = true
 	}
-	handler := &Handler{sessions: config.Sessions, audit: config.Audit, operations: config.Operations, clock: config.Clock, allowedOrigins: origins, requireMFA: config.RequireMFA}
+	handler := &Handler{sessions: config.Sessions, audit: config.Audit, operations: config.Operations, cms: config.CMS, cmsWorkspace: config.CMSWorkspace, governanceService: config.Governance, clock: config.Clock, allowedOrigins: origins, requireMFA: config.RequireMFA}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /admin/api/v1/session", handler.session)
+	mux.HandleFunc("DELETE /admin/api/v1/session", handler.logout)
 	mux.HandleFunc("PUT /admin/api/v1/session/country", handler.updateCountry)
 	mux.HandleFunc("GET /admin/api/v1/audit/events", handler.auditEvents)
 	mux.HandleFunc("GET /admin/api/v1/operations", handler.listOperations)
@@ -69,7 +92,32 @@ func NewHandler(config Config) (http.Handler, error) {
 	mux.HandleFunc("GET /admin/api/v1/governance", handler.governance)
 	mux.HandleFunc("POST /admin/api/v1/operations/{change_id}/approve", handler.approveOperation)
 	mux.HandleFunc("POST /admin/api/v1/operations/{change_id}/reject", handler.rejectOperation)
+	if handler.cms != nil {
+		mux.HandleFunc("GET /admin/api/v1/cms/pages", handler.listCMSPages)
+		mux.HandleFunc("PUT /admin/api/v1/cms/pages/{page_id}/draft", handler.saveCMSPageDraft)
+	}
+	if handler.cmsWorkspace != nil {
+		mux.HandleFunc("GET /admin/api/v1/cms/workspace", handler.getCMSWorkspace)
+		mux.HandleFunc("PUT /admin/api/v1/cms/workspace/draft", handler.saveCMSWorkspaceDraft)
+	}
 	return securityHeaders(mux), nil
+}
+
+func (handler *Handler) logout(writer http.ResponseWriter, request *http.Request) {
+	session, _, ok := handler.authorize(writer, request, CapabilityShellRead)
+	if !ok {
+		return
+	}
+	if !handler.csrfAllowed(request, session.CSRFToken) {
+		writeProblem(writer, request, http.StatusForbidden, "ADMIN_CSRF_INVALID", "The request safety token is invalid. Refresh and try again.")
+		return
+	}
+	if err := handler.sessions.Revoke(request.Context(), session.Principal.SessionID); err != nil && !errors.Is(err, ErrSessionNotFound) {
+		writeProblem(writer, request, http.StatusServiceUnavailable, "ADMIN_SESSION_REVOKE_FAILED", "The administrator session could not be closed. Try again.")
+		return
+	}
+	ClearSessionCookie(writer)
+	writer.WriteHeader(http.StatusNoContent)
 }
 
 func (handler *Handler) session(writer http.ResponseWriter, request *http.Request) {
@@ -97,13 +145,38 @@ func (handler *Handler) governance(writer http.ResponseWriter, request *http.Req
 	if !ok {
 		return
 	}
-	now := handler.clock().UTC()
-	writeJSON(writer, http.StatusOK, GovernanceView{
-		Country: session.Principal.SelectedCountry, PolicyVersion: "policy-" + session.Principal.SelectedCountry + "-2026.08",
-		FeatureFlags: map[string]bool{"socio": true, "homes": true, "classifieds": true, "emergency": true},
-		Metrics:      []GovernanceMetric{{ID: "social-active", Title: "Socio active", Value: 5600, Unit: "count", Freshness: now, Masked: true}, {ID: "homes-active", Title: "Homes active", Value: 98, Unit: "count", Freshness: now, Masked: true}, {ID: "classifieds-active", Title: "Classifieds active", Value: 340, Unit: "count", Freshness: now, Masked: true}, {ID: "emergency-sla", Title: "Emergency within SLA", Value: 99, Unit: "percent", Freshness: now, Masked: true}},
-		PrivacyMode:  "aggregate_and_masked", GeneratedAt: now,
-	})
+	roles := make([]string, 0, len(session.Principal.Roles))
+	for _, role := range session.Principal.Roles {
+		roles = append(roles, string(role))
+	}
+	dashboard, err := handler.governanceService.Dashboard(governance.Actor{TenantID: session.Principal.TenantID, Country: session.Principal.SelectedCountry, Subject: session.Principal.SubjectID, Roles: roles, MFAVerified: true})
+	if err != nil {
+		if errors.Is(err, governance.ErrForbidden) || errors.Is(err, governance.ErrMFARequired) {
+			writeProblem(writer, request, http.StatusForbidden, "ADMIN_GOVERNANCE_FORBIDDEN", "This governance workspace is not available.")
+			return
+		}
+		writeProblem(writer, request, http.StatusServiceUnavailable, "ADMIN_GOVERNANCE_UNAVAILABLE", "Governance data is temporarily unavailable.")
+		return
+	}
+	view := GovernanceView{Country: session.Principal.SelectedCountry, FeatureFlags: map[string]bool{}, Metrics: []GovernanceMetric{}, PrivacyMode: dashboard.PrivacyMode, GeneratedAt: dashboard.GeneratedAt}
+	for _, country := range dashboard.Countries {
+		if country.Country == session.Principal.SelectedCountry {
+			view.PolicyVersion, view.FeatureFlags = country.PolicyVersion, cloneGovernanceFlags(country.FeatureFlags)
+			break
+		}
+	}
+	for _, report := range dashboard.Reports {
+		view.Metrics = append(view.Metrics, GovernanceMetric{ID: report.ID, Title: report.Title, Value: report.Value, Unit: report.Unit, Freshness: report.Freshness, Masked: report.Masked})
+	}
+	writeJSON(writer, http.StatusOK, view)
+}
+
+func cloneGovernanceFlags(value map[string]bool) map[string]bool {
+	result := make(map[string]bool, len(value))
+	for key, enabled := range value {
+		result[key] = enabled
+	}
+	return result
 }
 
 func (handler *Handler) updateCountry(writer http.ResponseWriter, request *http.Request) {
@@ -204,6 +277,9 @@ func navigation(capabilities map[string]bool) []NavigationItem {
 	}
 	if capabilities[CapabilityGovernanceRead] {
 		items = append(items, NavigationItem{ID: "governance", Label: "Governance", Path: "/governance", Capability: CapabilityGovernanceRead})
+	}
+	if capabilities[CapabilityConfigManage] {
+		items = append(items, NavigationItem{ID: "cms", Label: "Page builder", Path: "/cms", Capability: CapabilityConfigManage})
 	}
 	if capabilities[CapabilityAuditRead] {
 		items = append(items, NavigationItem{ID: "audit", Label: "Audit trail", Path: "/audit", Capability: CapabilityAuditRead})

@@ -35,6 +35,8 @@ func NewService(clock func() time.Time) (*Service, error) {
 	return &Service{clock: clock, applications: map[string]*Application{}, catalog: map[string]*CatalogItem{}, work: map[string]*WorkItem{}, promotions: map[string]*Promotion{}, idempotency: map[string]idempotentResult{}}, nil
 }
 
+func (service *Service) Now() time.Time { return service.clock().UTC() }
+
 func (service *Service) Register(actor Actor, key string, request RegisterRequest) (Application, bool, error) {
 	if !validActor(actor) || !hasRole(actor, "VENDOR") || !validRegister(request) || !validKey(key) {
 		return Application{}, false, ErrInvalidRequest
@@ -649,8 +651,8 @@ func digest(value any) string {
 func cloneApplication(value Application) Application {
 	value.Documents = cloneDocuments(value.Documents)
 	value.Zones = cloneZones(value.Zones)
-	value.AllowedActions = append([]string(nil), value.AllowedActions...)
-	value.Timeline = append([]TimelineEvent(nil), value.Timeline...)
+	value.AllowedActions = append([]string{}, value.AllowedActions...)
+	value.Timeline = append([]TimelineEvent{}, value.Timeline...)
 	if value.Visit != nil {
 		copy := *value.Visit
 		value.Visit = &copy
@@ -662,7 +664,7 @@ func cloneApplication(value Application) Application {
 	return value
 }
 func cloneDocuments(values []Document) []Document {
-	result := append([]Document(nil), values...)
+	result := append([]Document{}, values...)
 	for index := range result {
 		if result[index].ExtractedFields != nil {
 			result[index].ExtractedFields = map[string]string{}
@@ -674,15 +676,15 @@ func cloneDocuments(values []Document) []Document {
 	return result
 }
 func cloneZones(values []ServiceZone) []ServiceZone {
-	result := append([]ServiceZone(nil), values...)
+	result := append([]ServiceZone{}, values...)
 	for index := range result {
-		result[index].PostalCodes = append([]string(nil), values[index].PostalCodes...)
+		result[index].PostalCodes = append([]string{}, values[index].PostalCodes...)
 	}
 	return result
 }
 func cloneCatalog(value CatalogItem) CatalogItem {
-	value.Schedules = append([]ScheduleWindow(nil), value.Schedules...)
-	value.AllowedActions = append([]string(nil), value.AllowedActions...)
+	value.Schedules = append([]ScheduleWindow{}, value.Schedules...)
+	value.AllowedActions = append([]string{}, value.AllowedActions...)
 	return value
 }
 func catalogActions(actor Actor, value CatalogItem) []string {

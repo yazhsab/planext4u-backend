@@ -1,0 +1,7 @@
+REVOKE planext4u_wallet_runtime FROM planext4u_transaction_runtime;
+REVOKE planext4u_ordering_runtime FROM planext4u_transaction_runtime;
+REVOKE planext4u_payment_runtime FROM planext4u_transaction_runtime;
+REVOKE planext4u_inventory_runtime FROM planext4u_transaction_runtime;
+REVOKE planext4u_commerce_runtime FROM planext4u_transaction_runtime;
+REVOKE planext4u_catalog_runtime FROM planext4u_transaction_runtime;
+DROP ROLE IF EXISTS planext4u_transaction_runtime;

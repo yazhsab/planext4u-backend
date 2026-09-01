@@ -24,7 +24,7 @@ func NewHandler(service *Service) (http.Handler, error) {
 }
 
 func (handler *Handler) presign(writer http.ResponseWriter, request *http.Request) {
-	tenant, owner, ok := scope(writer, request)
+	tenant, country, owner, ok := scope(writer, request)
 	if !ok {
 		return
 	}
@@ -36,7 +36,7 @@ func (handler *Handler) presign(writer http.ResponseWriter, request *http.Reques
 		writeProblem(writer, request, 422, "MEDIA_REQUEST_INVALID", "The media request is invalid.", false)
 		return
 	}
-	grant, err := handler.service.Presign(request.Context(), tenant, owner, input)
+	grant, err := handler.service.Presign(request.Context(), tenant, country, owner, input)
 	if err != nil {
 		handleError(writer, request, err)
 		return
@@ -45,7 +45,7 @@ func (handler *Handler) presign(writer http.ResponseWriter, request *http.Reques
 }
 
 func (handler *Handler) complete(writer http.ResponseWriter, request *http.Request) {
-	tenant, owner, ok := scope(writer, request)
+	tenant, _, owner, ok := scope(writer, request)
 	if !ok {
 		return
 	}
@@ -58,7 +58,7 @@ func (handler *Handler) complete(writer http.ResponseWriter, request *http.Reque
 }
 
 func (handler *Handler) get(writer http.ResponseWriter, request *http.Request) {
-	tenant, owner, ok := scope(writer, request)
+	tenant, _, owner, ok := scope(writer, request)
 	if !ok {
 		return
 	}
@@ -71,7 +71,7 @@ func (handler *Handler) get(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (handler *Handler) delete(writer http.ResponseWriter, request *http.Request) {
-	tenant, owner, ok := scope(writer, request)
+	tenant, _, owner, ok := scope(writer, request)
 	if !ok {
 		return
 	}
@@ -82,13 +82,15 @@ func (handler *Handler) delete(writer http.ResponseWriter, request *http.Request
 	writer.WriteHeader(http.StatusNoContent)
 }
 
-func scope(writer http.ResponseWriter, request *http.Request) (string, string, bool) {
-	tenant, owner := strings.TrimSpace(request.Header.Get("X-Planext4u-Tenant")), strings.TrimSpace(request.Header.Get("X-Planext4u-Subject"))
-	if !safeID(tenant) || !safeID(owner) {
+func scope(writer http.ResponseWriter, request *http.Request) (string, string, string, bool) {
+	tenant := strings.TrimSpace(request.Header.Get("X-Planext4u-Tenant"))
+	country := strings.TrimSpace(request.Header.Get("X-Planext4u-Country"))
+	owner := strings.TrimSpace(request.Header.Get("X-Planext4u-Subject"))
+	if !safeID(tenant) || !validCountry(country) || !safeID(owner) {
 		writeProblem(writer, request, 401, "REQUEST_SCOPE_INVALID", "The authenticated request scope is invalid.", false)
-		return "", "", false
+		return "", "", "", false
 	}
-	return tenant, owner, true
+	return tenant, country, owner, true
 }
 
 func handleError(writer http.ResponseWriter, request *http.Request, err error) {

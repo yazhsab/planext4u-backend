@@ -1,0 +1,1 @@
+REVOKE planext4u_fulfillment_runtime FROM planext4u_transaction_runtime;

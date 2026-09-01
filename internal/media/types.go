@@ -36,6 +36,7 @@ type Asset struct {
 	Version         int64      `json:"version"`
 
 	TenantID  string `json:"-"`
+	Country   string `json:"-"`
 	OwnerID   string `json:"-"`
 	ObjectKey string `json:"-"`
 }
@@ -61,6 +62,6 @@ type ObjectMetadata struct {
 }
 
 type ScanResult struct {
-	Clean      bool
-	ReasonCode string
+	Clean      bool   `json:"clean"`
+	ReasonCode string `json:"reason_code"`
 }

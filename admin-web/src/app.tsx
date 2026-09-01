@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, LockKeyhole, ShieldX } from "lucide-react";
 import { Navigate, Route, Routes } from "react-router";
@@ -5,10 +6,12 @@ import { Navigate, Route, Routes } from "react-router";
 import { APIError, getSession, setCountry } from "./api/client";
 import { AppShell } from "./components/app-shell";
 import { StatePanel } from "./components/state-panel";
-import { AuditPage } from "./pages/audit-page";
-import { OperationsPage } from "./pages/operations-page";
 import { WorkspacePage } from "./pages/workspace-page";
-import { GovernancePage } from "./pages/governance-page";
+
+const AuditPage = lazy(() => import("./pages/audit-page").then((module) => ({default: module.AuditPage})));
+const CMSPage = lazy(() => import("./pages/cms-page").then((module) => ({default: module.CMSPage})));
+const GovernancePage = lazy(() => import("./pages/governance-page").then((module) => ({default: module.GovernancePage})));
+const OperationsPage = lazy(() => import("./pages/operations-page").then((module) => ({default: module.OperationsPage})));
 
 export function App() {
   const queryClient = useQueryClient();
@@ -32,16 +35,23 @@ export function App() {
   if (sessionQuery.isError) return <SessionError error={sessionQuery.error} retry={() => void sessionQuery.refetch()} />;
 
   return (
-    <Routes>
-			<Route element={<AppShell session={sessionQuery.data} countryChanging={countryMutation.isPending} onCountryChange={(country) => { countryMutation.mutate(country); }} />}>
-        <Route index element={<WorkspacePage />} />
-        <Route path="operations" element={<OperationsPage />} />
-        <Route path="governance" element={<GovernancePage />} />
-        <Route path="audit" element={<AuditPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
-    </Routes>
+    <Suspense fallback={<RouteLoading />}>
+      <Routes>
+        <Route element={<AppShell session={sessionQuery.data} countryChanging={countryMutation.isPending} onCountryChange={(country) => { countryMutation.mutate(country); }} />}>
+          <Route index element={<WorkspacePage />} />
+          <Route path="operations" element={<OperationsPage />} />
+          <Route path="governance" element={<GovernancePage />} />
+          <Route path="cms" element={<CMSPage />} />
+          <Route path="audit" element={<AuditPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </Suspense>
   );
+}
+
+function RouteLoading() {
+  return <main className="session-gate" aria-busy="true"><p role="status">Loading secure workspace…</p></main>;
 }
 
 function SessionLoading() {

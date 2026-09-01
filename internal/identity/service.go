@@ -2,13 +2,15 @@ package identity
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
+	"net/mail"
 	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/google/uuid"
 )
 
 type IDFactory func(string) (string, error)
@@ -59,8 +61,8 @@ func NewService(config ServiceConfig) (*Service, error) {
 		config.Now = time.Now
 	}
 	if config.IDFactory == nil {
-		config.IDFactory = func(prefix string) (string, error) {
-			return randomIdentifier(rand.Reader, prefix, 16)
+		config.IDFactory = func(_ string) (string, error) {
+			return uuid.NewString(), nil
 		}
 	}
 	return &Service{
@@ -232,11 +234,14 @@ func (service *Service) UpdateProfile(ctx context.Context, trusted TrustedIdenti
 		return Profile{}, err
 	}
 	update.DisplayName = strings.TrimSpace(update.DisplayName)
+	update.Email = strings.ToLower(strings.TrimSpace(update.Email))
+	update.Phone = strings.TrimSpace(update.Phone)
 	update.Locale = strings.TrimSpace(update.Locale)
 	update.TimeZone = strings.TrimSpace(update.TimeZone)
 	if !utf8.ValidString(update.DisplayName) ||
 		utf8.RuneCountInString(update.DisplayName) < 1 ||
 		utf8.RuneCountInString(update.DisplayName) > 100 ||
+		!validProfileEmail(update.Email) || !validProfilePhone(update.Phone) ||
 		(update.Locale != "en" && update.Locale != "ta") ||
 		len(update.TimeZone) > 64 || update.Version < 1 {
 		return Profile{}, ErrInvalidInput
@@ -245,6 +250,32 @@ func (service *Service) UpdateProfile(ctx context.Context, trusted TrustedIdenti
 		return Profile{}, ErrInvalidInput
 	}
 	return service.repository.UpdateProfile(ctx, principal.Subject, update, service.now().UTC())
+}
+
+func validProfileEmail(value string) bool {
+	if value == "" {
+		return true
+	}
+	if len(value) > 254 || strings.ContainsAny(value, "\r\n") {
+		return false
+	}
+	parsed, err := mail.ParseAddress(value)
+	return err == nil && parsed.Address == value && strings.Contains(value, "@")
+}
+
+func validProfilePhone(value string) bool {
+	if value == "" {
+		return true
+	}
+	if len(value) < 8 || len(value) > 16 || value[0] != '+' || value[1] < '1' || value[1] > '9' {
+		return false
+	}
+	for _, character := range value[2:] {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (service *Service) Consents(ctx context.Context, trusted TrustedIdentity) ([]Consent, error) {

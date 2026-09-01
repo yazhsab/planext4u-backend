@@ -22,6 +22,7 @@ var (
 	ErrQuoteExpired        = errors.New("checkout quote expired")
 	ErrQuoteStale          = errors.New("checkout quote is stale")
 	ErrPaymentMethod       = errors.New("payment method is not allowed")
+	ErrCommercialTerms     = errors.New("commercial terms are unavailable")
 	ErrIdempotencyConflict = errors.New("checkout idempotency conflict")
 )
 
@@ -92,15 +93,24 @@ const (
 )
 
 type PricingPolicy struct {
-	Version               string
-	Country               string
-	TaxBasisPoints        int64
-	PlatformFeeMinor      int64
-	WalletPointValueMinor int64
-	WalletMode            WalletMode
-	QuoteTTL              time.Duration
-	ReservationTTL        time.Duration
+	Version                   string
+	Country                   string
+	ProductTaxBasisPoints     int64
+	ProductTaxTreatment       ProductTaxTreatment
+	PlatformFeeMinor          int64
+	PlatformFeeTaxBasisPoints int64
+	WalletPointValueMinor     int64
+	WalletMode                WalletMode
+	QuoteTTL                  time.Duration
+	ReservationTTL            time.Duration
 }
+
+type ProductTaxTreatment string
+
+const (
+	ProductTaxInclusive ProductTaxTreatment = "INCLUSIVE"
+	ProductTaxExclusive ProductTaxTreatment = "EXCLUSIVE"
+)
 
 type Money struct {
 	AmountMinor int64  `json:"amount_minor"`
@@ -116,26 +126,35 @@ type QuoteRequest struct {
 }
 
 type Quote struct {
-	ID                   string              `json:"id"`
-	CartRevision         int64               `json:"cart_revision"`
-	Items                []commerce.CartLine `json:"items"`
-	Address              Address             `json:"address"`
-	Delivery             DeliverySlot        `json:"delivery"`
-	Subtotal             Money               `json:"subtotal"`
-	Discount             Money               `json:"discount"`
-	Tax                  Money               `json:"tax"`
-	Fees                 Money               `json:"fees"`
-	WalletApplied        Money               `json:"wallet_applied"`
-	WalletPointsRedeemed int64               `json:"wallet_points_redeemed"`
-	Total                Money               `json:"total"`
-	PromotionCode        string              `json:"promotion_code,omitempty"`
-	PricingPolicyVersion string              `json:"pricing_policy_version"`
-	PaymentMethods       []payment.Method    `json:"payment_methods"`
-	Warnings             []string            `json:"warnings"`
-	AllowedActions       []string            `json:"allowed_actions"`
-	ExpiresAt            time.Time           `json:"expires_at"`
-	CreatedAt            time.Time           `json:"created_at"`
-	scope                Scope
+	ID                      string                `json:"id"`
+	CartRevision            int64                 `json:"cart_revision"`
+	Items                   []commerce.CartLine   `json:"items"`
+	Address                 Address               `json:"address"`
+	Delivery                DeliverySlot          `json:"delivery"`
+	Subtotal                Money                 `json:"subtotal"`
+	Discount                Money                 `json:"discount"`
+	Tax                     Money                 `json:"tax"`
+	Fees                    Money                 `json:"fees"`
+	ProductTax              Money                 `json:"product_tax"`
+	PlatformFee             Money                 `json:"platform_fee"`
+	PlatformFeeTax          Money                 `json:"platform_fee_tax"`
+	DeliveryFee             Money                 `json:"delivery_fee"`
+	MarketplaceCommission   Money                 `json:"marketplace_commission"`
+	WalletRedemptionLimit   Money                 `json:"wallet_redemption_limit"`
+	WalletApplied           Money                 `json:"wallet_applied"`
+	WalletPointsRedeemed    int64                 `json:"wallet_points_redeemed"`
+	LineCommercialTerms     []LineCommercialTerms `json:"line_commercial_terms"`
+	Total                   Money                 `json:"total"`
+	PromotionCode           string                `json:"promotion_code,omitempty"`
+	PricingPolicyVersion    string                `json:"pricing_policy_version"`
+	CommercialPolicyVersion string                `json:"commercial_policy_version"`
+	PaymentMethods          []payment.Method      `json:"payment_methods"`
+	Warnings                []string              `json:"warnings"`
+	AllowedActions          []string              `json:"allowed_actions"`
+	ExpiresAt               time.Time             `json:"expires_at"`
+	CreatedAt               time.Time             `json:"created_at"`
+	scope                   Scope
+	cartID                  string
 }
 
 type PlaceResult struct {
@@ -169,16 +188,24 @@ type CancellationResult struct {
 }
 
 type Dependencies struct {
-	Cart      *commerce.Service
-	Inventory *inventory.Service
-	Wallet    *wallet.Service
-	Payment   *payment.Service
-	Orders    *order.Service
-	Payers    PayerResolver
+	Cart            commerce.CartService
+	Inventory       inventory.ReservationService
+	Wallet          wallet.WalletService
+	Payment         payment.PaymentService
+	Orders          order.OrderService
+	Payers          PayerResolver
+	CommercialTerms CommercialTermsResolver
 }
 
 type PayerResolver interface {
 	ResolvePayer(context.Context, Scope) (payment.Payer, error)
+}
+
+// ConfigurationProvider supplies the currently published checkout rules.
+// Production uses PostgreSQL so pricing, delivery and serviceability changes
+// take effect without rebuilding or restarting the API process.
+type ConfigurationProvider interface {
+	Configuration(context.Context, Scope) (Configuration, error)
 }
 
 type Configuration struct {

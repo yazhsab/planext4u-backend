@@ -58,6 +58,7 @@ type AskQuestionInput struct {
 
 type Item struct {
 	ID                  string            `json:"id"`
+	VendorID            string            `json:"vendor_id,omitempty"`
 	CategoryID          string            `json:"category_id"`
 	Name                string            `json:"name"`
 	Summary             string            `json:"summary"`

@@ -5,9 +5,12 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./app";
-import { adminSession, auditPage, governanceView, operationPage, problem } from "./test/fixtures";
+import { adminSession, auditPage, cmsPageDraftPage, cmsWorkspaceDraft, governanceView, operationPage, problem } from "./test/fixtures";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("administrator application", () => {
   it("renders the server-authorized workspace and security context", async () => {
@@ -62,6 +65,191 @@ describe("administrator application", () => {
     expect(screen.getByText("policy-IN-2026.08")).toBeVisible();
     expect(screen.getByText("Emergency within SLA")).toBeVisible();
     expect(screen.getAllByText(/PII masked/)).not.toHaveLength(0);
+  });
+
+  it("renders and saves the server-authorized CMS page builder", async () => {
+    const user = userEvent.setup();
+    const existingDraft = cmsPageDraftPage.items[0];
+    if (!existingDraft) throw new Error("Expected a CMS page draft fixture");
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = requestURL(input);
+      if (path.endsWith("/cms/pages/customer-home/draft")) {
+        expect(init?.method).toBe("PUT");
+        expect(new Headers(init?.headers).get("X-CSRF-Token")).toBe(adminSession.csrf_token);
+        if (typeof init?.body !== "string") throw new Error("Expected a JSON request body");
+        expect(init.body).toContain('"title_key":"Customer storefront"');
+        return Promise.resolve(Response.json({...existingDraft, revision: 4, page: {...existingDraft.page, title_key: "Customer storefront"}}));
+      }
+      if (path.endsWith("/cms/pages")) return Promise.resolve(Response.json(cmsPageDraftPage));
+      return Promise.resolve(Response.json(adminSession));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/cms");
+
+    expect(await screen.findByRole("heading", {name: "CMS page builder"})).toBeVisible();
+    const title = (await screen.findAllByLabelText("Title key"))[0];
+    if (!title) throw new Error("Expected the page title input");
+    await user.clear(title);
+    await user.type(title, "Customer storefront");
+    await user.click(screen.getByRole("button", {name: "Save draft"}));
+    expect(await screen.findByText("Draft revision 4 saved.")).toBeVisible();
+  });
+
+  it("edits CMS workspace feature flags without bypassing draft publication", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = requestURL(input);
+      if (path.endsWith("/cms/workspace")) return Promise.resolve(Response.json(cmsWorkspaceDraft));
+      return Promise.resolve(Response.json(adminSession));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/cms");
+    await screen.findByRole("heading", {name: "CMS page builder"});
+    await user.click(screen.getByRole("tab", {name: "App workspace"}));
+    expect(await screen.findByRole("heading", {name: "Global app workspace"})).toBeVisible();
+    expect(screen.getByText("services")).toBeVisible();
+    const publish = screen.getByRole("button", {name: "Request publication"});
+    expect(publish).toBeEnabled();
+    await user.click(publish);
+    expect(await screen.findByText(/publication reason of at least 8 characters/)).toBeVisible();
+  });
+
+  it("does not request CMS drafts without the server capability", async () => {
+    const restricted = {
+      ...adminSession,
+      capabilities: ["admin.shell.read"],
+      navigation: [{id: "workspace", label: "Workspace", path: "/" as const, capability: "admin.shell.read"}],
+    };
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json(restricted)));
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/cms");
+
+    expect(await screen.findByRole("heading", {name: "Page builder access unavailable"})).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows disabled pages and requires fresh authentication before CMS publication", async () => {
+    const disabledDrafts = {items: cmsPageDraftPage.items.map((draft) => ({...draft, page: {...draft.page, enabled: false}}))};
+    const staleSession = {...adminSession, assurance: {...adminSession.assurance, fresh_auth: false}};
+    stubFetch((input) => input.endsWith("/cms/pages") ? Response.json(disabledDrafts) : Response.json(staleSession));
+    renderApp("/cms");
+
+    expect(await screen.findByText("Disabled")).toBeVisible();
+    expect(screen.getByRole("link", {name: "Re-authenticate before publishing"})).toHaveAttribute("href", "/login?reauth=mfa");
+    expect(screen.getByRole("button", {name: "Request publication"})).toBeDisabled();
+  });
+
+  it("renders CMS empty and contract failure states", async () => {
+    stubFetch((input) => input.endsWith("/cms/pages") ? Response.json({items: []}) : Response.json(adminSession));
+    const emptyView = renderApp("/cms");
+    expect(await screen.findByRole("heading", {name: "No page drafts"})).toBeVisible();
+    emptyView.unmount();
+
+    stubFetch((input) => input.endsWith("/cms/pages") ? problem(403, "ADMIN_CONFIG_FORBIDDEN", "CMS access denied.") : Response.json(adminSession));
+    renderApp("/cms");
+    expect(await screen.findByRole("heading", {name: "Page drafts could not be loaded"})).toBeVisible();
+    expect(screen.getByText(/Reference: corr-synthetic-problem/)).toBeVisible();
+  });
+
+  it("validates page routes and block JSON before saving", async () => {
+    const user = userEvent.setup();
+    stubFetch((input) => input.endsWith("/cms/pages") ? Response.json(cmsPageDraftPage) : Response.json(adminSession));
+    renderApp("/cms");
+    const route = await screen.findByLabelText("Route");
+    await user.clear(route);
+    await user.type(route, "invalid-route");
+    await user.click(screen.getByRole("button", {name: "Save draft"}));
+    expect(await screen.findByText("The page route must start with /.")).toBeVisible();
+
+    await user.clear(route);
+    await user.type(route, "/app");
+    const content = (screen.getAllByLabelText("Block content (JSON object)"))[0];
+    if (!content) throw new Error("Expected a block content editor");
+    fireEvent.change(content, {target: {value: "{"}});
+    await user.click(screen.getByRole("button", {name: "Save draft"}));
+    expect(await screen.findByText("Block 1 contains invalid JSON.")).toBeVisible();
+  });
+
+  it("reorders, adds, removes and publishes page blocks through controlled operations", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const pending = {...operationPage.changes[0], command: {...operationPage.changes[0]?.command, domain: "CMS" as const, action: "PUBLISH", target_id: "customer-home"}};
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = requestURL(input);
+      if (path.endsWith("/cms/pages")) return Promise.resolve(Response.json(cmsPageDraftPage));
+      if (path.endsWith("/operations") && init?.method === "POST") return Promise.resolve(Response.json(pending, {status: 201}));
+      return Promise.resolve(Response.json(adminSession));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/cms");
+    await screen.findByRole("button", {name: "Add block"});
+    await user.click(screen.getByRole("button", {name: "Move Welcome down"}));
+    await user.click(screen.getByRole("button", {name: "Add block"}));
+    expect(screen.getByText("New section")).toBeVisible();
+    await user.click(screen.getByRole("button", {name: "Remove New section"}));
+
+    const pageChoice = screen.getByRole("button", {name: /Customer home.*Revision 3/});
+    await user.click(pageChoice);
+    expect(confirmSpy).toHaveBeenCalled();
+
+    const reason = screen.getByLabelText("Publication reason");
+    await user.type(reason, "Publish verified storefront blocks");
+    await user.click(screen.getByRole("button", {name: "Request publication"}));
+    expect(await screen.findByText("Publication submitted for independent approval.")).toBeVisible();
+  });
+
+  it("surfaces revision conflicts without overwriting a newer page draft", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = requestURL(input);
+      if (path.endsWith("/cms/pages/customer-home/draft") && init?.method === "PUT") return Promise.resolve(problem(409, "ADMIN_CMS_REVISION_CONFLICT", "Draft revision changed."));
+      if (path.endsWith("/cms/pages")) return Promise.resolve(Response.json(cmsPageDraftPage));
+      return Promise.resolve(Response.json(adminSession));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/cms");
+    const route = await screen.findByLabelText("Route");
+    await user.type(route, "/new");
+    await user.click(screen.getByRole("button", {name: "Save draft"}));
+    expect(await screen.findByText(/This draft changed on the server/)).toBeVisible();
+  });
+
+  it("saves and publishes workspace versions, flags, and home sections", async () => {
+    const user = userEvent.setup();
+    let currentWorkspace = cmsWorkspaceDraft;
+    const executed = {...operationPage.changes[0], command: {...operationPage.changes[0]?.command, domain: "CMS" as const, action: "PUBLISH", target_id: "workspace"}, status: "EXECUTED" as const};
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = requestURL(input);
+      if (path.endsWith("/cms/workspace/draft") && init?.method === "PUT") {
+        if (typeof init.body !== "string") throw new Error("Expected a JSON workspace body");
+        const parsed = JSON.parse(init.body) as {workspace: typeof cmsWorkspaceDraft.workspace};
+        currentWorkspace = {...cmsWorkspaceDraft, revision: 5, workspace: parsed.workspace};
+        return Promise.resolve(Response.json(currentWorkspace));
+      }
+      if (path.endsWith("/cms/workspace")) return Promise.resolve(Response.json(currentWorkspace));
+      if (path.endsWith("/operations") && init?.method === "POST") return Promise.resolve(Response.json(executed, {status: 201}));
+      return Promise.resolve(Response.json(adminSession));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/cms");
+    await screen.findByRole("heading", {name: "CMS page builder"});
+    await user.click(screen.getByRole("tab", {name: "App workspace"}));
+    const latest = await screen.findByLabelText("Android latest");
+    await user.clear(latest);
+    await user.type(latest, "1.3.0");
+    const servicesToggle = screen.getByText("services").closest("label")?.querySelector("input");
+    if (!servicesToggle) throw new Error("Expected the services feature toggle");
+    await user.click(servicesToggle);
+    await user.type(screen.getByLabelText("New flag key"), "emergency");
+    await user.click(screen.getByRole("button", {name: "Add flag"}));
+    await user.click(screen.getByRole("button", {name: "Add section"}));
+    await user.click(screen.getByRole("button", {name: "Move Home hero down"}));
+    await user.click(screen.getByRole("button", {name: "Save draft"}));
+    expect(await screen.findByText("Workspace revision 5 saved.")).toBeVisible();
+
+    await user.type(screen.getByLabelText("Publication reason"), "Publish verified app workspace");
+    await user.click(screen.getByRole("button", {name: "Request publication"}));
+    expect(await screen.findByText("Workspace publication executed.")).toBeVisible();
   });
 
   it("does not request governance without its server capability", async () => {

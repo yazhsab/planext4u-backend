@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -356,22 +357,74 @@ func allowedActions(status Status, returnCase *ReturnCase, rating *Rating) []str
 }
 
 func validSnapshot(value CheckoutSnapshot) bool {
-	if value.CartRevision < 0 || len(value.Lines) == 0 || !safeID(value.Address.AddressID) || !safeID(value.Delivery.SlotID) || !value.Delivery.WindowEnd.After(value.Delivery.WindowStart) || !safeID(value.PricingPolicyVersion) || !safeID(value.ReservationID) || !safeID(value.PaymentID) || !safeID(value.PaymentMethod) {
+	if value.CartRevision < 0 || len(value.Lines) == 0 || !safeID(value.Address.AddressID) || !safeID(value.Delivery.SlotID) || !value.Delivery.WindowEnd.After(value.Delivery.WindowStart) || !safeID(value.PricingPolicyVersion) || !safeID(value.CommercialPolicyVersion) || !safeID(value.ReservationID) || !safeID(value.PaymentID) || !safeID(value.PaymentMethod) || (value.ProductTaxTreatment != "INCLUSIVE" && value.ProductTaxTreatment != "EXCLUSIVE") {
 		return false
 	}
-	for _, money := range []Money{value.Subtotal, value.Discount, value.Tax, value.Fees, value.WalletApplied, value.Total, value.Delivery.Fee} {
+	for _, money := range []Money{value.Subtotal, value.Discount, value.Tax, value.Fees, value.ProductTax, value.PlatformFee, value.PlatformFeeTax, value.DeliveryFee, value.MarketplaceCommission, value.WalletRedemptionLimit, value.WalletApplied, value.Total, value.Delivery.Fee} {
 		if !validMoney(money) || money.Currency != value.Total.Currency {
 			return false
 		}
 	}
-	var subtotal int64
+	var subtotal, productTax, commission int64
 	for _, line := range value.Lines {
-		if !safeID(line.VariantID) || !safeID(line.ItemID) || !safeID(line.VendorID) || line.Quantity < 1 || !validMoney(line.UnitPrice) || !validMoney(line.LineTotal) || line.LineTotal.AmountMinor != line.UnitPrice.AmountMinor*int64(line.Quantity) || line.TaxMinor < 0 || line.DiscountMinor < 0 {
+		lineAmount, amountOK := checkedMultiply(line.UnitPrice.AmountMinor, int64(line.Quantity))
+		if !safeID(line.VariantID) || !safeID(line.ItemID) || !safeID(line.VendorID) || !safeID(line.VendorTier) || line.Quantity < 1 || !validMoney(line.UnitPrice) || !validMoney(line.LineTotal) || !amountOK || line.LineTotal.AmountMinor != lineAmount || line.TaxMinor < 0 || line.DiscountMinor < 0 || line.DiscountMinor > line.LineTotal.AmountMinor || line.CommissionBasisPoints < 0 || line.CommissionBasisPoints > 10000 || line.WalletRedemptionBasisPoints < 0 || line.WalletRedemptionBasisPoints > 10000 || line.CommissionMinor < 0 || (line.CommercialRuleSource != "PLAN_DEFAULT" && line.CommercialRuleSource != "VENDOR_OVERRIDE" && line.CommercialRuleSource != "PRODUCT_OVERRIDE") {
 			return false
 		}
-		subtotal += line.LineTotal.AmountMinor
+		expectedCommission, amountOK := checkedBasisPoints(line.LineTotal.AmountMinor, line.CommissionBasisPoints)
+		if !amountOK || line.CommissionMinor != expectedCommission {
+			return false
+		}
+		if subtotal, amountOK = checkedAdd(subtotal, line.LineTotal.AmountMinor); !amountOK {
+			return false
+		}
+		if productTax, amountOK = checkedAdd(productTax, line.TaxMinor); !amountOK {
+			return false
+		}
+		if commission, amountOK = checkedAdd(commission, line.CommissionMinor); !amountOK {
+			return false
+		}
 	}
-	return subtotal == value.Subtotal.AmountMinor && value.Total.AmountMinor == value.Subtotal.AmountMinor-value.Discount.AmountMinor+value.Tax.AmountMinor+value.Fees.AmountMinor-value.WalletApplied.AmountMinor
+	chargedProductTax := value.ProductTax.AmountMinor
+	if value.ProductTaxTreatment == "INCLUSIVE" {
+		chargedProductTax = 0
+	}
+	fees, feesOK := checkedAdd(value.PlatformFee.AmountMinor, value.DeliveryFee.AmountMinor)
+	tax, taxOK := checkedAdd(chargedProductTax, value.PlatformFeeTax.AmountMinor)
+	if !feesOK || !taxOK || value.Discount.AmountMinor > value.Subtotal.AmountMinor || value.WalletApplied.AmountMinor > value.WalletRedemptionLimit.AmountMinor {
+		return false
+	}
+	total, totalOK := checkedAdd(value.Subtotal.AmountMinor-value.Discount.AmountMinor, value.Tax.AmountMinor)
+	if totalOK {
+		total, totalOK = checkedAdd(total, value.Fees.AmountMinor)
+	}
+	if !totalOK || value.WalletApplied.AmountMinor > total {
+		return false
+	}
+	total -= value.WalletApplied.AmountMinor
+	return subtotal == value.Subtotal.AmountMinor && productTax == chargedProductTax && commission == value.MarketplaceCommission.AmountMinor &&
+		value.DeliveryFee == value.Delivery.Fee && value.Fees.AmountMinor == fees && value.Tax.AmountMinor == tax && value.Total.AmountMinor == total
+}
+
+func checkedAdd(left, right int64) (int64, bool) {
+	if left < 0 || right < 0 || right > math.MaxInt64-left {
+		return 0, false
+	}
+	return left + right, true
+}
+
+func checkedMultiply(left, right int64) (int64, bool) {
+	if left < 0 || right < 0 || (left != 0 && right > math.MaxInt64/left) {
+		return 0, false
+	}
+	return left * right, true
+}
+
+func checkedBasisPoints(amount, basisPoints int64) (int64, bool) {
+	if amount < 0 || basisPoints < 0 || basisPoints > 10000 || (basisPoints != 0 && amount > (math.MaxInt64-5000)/basisPoints) {
+		return 0, false
+	}
+	return (amount*basisPoints + 5000) / 10000, true
 }
 
 func refundable(snapshot CheckoutSnapshot, lines []ReturnLine) (Money, error) {

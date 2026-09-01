@@ -81,6 +81,7 @@ func TestGatewayDerivesTrustedIdentityAndPropagatesCorrelation(t *testing.T) {
 	request.Header.Set("Cookie", "session=must-not-propagate")
 	request.Header.Set(correlationIDHeader, "corr-synthetic-gateway-001")
 	request.Header.Set("X-Planext4u-Subject", "attacker-controlled")
+	request.Header.Set("X-Planext4u-Provider-Signature", "verified-only-by-upstream")
 	request.Header.Set("traceparent", "00-00000000000000000000000000000001-0000000000000001-01")
 	response := httptest.NewRecorder()
 
@@ -101,6 +102,9 @@ func TestGatewayDerivesTrustedIdentityAndPropagatesCorrelation(t *testing.T) {
 	}
 	if got.header.Get("Authorization") != "" || got.header.Get("Cookie") != "" {
 		t.Fatalf("credentials propagated upstream: %#v", got.header)
+	}
+	if got.header.Get("X-Planext4u-Provider-Signature") != "verified-only-by-upstream" {
+		t.Fatalf("provider signature was not preserved for upstream verification: %#v", got.header)
 	}
 	if got.header.Get("X-Planext4u-Subject") != "customer-synthetic-001" ||
 		got.header.Get("X-Planext4u-Session") != "session-synthetic-001" ||
@@ -144,6 +148,61 @@ func TestGatewayDirectUpstreamEnforcesTheSameTrustBoundary(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || response.Header().Get("Server") != "" || response.Header().Get("X-Powered-By") != "" {
 		t.Fatalf("response = %d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+}
+
+func TestGatewayRoutesToTheMostSpecificPrivateService(t *testing.T) {
+	t.Parallel()
+
+	base := mustURL(t, "http://platform.internal:8080")
+	identity := mustURL(t, "http://identity.internal:8083")
+	exchange := mustURL(t, "http://identity-exchange.internal:8083")
+	config := DefaultConfig(base)
+	config.UpstreamRoutes = map[string]*url.URL{
+		"/v1/auth":          identity,
+		"/v1/auth/exchange": exchange,
+	}
+	handler, err := NewHandler(config, fixedVerifier{principal: syntheticPrincipal()}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := handler.upstreamForPath("/v1/auth/exchange"); got.String() != exchange.String() {
+		t.Fatalf("exchange upstream = %s", got)
+	}
+	if got := handler.upstreamForPath("/v1/auth/refresh"); got.String() != identity.String() {
+		t.Fatalf("auth upstream = %s", got)
+	}
+	if got := handler.upstreamForPath("/v1/authentic"); got.String() != base.String() {
+		t.Fatalf("boundary-bypass upstream = %s", got)
+	}
+	if got := handler.upstreamForPath("/v1/catalog/items"); got.String() != base.String() {
+		t.Fatalf("default upstream = %s", got)
+	}
+}
+
+func TestGatewayRejectsUnsafeUpstreamRoutes(t *testing.T) {
+	t.Parallel()
+
+	for name, routes := range map[string]map[string]*url.URL{
+		"relative prefix": {"v1/auth": mustURL(t, "http://identity.internal:8083")},
+		"root prefix":     {"/": mustURL(t, "http://identity.internal:8083")},
+		"missing target":  {"/v1/auth": nil},
+		"unsafe scheme":   {"/v1/auth": mustURL(t, "ftp://identity.internal:21")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			config := DefaultConfig(mustURL(t, "http://platform.internal:8080"))
+			config.UpstreamRoutes = routes
+			if _, err := NewHandler(config, fixedVerifier{principal: syntheticPrincipal()}, slog.New(slog.NewTextHandler(io.Discard, nil))); !errors.Is(err, ErrInvalidConfiguration) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+
+	config := DefaultConfig(nil)
+	config.UpstreamHandler = http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+	config.UpstreamRoutes = map[string]*url.URL{"/v1/auth": mustURL(t, "http://identity.internal:8083")}
+	if _, err := NewHandler(config, fixedVerifier{principal: syntheticPrincipal()}, slog.New(slog.NewTextHandler(io.Discard, nil))); !errors.Is(err, ErrInvalidConfiguration) {
+		t.Fatalf("direct handler route error = %v", err)
 	}
 }
 

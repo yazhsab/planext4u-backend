@@ -1,0 +1,1 @@
+GRANT planext4u_local_verticals_runtime TO planext4u_transaction_runtime;

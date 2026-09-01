@@ -4,6 +4,7 @@
 !go.sum
 !cmd/**
 !internal/**
+!migrations/**
 !cmd/fake-provider/**
 !internal/fakeprovider/**
 !deploy/local/fake-provider.Dockerfile

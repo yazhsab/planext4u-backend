@@ -75,7 +75,10 @@ func TestBEVSlice001LoginLocationHomeAndCatalog(t *testing.T) {
 	assertVerticalResponse(t, location, http.StatusOK, `"serviceable":true`, `"locality":"Chennai"`)
 
 	bootstrap := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/bootstrap?platform=android&app_version=0.1.0&locale=en", "", authPayload.Tokens.AccessToken)
-	assertVerticalResponse(t, bootstrap, http.StatusOK, `"customer_home":true`, `"catalog_read":true`)
+	assertVerticalResponse(t, bootstrap, http.StatusOK, `"customer_home":true`, `"catalog_read":true`, `"id":"customer-home"`, `"id":"vendor-home"`, `"id":"rider-home"`)
+
+	page := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/pages/customer-home?locale=en", "", authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, page, http.StatusOK, `"id":"customer-home"`, `"kind":"HERO"`, `"kind":"PRODUCT_RAIL"`, `"kind":"SERVICE_RAIL"`)
 
 	home := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/home", "", authPayload.Tokens.AccessToken)
 	assertVerticalResponse(t, home, http.StatusOK, `"name":"Daily needs"`, `"name":"Fresh milk"`)
@@ -100,8 +103,8 @@ func TestBEVSlice001LoginLocationHomeAndCatalog(t *testing.T) {
 	}
 
 	spans := spanRecorder.Ended()
-	if len(spans) != 9 {
-		t.Fatalf("ended spans = %d, want 9", len(spans))
+	if len(spans) != 10 {
+		t.Fatalf("ended spans = %d, want 10", len(spans))
 	}
 	for _, span := range spans {
 		if span.SpanContext().TraceID().String() != verticalSliceTraceID {
@@ -146,6 +149,36 @@ func TestVerticalSliceRejectsUntrustedOrExpiredIdentity(t *testing.T) {
 	assertVerticalResponse(t, expired, http.StatusUnauthorized, `"code":"AUTHENTICATION_EXPIRED"`)
 }
 
+func TestVerticalSliceCustomerConsentJourney(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	application, err := New(Config{
+		SigningKey: []byte("synthetic-staging-key-32-bytes-minimum-value"),
+		Clock:      func() time.Time { return now },
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(application)
+	t.Cleanup(server.Close)
+	client := server.Client()
+	authentication := verticalRequest(t, client, http.MethodPost, server.URL+"/v1/auth/exchange", `{"provider":"local","provider_token":"synthetic-customer","device_id":"device-consent-e2e-001","country":"IN"}`, "")
+	var authPayload struct {
+		Tokens struct {
+			AccessToken string `json:"access_token"`
+		} `json:"tokens"`
+	}
+	decodeVerticalJSON(t, authentication, &authPayload)
+
+	empty := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/me/consents", "", authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, empty, http.StatusOK, `"consents":[]`)
+	recorded := verticalRequest(t, client, http.MethodPut, server.URL+"/v1/me/consents/LOCATION_SERVICEABILITY", `{"granted":true,"policy_version":"location-2026-01"}`, authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, recorded, http.StatusOK, `"purpose":"LOCATION_SERVICEABILITY"`, `"granted":true`, `"version":1`)
+	listed := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/me/consents", "", authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, listed, http.StatusOK, `"policy_version":"location-2026-01"`, `"version":1`)
+}
+
 func TestBEVSlicePhase3CheckoutCODOrderAndWallet(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 8, 27, 10, 30, 0, 0, time.UTC)
@@ -178,7 +211,7 @@ func TestBEVSlicePhase3CheckoutCODOrderAndWallet(t *testing.T) {
 	slots := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/delivery-slots", "", authPayload.Tokens.AccessToken)
 	assertVerticalResponse(t, slots, http.StatusOK, `"id":"slot-standard-001"`, `"id":"slot-express-001"`)
 	quoted := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/checkout/quotes", `{"cart_revision":1,"address_id":"address-home-001","delivery_slot_id":"slot-standard-001","promotion_code":"LOCAL10","wallet_points":1000}`, authPayload.Tokens.AccessToken, map[string]string{"Idempotency-Key": "idem-phase3-quote-0001"})
-	assertVerticalResponse(t, quoted, http.StatusCreated, `"promotion_code":"LOCAL10"`, `"PLACE_ORDER"`, `"RAZORPAY"`, `"COD"`)
+	assertVerticalResponse(t, quoted, http.StatusCreated, `"promotion_code":"LOCAL10"`, `"WALLET_REDEMPTION_CAPPED_BY_COMMERCIAL_POLICY"`, `"PLACE_ORDER"`, `"RAZORPAY"`, `"COD"`)
 	var quote struct {
 		ID string `json:"id"`
 	}
@@ -190,9 +223,9 @@ func TestBEVSlicePhase3CheckoutCODOrderAndWallet(t *testing.T) {
 		t.Fatalf("push messages=%#v", messages)
 	}
 	orders := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/orders", "", authPayload.Tokens.AccessToken)
-	assertVerticalResponse(t, orders, http.StatusOK, `"status":"PLACED"`, `"pricing_policy_version":"pricing-2026-01"`)
+	assertVerticalResponse(t, orders, http.StatusOK, `"status":"PLACED"`, `"pricing_policy_version":"pricing-2026-08"`, `"commercial_policy_version":"commercial-2026-08"`)
 	wallet := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/wallet", "", authPayload.Tokens.AccessToken)
-	assertVerticalResponse(t, wallet, http.StatusOK, `"balance":24000`, `"category":"CHECKOUT_REDEMPTION"`)
+	assertVerticalResponse(t, wallet, http.StatusOK, `"balance":24999`, `"category":"CHECKOUT_REDEMPTION"`)
 }
 
 func TestBEVSlicePhase4ServiceHoldWalletBookingAndCompensation(t *testing.T) {

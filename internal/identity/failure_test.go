@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -108,6 +109,23 @@ func TestHandlerMapsEveryPublicFailureClassToSafeProblem(t *testing.T) {
 	unknownSession := identityRequest(handler, http.MethodDelete, "/v1/me/sessions/session_unknown", "", headers)
 	if unknownSession.Code != http.StatusNotFound {
 		t.Fatalf("unknown session = %d %s", unknownSession.Code, unknownSession.Body.String())
+	}
+	for _, request := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{method: http.MethodGet, path: "/v1/me/sessions"},
+		{method: http.MethodGet, path: "/v1/me/consents"},
+		{method: http.MethodGet, path: "/v1/me/data-export"},
+		{method: http.MethodDelete, path: "/v1/me/sessions/session_missing"},
+		{method: http.MethodPut, path: "/v1/me/consents/ANALYTICS", body: `{"granted":true,"policy_version":"privacy-v1"}`},
+		{method: http.MethodPost, path: "/v1/me/deletion-requests", body: `{"confirmation":"DELETE MY ACCOUNT"}`},
+	} {
+		response := identityRequest(handler, request.method, request.path, request.body, nil)
+		if response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), "SESSION_INVALID") {
+			t.Fatalf("missing trusted identity for %s = %d %s", request.path, response.Code, response.Body.String())
+		}
 	}
 }
 

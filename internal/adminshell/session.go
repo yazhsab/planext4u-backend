@@ -23,11 +23,13 @@ var (
 	ErrForbidden              = errors.New("administrator operation forbidden")
 	ErrInvalidRequest         = errors.New("administrator request invalid")
 	ErrSessionNotFound        = errors.New("administrator session not found")
+	ErrSessionExists          = errors.New("administrator session already exists")
 )
 
 type SessionResolver interface {
 	Resolve(*http.Request) (ResolvedSession, error)
 	SetCountry(context.Context, string, string) error
+	Revoke(context.Context, string) error
 }
 
 type sessionRecord struct {
@@ -109,6 +111,21 @@ func (store *MemorySessionStore) SetCountry(_ context.Context, sessionID, countr
 		record.principal.SelectedCountry = country
 		store.sessions[digest] = record
 		return nil
+	}
+	return ErrSessionNotFound
+}
+
+func (store *MemorySessionStore) Revoke(_ context.Context, sessionID string) error {
+	if !safeIdentifier(sessionID) {
+		return ErrInvalidRequest
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	for digest, record := range store.sessions {
+		if record.principal.SessionID == sessionID {
+			delete(store.sessions, digest)
+			return nil
+		}
 	}
 	return ErrSessionNotFound
 }

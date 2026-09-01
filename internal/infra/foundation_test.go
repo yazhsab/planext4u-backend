@@ -124,10 +124,84 @@ func TestBEInfra001OIDCUsesRepositoryAndEnvironmentBoundTrust(t *testing.T) {
 func TestBEInfra001DeploymentRequiresDigestAndRollbackEvidence(t *testing.T) {
 	t.Parallel()
 	contents := readFile(t, "../../scripts/deploy-ecs.sh")
-	for _, marker := range []string{"@sha256:", "previous_task_definition", "services-stable", "rollback_reason", "DEPLOYMENT_EVIDENCE", "staging-vertical-slice-smoke.sh", "vertical_slice_smoke_failed", "VERTICAL_SLICE_SMOKE_ORIGIN is required for staging"} {
+	for _, marker := range []string{"@sha256:", "previous_task_definition", "services-stable", "rollback_reason", "DEPLOYMENT_EVIDENCE"} {
 		if !strings.Contains(contents, marker) {
 			t.Errorf("deployment script is missing %q", marker)
 		}
+	}
+	release := readFile(t, "../../scripts/deploy-release-ecs.sh")
+	for _, marker := range []string{"STAGING_SMOKE_PROVIDER_TOKEN", "is required for a staging release", "rollback_release", "staging-vertical-slice-smoke.sh", "release_readiness_failed", "RELEASE_EVIDENCE"} {
+		if !strings.Contains(release, marker) {
+			t.Errorf("atomic release script is missing %q", marker)
+		}
+	}
+}
+
+func TestBEInfra001AtomicReleaseRollsBackEveryUpdatedService(t *testing.T) {
+	temporary := t.TempDir()
+	fakeAWS := filepath.Join(temporary, "aws")
+	calls := filepath.Join(temporary, "calls")
+	if err := os.WriteFile(fakeAWS, []byte(`#!/usr/bin/env bash
+set -e
+printf '%s\n' "$*" >>"$FAKE_AWS_CALLS"
+operation="$1:$2"
+service=""
+definition=""
+for ((index=1; index<=$#; index++)); do
+  if [[ "${!index}" == "--service" || "${!index}" == "--services" ]]; then
+    next=$((index + 1)); service="${!next}"
+  fi
+  if [[ "${!index}" == "--task-definition" ]]; then
+    next=$((index + 1)); definition="${!next}"
+  fi
+done
+case "$operation" in
+  ecr:describe-images) printf '%s\n' 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' ;;
+  ecs:describe-services) printf 'arn:aws:ecs:ap-south-1:111111111111:task-definition/planext4u-production-%s:7\n' "$service" ;;
+  ecs:describe-task-definition)
+    name=identity
+    [[ "$definition" == *catalog* ]] && name=catalog
+    printf '{"family":"planext4u-production-%s","taskRoleArn":"arn:aws:iam::111111111111:role/task","executionRoleArn":"arn:aws:iam::111111111111:role/execution","networkMode":"awsvpc","containerDefinitions":[{"name":"%s","image":"old@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],"requiresCompatibilities":["FARGATE"],"cpu":"512","memory":"1024","taskDefinitionArn":"old","revision":7,"status":"ACTIVE"}\n' "$name" "$name"
+    ;;
+  ecs:register-task-definition) printf '%s\n' 'arn:aws:ecs:ap-south-1:111111111111:task-definition/candidate:8' ;;
+  ecs:update-service) printf '%s\n' '{}' ;;
+  ecs:wait) ;;
+  *) printf 'unexpected fake aws operation %s\n' "$operation" >&2; exit 1 ;;
+esac
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(temporary, "curl"), []byte("#!/usr/bin/env bash\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	evidence := filepath.Join(temporary, "release.json")
+	command := exec.Command("bash", "../../scripts/deploy-release-ecs.sh")
+	command.Env = append(os.Environ(),
+		"PATH="+temporary+":"+os.Getenv("PATH"), "FAKE_AWS_CALLS="+calls,
+		"AWS_REGION=ap-south-1", "ECS_CLUSTER=planext4u-production",
+		"ECR_REGISTRY=111111111111.dkr.ecr.ap-south-1.amazonaws.com/planext4u",
+		"SOURCE_REVISION=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		`SERVICES_JSON=["identity","catalog"]`, "DEPLOYMENT_ENVIRONMENT=production",
+		"SMOKE_URL=https://api.example.test/readyz", "RELEASE_EVIDENCE="+evidence)
+	if err := command.Run(); err == nil {
+		t.Fatal("failed final smoke returned a successful release")
+	}
+	var record struct {
+		Deployed      bool   `json:"deployed"`
+		FailureReason string `json:"failure_reason"`
+		Rollback      []struct {
+			Service string `json:"service"`
+			Status  string `json:"status"`
+		} `json:"rollback"`
+	}
+	contents, err := os.ReadFile(evidence)
+	if err != nil || json.Unmarshal(contents, &record) != nil {
+		t.Fatalf("release evidence unavailable or invalid: %v %s", err, contents)
+	}
+	if record.Deployed || record.FailureReason != "release_readiness_failed" || len(record.Rollback) != 2 ||
+		record.Rollback[0].Service != "catalog" || record.Rollback[1].Service != "identity" ||
+		record.Rollback[0].Status != "passed" || record.Rollback[1].Status != "passed" {
+		t.Fatalf("release evidence = %s", contents)
 	}
 }
 
@@ -158,7 +232,7 @@ func TestBEInfra001WorkflowsPinActionsAndAvoidStaticCloudKeys(t *testing.T) {
 		}
 	}
 	delivery := readFile(t, "../../.github/workflows/backend-delivery.yml")
-	for _, marker := range []string{"id-token: write", "cosign sign", "cosign attest", "environment:", "./scripts/deploy-ecs.sh", "if: always()"} {
+	for _, marker := range []string{"id-token: write", "cosign sign", "cosign attest", "environment:", "./scripts/deploy-release-ecs.sh", "if: always()"} {
 		if !strings.Contains(delivery, marker) {
 			t.Errorf("delivery workflow is missing %q", marker)
 		}

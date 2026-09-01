@@ -1,4 +1,4 @@
-import type { AdminOperationPage, AdminSession, AuditPage } from "../api/client";
+import type { AdminOperationPage, AdminSession, AuditPage, CMSPageDraftPage, CMSWorkspaceDraft } from "../api/client";
 
 export const adminSession: AdminSession = {
   subject_id: "admin-synthetic-001",
@@ -12,6 +12,7 @@ export const adminSession: AdminSession = {
     {id: "workspace", label: "Workspace", path: "/", capability: "admin.shell.read"},
     {id: "operations", label: "Operations", path: "/operations", capability: "admin.operations.read"},
     {id: "governance", label: "Governance", path: "/governance", capability: "admin.governance.read"},
+    {id: "cms", label: "Page builder", path: "/cms", capability: "admin.config.manage"},
     {id: "audit", label: "Audit trail", path: "/audit", capability: "admin.audit.read"},
   ],
   csrf_token: "csrf_synthetic_012345678901234567890123456789",
@@ -61,6 +62,47 @@ export const governanceView = {
   ],
   privacy_mode: "aggregate_and_masked" as const,
   generated_at: "2026-08-29T10:00:00Z",
+};
+
+export const cmsPageDraftPage: CMSPageDraftPage = {
+  items: [{
+    tenant_id: "tenant-synthetic-001",
+    country: "IN",
+    revision: 3,
+    updated_by: "admin-synthetic-001",
+    updated_at: "2026-08-29T10:00:00Z",
+    page: {
+      id: "customer-home",
+      route: "/app",
+      title_key: "Customer home",
+      audience: ["PUBLIC", "CUSTOMER"],
+      enabled: true,
+      blocks: [
+        {id: "home-hero", kind: "HERO", title_key: "Welcome", enabled: true, priority: 0, content: {headline: "Smart shopping, everyday."}},
+        {id: "home-products", kind: "ITEM_RAIL", title_key: "Bestsellers", enabled: true, priority: 1, content: {collection_id: "bestsellers", limit: 8}},
+      ],
+    },
+  }],
+};
+
+export const cmsWorkspaceDraft: CMSWorkspaceDraft = {
+  tenant_id: "tenant-synthetic-001",
+  country: "IN",
+  revision: 4,
+  updated_by: "admin-synthetic-001",
+  updated_at: "2026-08-29T10:00:00Z",
+  workspace: {
+    minimum_versions: {ANDROID: "1.0.0", IOS: "1.0.0"},
+    latest_versions: {ANDROID: "1.2.0", IOS: "1.2.0"},
+    supported_locales: ["en", "ta"],
+    default_locale: "en",
+    consent_policies: [{purpose: "analytics", policy_version: "2026-08", required: false}],
+    flags: {shop: true, services: true, homes: true, classifieds: true, socio: true},
+    home_sections: [
+      {id: "hero", kind: "HERO", title_key: "Home hero", enabled: true, priority: 0},
+      {id: "products", kind: "ITEM_RAIL", title_key: "Bestsellers", enabled: true, priority: 1},
+    ],
+  },
 };
 
 export function problem(status: number, code: string, message: string): Response {

@@ -457,6 +457,8 @@ func (handler *Handler) writeError(writer http.ResponseWriter, request *http.Req
 		writeProblem(writer, request, http.StatusConflict, "CHECKOUT_STATE_CONFLICT", "The checkout or order state changed. Refresh and try again.")
 	case errors.Is(err, payment.ErrProviderUnavailable):
 		writeProblem(writer, request, http.StatusServiceUnavailable, "PAYMENT_PROVIDER_UNAVAILABLE", "The payment provider is temporarily unavailable.")
+	case errors.Is(err, ErrCommercialTerms):
+		writeProblem(writer, request, http.StatusServiceUnavailable, "COMMERCIAL_POLICY_UNAVAILABLE", "Commercial policy is temporarily unavailable.")
 	default:
 		writeProblem(writer, request, http.StatusUnprocessableEntity, "CHECKOUT_REQUEST_INVALID", "The checkout request is invalid.")
 	}

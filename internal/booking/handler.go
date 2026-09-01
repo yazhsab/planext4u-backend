@@ -1,6 +1,7 @@
 package booking
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,9 +12,30 @@ import (
 	"time"
 )
 
-type Handler struct{ service *Service }
+type Application interface {
+	Now() time.Time
+	Offerings(Scope, string, string) ([]Offering, error)
+	Offering(Scope, string, string) (Offering, error)
+	Slots(Scope, string, time.Time, time.Time) ([]Slot, error)
+	Hold(Scope, string, string, string) (SlotHold, bool, error)
+	ReleaseHold(Scope, string) error
+	Create(context.Context, Scope, string, CreateBookingRequest) (Booking, bool, error)
+	ConfirmPayment(Scope, string, string, int64) (Booking, bool, error)
+	Reschedule(Scope, string, string, int64, RescheduleRequest) (Booking, bool, error)
+	Cancel(Scope, string, string, int64, string) (Booking, bool, error)
+	ProviderTransition(Actor, string, string, int64, Status, string) (Booking, bool, error)
+	Start(Actor, string, string, int64, string) (Booking, bool, error)
+	Complete(Actor, string, string, int64, string) (Booking, bool, error)
+	ConfirmCompletion(Scope, string, string, int64) (Booking, bool, error)
+	NoShow(Actor, string, string, int64, string) (Booking, bool, error)
+	Dispute(Actor, string, string, int64, string) (Booking, bool, error)
+	Get(Actor, string) (Booking, error)
+	List(Actor) ([]Booking, error)
+}
 
-func NewHandler(service *Service) (http.Handler, error) {
+type Handler struct{ service Application }
+
+func NewHandler(service Application) (http.Handler, error) {
 	if service == nil {
 		return nil, ErrInvalidRequest
 	}
@@ -70,7 +92,7 @@ func (handler *Handler) listSlots(writer http.ResponseWriter, request *http.Requ
 	if !ok {
 		return
 	}
-	now := handler.service.clock().UTC()
+	now := handler.service.Now()
 	from, err := parseInstant(request.URL.Query().Get("from"), now)
 	if err != nil {
 		handler.problem(writer, request, ErrInvalidRequest)

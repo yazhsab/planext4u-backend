@@ -21,6 +21,10 @@ type notificationRequest struct {
 	Template  string `json:"template"`
 }
 
+type malwareScanRequest struct {
+	ObjectKey string `json:"object_key"`
+}
+
 // NewHandler returns deterministic local-only provider adapters. The handler
 // rejects non-synthetic recipients and never makes an outbound provider call.
 func NewHandler() http.Handler {
@@ -28,8 +32,29 @@ func NewHandler() http.Handler {
 	mux.HandleFunc("GET /healthz", handleHealth)
 	mux.HandleFunc("POST /v1/identity/verify", handleIdentity)
 	mux.HandleFunc("POST /v1/notifications/send", handleNotification)
+	mux.HandleFunc("POST /v1/media/scan", handleMalwareScan)
 	mux.HandleFunc("GET /v1/maps/geocode", handleGeocode)
 	return limitBody(mux)
+}
+
+func handleMalwareScan(writer http.ResponseWriter, request *http.Request) {
+	if request.Header.Get("Authorization") != "Bearer local-media-scanner-token" {
+		writeProblem(writer, http.StatusUnauthorized, "SCANNER_CREDENTIAL_INVALID")
+		return
+	}
+	var input malwareScanRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil || !strings.HasPrefix(input.ObjectKey, "tenants/") ||
+		len(input.ObjectKey) > 1024 || strings.Contains(input.ObjectKey, "..") {
+		writeProblem(writer, http.StatusBadRequest, "OBJECT_KEY_INVALID")
+		return
+	}
+	if strings.Contains(strings.ToLower(input.ObjectKey), "infected") {
+		writeJSON(writer, http.StatusOK, map[string]any{"clean": false, "reason_code": "MALWARE_DETECTED"})
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"clean": true, "reason_code": ""})
 }
 
 func handleHealth(writer http.ResponseWriter, _ *http.Request) {

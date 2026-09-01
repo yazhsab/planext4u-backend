@@ -43,6 +43,15 @@ type SnapshotProvider interface {
 	Resolve(context.Context, Scope, string) (VariantSnapshot, error)
 }
 
+// CartService is the stable application boundary used by HTTP and checkout.
+// The in-memory implementation remains useful for deterministic unit tests;
+// production processes use PostgresService.
+type CartService interface {
+	Get(Scope) (Cart, error)
+	Price(context.Context, Scope, int64) (Cart, error)
+	Change(context.Context, Scope, string, int64, string, int) (Cart, bool, error)
+}
+
 type CartLine struct {
 	VariantID    string `json:"variant_id"`
 	ItemID       string `json:"item_id"`

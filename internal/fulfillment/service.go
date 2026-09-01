@@ -723,20 +723,20 @@ func digest(value any) string {
 	return hex.EncodeToString(sum[:])
 }
 func cloneRiderDocuments(values []RiderDocument) []RiderDocument {
-	return append([]RiderDocument(nil), values...)
+	return append([]RiderDocument{}, values...)
 }
 func cloneRider(value RiderProfile) RiderProfile {
 	value.Documents = cloneRiderDocuments(value.Documents)
-	value.Zones = append([]string(nil), value.Zones...)
-	value.AllowedActions = append([]string(nil), value.AllowedActions...)
+	value.Zones = append([]string{}, value.Zones...)
+	value.AllowedActions = append([]string{}, value.AllowedActions...)
 	return value
 }
 func cloneTask(value DeliveryTask) DeliveryTask {
-	value.AllowedActions = append([]string(nil), value.AllowedActions...)
+	value.AllowedActions = append([]string{}, value.AllowedActions...)
 	return value
 }
 func cloneTerritory(value Territory) Territory {
-	value.PostalCodes = append([]string(nil), value.PostalCodes...)
+	value.PostalCodes = append([]string{}, value.PostalCodes...)
 	return value
 }
 func haversineMeters(first, second Point) float64 {

@@ -205,7 +205,7 @@ func (service *Service) appendEventLocked(principal Principal, command Command, 
 func commandRisk(command Command) Risk {
 	if command.Domain == DomainCatalog && (command.Action == ActionCatalogUpsert || command.Action == ActionCatalogPublish) ||
 		command.Domain == DomainCampaign && command.Action == ActionCampaignUpsert ||
-		command.Domain == DomainCMS && (command.Action == ActionCMSUpsert || command.Action == ActionCMSPublish) ||
+		command.Domain == DomainCMS && command.Action == ActionCMSUpsert ||
 		command.Domain == DomainSupport && (command.Action == ActionSupportUpdate || command.Action == ActionSupportResolve) ||
 		command.Domain == DomainReporting && command.Action == ActionReportingExport {
 		return RiskStandard

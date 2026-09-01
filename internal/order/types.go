@@ -28,16 +28,21 @@ type Money struct {
 }
 
 type LineSnapshot struct {
-	VariantID     string `json:"variant_id"`
-	ItemID        string `json:"item_id"`
-	ItemName      string `json:"item_name"`
-	VariantName   string `json:"variant_name"`
-	Quantity      int    `json:"quantity"`
-	UnitPrice     Money  `json:"unit_price"`
-	LineTotal     Money  `json:"line_total"`
-	VendorID      string `json:"vendor_id"`
-	TaxMinor      int64  `json:"tax_minor"`
-	DiscountMinor int64  `json:"discount_minor"`
+	VariantID                   string `json:"variant_id"`
+	ItemID                      string `json:"item_id"`
+	ItemName                    string `json:"item_name"`
+	VariantName                 string `json:"variant_name"`
+	Quantity                    int    `json:"quantity"`
+	UnitPrice                   Money  `json:"unit_price"`
+	LineTotal                   Money  `json:"line_total"`
+	VendorID                    string `json:"vendor_id"`
+	TaxMinor                    int64  `json:"tax_minor"`
+	DiscountMinor               int64  `json:"discount_minor"`
+	VendorTier                  string `json:"vendor_tier"`
+	CommissionBasisPoints       int64  `json:"commission_basis_points"`
+	WalletRedemptionBasisPoints int64  `json:"wallet_redemption_basis_points"`
+	CommissionMinor             int64  `json:"commission_minor"`
+	CommercialRuleSource        string `json:"commercial_rule_source"`
 }
 
 type AddressSnapshot struct {
@@ -55,21 +60,29 @@ type DeliverySnapshot struct {
 }
 
 type CheckoutSnapshot struct {
-	CartRevision         int64            `json:"cart_revision"`
-	Lines                []LineSnapshot   `json:"lines"`
-	Address              AddressSnapshot  `json:"address"`
-	Delivery             DeliverySnapshot `json:"delivery"`
-	Subtotal             Money            `json:"subtotal"`
-	Discount             Money            `json:"discount"`
-	Tax                  Money            `json:"tax"`
-	Fees                 Money            `json:"fees"`
-	WalletApplied        Money            `json:"wallet_applied"`
-	Total                Money            `json:"total"`
-	PromotionCode        string           `json:"promotion_code,omitempty"`
-	PricingPolicyVersion string           `json:"pricing_policy_version"`
-	ReservationID        string           `json:"reservation_id"`
-	PaymentID            string           `json:"payment_id"`
-	PaymentMethod        string           `json:"payment_method"`
+	CartRevision            int64            `json:"cart_revision"`
+	Lines                   []LineSnapshot   `json:"lines"`
+	Address                 AddressSnapshot  `json:"address"`
+	Delivery                DeliverySnapshot `json:"delivery"`
+	Subtotal                Money            `json:"subtotal"`
+	Discount                Money            `json:"discount"`
+	Tax                     Money            `json:"tax"`
+	Fees                    Money            `json:"fees"`
+	ProductTax              Money            `json:"product_tax"`
+	ProductTaxTreatment     string           `json:"product_tax_treatment"`
+	PlatformFee             Money            `json:"platform_fee"`
+	PlatformFeeTax          Money            `json:"platform_fee_tax"`
+	DeliveryFee             Money            `json:"delivery_fee"`
+	MarketplaceCommission   Money            `json:"marketplace_commission"`
+	WalletRedemptionLimit   Money            `json:"wallet_redemption_limit"`
+	WalletApplied           Money            `json:"wallet_applied"`
+	Total                   Money            `json:"total"`
+	PromotionCode           string           `json:"promotion_code,omitempty"`
+	PricingPolicyVersion    string           `json:"pricing_policy_version"`
+	CommercialPolicyVersion string           `json:"commercial_policy_version"`
+	ReservationID           string           `json:"reservation_id"`
+	PaymentID               string           `json:"payment_id"`
+	PaymentMethod           string           `json:"payment_method"`
 }
 
 type Status string
@@ -163,4 +176,18 @@ type Order struct {
 	CreatedAt      time.Time        `json:"created_at"`
 	UpdatedAt      time.Time        `json:"updated_at"`
 	scope          Scope
+}
+
+// OrderService is the checkout-facing order lifecycle boundary.
+type OrderService interface {
+	Create(Scope, string, CheckoutSnapshot, bool) (Order, bool, error)
+	Get(Scope, string) (Order, error)
+	List(Scope) ([]Order, error)
+	Transition(Scope, string, string, int64, Status, string, string) (Order, bool, error)
+	RequestReturn(Scope, string, string, int64, []ReturnLine, string) (Order, bool, error)
+	DecideReturn(Scope, string, string, int64, bool, string) (Order, bool, error)
+	RecordPOD(Scope, string, string, int64, Proof) (Order, bool, error)
+	RecordRefund(Scope, string, string, int64, string, Money) (Order, bool, error)
+	Rate(Scope, string, string, int64, int, string) (Order, bool, error)
+	ProcessNotifications(context.Context, int) (int, error)
 }

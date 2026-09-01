@@ -16,6 +16,8 @@ func TestLoadRuntimeConfigAcceptsSafeDevelopmentValues(t *testing.T) {
 	values["IP_RATE_LIMIT"] = "40"
 	values["PRINCIPAL_RATE_LIMIT"] = "20"
 	values["RATE_WINDOW"] = "30s"
+	values["UPSTREAM_ROUTES"] = `{"/v1/auth":"http://127.0.0.1:8083","/v1/catalog":"http://127.0.0.1:8085"}`
+	values["ANONYMOUS_ROUTES"] = `{"/v1/provider/notification-receipts":["POST"]}`
 	config, err := loadRuntimeConfig(mapLookup(values))
 	if err != nil {
 		t.Fatalf("loadRuntimeConfig() error = %v", err)
@@ -29,6 +31,29 @@ func TestLoadRuntimeConfigAcceptsSafeDevelopmentValues(t *testing.T) {
 		config.IPRateLimit != 40 ||
 		config.principalRateLimit != 20 ||
 		config.rateWindow != 30*time.Second {
+		t.Fatalf("config = %#v", config)
+	}
+	if len(config.upstreamRoutes) != 2 || config.upstreamRoutes["/v1/auth"].String() != "http://127.0.0.1:8083" {
+		t.Fatalf("upstream routes = %#v", config.upstreamRoutes)
+	}
+	if _, ok := config.anonymousRoutes["/v1/provider/notification-receipts"]["POST"]; !ok {
+		t.Fatalf("anonymous routes = %#v", config.anonymousRoutes)
+	}
+}
+
+func TestLoadRuntimeConfigAcceptsPrivateServiceDiscoveryHTTPInProduction(t *testing.T) {
+	t.Parallel()
+
+	values := validRuntimeValues()
+	values["APP_ENV"] = "production"
+	values["UPSTREAM_URL"] = "http://transaction:8086"
+	values["UPSTREAM_ROUTES"] = `{"/v1/auth":"http://identity:8083","/v1/catalog":"http://catalog.production.internal:8085"}`
+	values["JWT_ISSUER"] = "https://identity.planext4u.example"
+	config, err := loadRuntimeConfig(mapLookup(values))
+	if err != nil {
+		t.Fatalf("loadRuntimeConfig() error = %v", err)
+	}
+	if config.upstreamURL.Host != "transaction:8086" || len(config.upstreamRoutes) != 2 {
 		t.Fatalf("config = %#v", config)
 	}
 }
@@ -55,6 +80,30 @@ func TestLoadRuntimeConfigRejectsUnsafeValues(t *testing.T) {
 				values["JWT_ISSUER"] = "https://identity.staging.planext4u.net"
 			},
 			wantErr: "HTTPS",
+		},
+		{
+			name: "staging public HTTP route",
+			mutate: func(values map[string]string) {
+				values["APP_ENV"] = "staging"
+				values["UPSTREAM_URL"] = "https://service.staging.planext4u.net"
+				values["UPSTREAM_ROUTES"] = `{"/v1/catalog":"http://catalog.example.com:8085"}`
+				values["JWT_ISSUER"] = "https://identity.staging.planext4u.net"
+			},
+			wantErr: "HTTPS",
+		},
+		{
+			name: "invalid route prefix",
+			mutate: func(values map[string]string) {
+				values["UPSTREAM_ROUTES"] = `{"v1/catalog":"http://127.0.0.1:8085"}`
+			},
+			wantErr: "path prefix",
+		},
+		{
+			name: "unsafe anonymous method",
+			mutate: func(values map[string]string) {
+				values["ANONYMOUS_ROUTES"] = `{"/v1/catalog/items":["GET"]}`
+			},
+			wantErr: "only permits POST",
 		},
 		{
 			name: "staging HTTP issuer",

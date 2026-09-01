@@ -81,11 +81,11 @@ func (handler *Handler) suggestions(writer http.ResponseWriter, request *http.Re
 }
 
 func (handler *Handler) geocode(writer http.ResponseWriter, request *http.Request) {
-	_, country, ok := requestScope(writer, request)
+	tenant, country, ok := requestScope(writer, request)
 	if !ok {
 		return
 	}
-	values, err := handler.service.Geocode(country, request.URL.Query().Get("q"))
+	values, err := handler.service.Geocode(tenant, country, request.URL.Query().Get("q"))
 	if err != nil {
 		writeProblem(writer, request, http.StatusUnprocessableEntity, "GEOCODING_REQUEST_INVALID", "Enter at least two locality or pincode characters.", false)
 		return
@@ -171,11 +171,11 @@ func (handler *Handler) serviceability(writer http.ResponseWriter, request *http
 		writeProblem(writer, request, 422, "LOCATION_INVALID", "The location is invalid.", false)
 		return
 	}
-	_, country, ok := requestScope(writer, request)
+	tenant, country, ok := requestScope(writer, request)
 	if !ok {
 		return
 	}
-	result, err := handler.service.CheckServiceability(country, point)
+	result, err := handler.service.CheckServiceability(tenant, country, point)
 	if err != nil {
 		writeProblem(writer, request, 422, "LOCATION_INVALID", "The location is invalid.", false)
 		return

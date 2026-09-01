@@ -69,6 +69,8 @@ func NewService(configuration Configuration, clock func() time.Time) (*Service, 
 	return service, nil
 }
 
+func (service *Service) Now() time.Time { return service.clock().UTC() }
+
 func (service *Service) Restaurants(actor Actor, postalCode, cuisine string) ([]Restaurant, error) {
 	if !validActor(actor) || !hasRole(actor, "CUSTOMER") || !validPostal(postalCode) {
 		return nil, ErrForbidden

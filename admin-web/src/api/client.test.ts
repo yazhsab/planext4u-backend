@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { APIError, getSession, listAuditEvents, setCountry } from "./client";
-import { adminSession, auditPage, problem } from "../test/fixtures";
+import { APIError, getCMSWorkspace, getSession, listAuditEvents, listCMSPageDrafts, saveCMSPageDraft, setCountry } from "./client";
+import { adminSession, auditPage, cmsPageDraftPage, cmsWorkspaceDraft, problem } from "../test/fixtures";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -49,6 +49,27 @@ describe("admin API client", () => {
   it("propagates a country denial without exposing response details", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(problem(403, "ADMIN_COUNTRY_FORBIDDEN", "You do not have access to that country."))));
     await expect(setCountry("US", adminSession.csrf_token)).rejects.toMatchObject({status: 403, code: "ADMIN_COUNTRY_FORBIDDEN"});
+  });
+
+  it("validates CMS page and workspace drafts", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => Promise.resolve(Response.json(requestURL(input).endsWith("/workspace") ? cmsWorkspaceDraft : cmsPageDraftPage)));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(listCMSPageDrafts()).resolves.toEqual(cmsPageDraftPage);
+    await expect(getCMSWorkspace()).resolves.toEqual(cmsWorkspaceDraft);
+  });
+
+  it("saves revision-safe page drafts with CSRF and correlation evidence", async () => {
+    const draft = cmsPageDraftPage.items[0];
+    if (!draft) throw new Error("Expected a CMS page draft fixture");
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method).toBe("PUT");
+      expect(new Headers(init?.headers).get("X-CSRF-Token")).toBe(adminSession.csrf_token);
+      expect(new Headers(init?.headers).get("X-Correlation-ID")).toMatch(/^admin-web-/);
+      expect(init?.body).toContain('"expected_revision":3');
+      return Promise.resolve(Response.json({...draft, revision: 4}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(saveCMSPageDraft(draft.page.id, draft.revision, draft.page, adminSession.csrf_token)).resolves.toMatchObject({revision: 4});
   });
 });
 

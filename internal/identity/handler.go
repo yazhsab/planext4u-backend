@@ -175,6 +175,8 @@ func (handler *Handler) handleProfileUpdate(writer http.ResponseWriter, request 
 	}
 	var input struct {
 		DisplayName string `json:"display_name"`
+		Email       string `json:"email"`
+		Phone       string `json:"phone"`
 		Locale      string `json:"locale"`
 		TimeZone    string `json:"time_zone"`
 	}
@@ -184,6 +186,8 @@ func (handler *Handler) handleProfileUpdate(writer http.ResponseWriter, request 
 	}
 	profile, err := handler.service.UpdateProfile(request.Context(), trusted, ProfileUpdate{
 		DisplayName: input.DisplayName,
+		Email:       input.Email,
+		Phone:       input.Phone,
 		Locale:      input.Locale,
 		TimeZone:    input.TimeZone,
 		Version:     version,

@@ -50,6 +50,7 @@ type Request struct {
 	tenantID          string
 	country           string
 	lastLocation      *Location
+	encryptedLocation []byte
 }
 
 type CreateRequest struct {

@@ -11,9 +11,28 @@ import (
 	"time"
 )
 
-type Handler struct{ service *Service }
+type Application interface {
+	SearchHomes(Actor, HomeSearch) ([]HomeListing, error)
+	Home(Actor, string) (HomeListing, error)
+	CreateHome(Actor, string, HomeListingRequest) (HomeListing, bool, error)
+	PublishHome(Actor, string, string, int64) (HomeListing, bool, error)
+	EstimateHome(Actor, string) (HomeEstimate, error)
+	Inquire(Actor, string, string, string) (Inquiry, bool, error)
+	ScheduleVisit(Actor, string, string, time.Time) (Visit, bool, error)
+	UpgradeHome(Actor, string, string, string) (HomeListing, bool, error)
+	BrowseClassifieds(Actor, string, string, string) ([]ClassifiedListing, error)
+	Classified(Actor, string) (ClassifiedListing, error)
+	CreateClassified(Actor, string, ClassifiedRequest) (ClassifiedListing, bool, error)
+	RevealContact(Actor, string, ContactRequest) (ClassifiedListing, error)
+	RepostClassified(Actor, string, string) (ClassifiedListing, bool, error)
+	ReportClassified(Actor, string, string, ReportRequest) (ClassifiedListing, bool, error)
+	UpgradeClassified(Actor, string, string, string) (ClassifiedListing, bool, error)
+	ExpireClassifieds(Actor) (int, error)
+}
 
-func NewHandler(service *Service) (http.Handler, error) {
+type Handler struct{ service Application }
+
+func NewHandler(service Application) (http.Handler, error) {
 	if service == nil {
 		return nil, ErrInvalidRequest
 	}

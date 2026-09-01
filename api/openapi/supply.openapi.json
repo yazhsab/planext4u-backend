@@ -1,51 +1,989 @@
 {
-  "openapi": "3.1.0",
-  "info": {"title": "Planext4u Supply API", "version": "1.0.0"},
-  "x-planext4u-reviewers": ["architecture", "security", "privacy", "mobile"],
-  "security": [{"bearerAuth": []}],
-  "paths": {
-    "/v1/vendor/applications": {"post": {"operationId": "registerVendor", "responses": {"201": {"description": "Registered"}}}},
-    "/v1/vendor/application": {"get": {"operationId": "getVendorApplication", "responses": {"200": {"description": "Application"}}}},
-    "/v1/vendor/application/documents": {"post": {"operationId": "submitVendorDocuments", "responses": {"200": {"description": "Documents submitted"}}}},
-    "/v1/vendor/application/field-visit": {"post": {"operationId": "scheduleVendorFieldVisit", "responses": {"200": {"description": "Visit scheduled"}}}},
-    "/v1/vendor/application/zones": {"post": {"operationId": "setVendorZones", "responses": {"200": {"description": "Zones stored"}}}},
-    "/v1/vendor/application/bank": {"post": {"operationId": "submitVendorBank", "responses": {"200": {"description": "Bank submitted"}}}},
-    "/v1/vendor/applications/{vendor_id}/transitions": {"post": {"operationId": "transitionVendorApplication", "parameters": [{"$ref": "#/components/parameters/VendorID"}], "responses": {"200": {"description": "Transitioned"}}}},
-    "/v1/vendor/applications/{vendor_id}/field-check-in": {"post": {"operationId": "checkInVendorFieldVisit", "parameters": [{"$ref": "#/components/parameters/VendorID"}], "responses": {"200": {"description": "Checked in"}}}},
-    "/v1/vendor/applications/{vendor_id}/bank-verification": {"post": {"operationId": "verifyVendorBank", "parameters": [{"$ref": "#/components/parameters/VendorID"}], "responses": {"200": {"description": "Bank verified"}}}},
-    "/v1/vendor/dashboard": {"get": {"operationId": "getVendorDashboard", "responses": {"200": {"description": "Dashboard"}}}},
-    "/v1/vendor/catalog": {
-      "get": {"operationId": "listVendorCatalog", "responses": {"200": {"description": "Catalog"}}},
-      "post": {"operationId": "createVendorCatalogItem", "responses": {"201": {"description": "Created"}}}
-    },
-    "/v1/vendor/catalog/{item_id}": {"put": {"operationId": "updateVendorCatalogItem", "parameters": [{"$ref": "#/components/parameters/ItemID"}], "responses": {"200": {"description": "Updated"}}}},
-    "/v1/vendor/catalog/{item_id}/inventory": {"post": {"operationId": "setVendorInventory", "parameters": [{"$ref": "#/components/parameters/ItemID"}], "responses": {"200": {"description": "Inventory stored"}}}},
-    "/v1/vendor/catalog/{item_id}/schedule": {"post": {"operationId": "setVendorSchedule", "parameters": [{"$ref": "#/components/parameters/ItemID"}], "responses": {"200": {"description": "Schedule stored"}}}},
-    "/v1/vendor/catalog/{item_id}/approval": {"post": {"operationId": "approveVendorCatalog", "parameters": [{"$ref": "#/components/parameters/ItemID"}], "responses": {"200": {"description": "Approval stored"}}}},
-    "/v1/vendor/work": {"get": {"operationId": "listVendorWork", "responses": {"200": {"description": "Work queue"}}}},
-    "/v1/vendor/work/{work_id}/transition": {"post": {"operationId": "transitionVendorWork", "parameters": [{"name": "work_id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Transitioned"}}}},
-    "/v1/vendor/promotions": {"post": {"operationId": "createVendorPromotion", "responses": {"201": {"description": "Promotion created"}}}}
-  },
   "components": {
-    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
     "parameters": {
-      "VendorID": {"name": "vendor_id", "in": "path", "required": true, "schema": {"type": "string"}},
-      "ItemID": {"name": "item_id", "in": "path", "required": true, "schema": {"type": "string"}}
-    },
-    "schemas": {
-      "ApplicationStatus": {"type": "string", "enum": ["REGISTERED", "DOCUMENTS_SUBMITTED", "OCR_REVIEW", "KYC_REVIEW", "FIELD_VISIT_REQUIRED", "FIELD_VISIT_SCHEDULED", "FIELD_VISIT_PASSED", "BANK_REVIEW", "APPROVED", "REJECTED"]},
-      "VendorApplication": {
-        "type": "object",
-        "required": ["id", "vendor_id", "revision", "status", "business_name", "documents", "service_zones", "verified", "timeline", "created_at", "updated_at"],
-        "properties": {
-          "id": {"type": "string"}, "vendor_id": {"type": "string"}, "revision": {"type": "integer", "format": "int64"}, "status": {"$ref": "#/components/schemas/ApplicationStatus"}, "business_name": {"type": "string"},
-          "documents": {"type": "array", "items": {"$ref": "#/components/schemas/VendorDocument"}}, "service_zones": {"type": "array", "items": {"type": "object"}}, "bank_account": {"$ref": "#/components/schemas/BankAccount"}, "verified": {"type": "boolean"}, "timeline": {"type": "array", "items": {"type": "object"}}, "created_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"}
+      "ItemID": {
+        "in": "path",
+        "name": "item_id",
+        "required": true,
+        "schema": {
+          "type": "string"
         }
       },
-      "VendorDocument": {"type": "object", "required": ["kind", "asset_id", "ocr_status"], "properties": {"kind": {"type": "string"}, "asset_id": {"type": "string", "x-planext4u-sensitive": true}, "ocr_status": {"type": "string"}, "extracted_fields": {"type": "object", "additionalProperties": {"type": "string"}, "x-planext4u-sensitive": true}}},
-      "BankAccount": {"type": "object", "required": ["reference", "holder_name", "last4", "ifsc", "status"], "properties": {"reference": {"type": "string", "x-planext4u-sensitive": true}, "holder_name": {"type": "string", "x-planext4u-sensitive": true}, "last4": {"type": "string"}, "ifsc": {"type": "string"}, "status": {"type": "string"}}},
-      "CatalogKind": {"type": "string", "enum": ["PRODUCT", "SERVICE", "FOOD"]},
-      "VendorCatalogItem": {"type": "object", "required": ["id", "vendor_id", "revision", "kind", "name", "price", "stock", "approval_status", "active", "schedules", "updated_at"], "properties": {"id": {"type": "string"}, "vendor_id": {"type": "string"}, "revision": {"type": "integer"}, "kind": {"$ref": "#/components/schemas/CatalogKind"}, "name": {"type": "string"}, "price": {"type": "object"}, "stock": {"type": "integer"}, "approval_status": {"type": "string"}, "active": {"type": "boolean"}, "schedules": {"type": "array", "items": {"type": "object"}}, "updated_at": {"type": "string", "format": "date-time"}}}
+      "VendorID": {
+        "in": "path",
+        "name": "vendor_id",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "schemas": {
+      "ApplicationStatus": {
+        "enum": [
+          "REGISTERED",
+          "DOCUMENTS_SUBMITTED",
+          "OCR_REVIEW",
+          "KYC_REVIEW",
+          "FIELD_VISIT_REQUIRED",
+          "FIELD_VISIT_SCHEDULED",
+          "FIELD_VISIT_PASSED",
+          "BANK_REVIEW",
+          "APPROVED",
+          "REJECTED"
+        ],
+        "type": "string"
+      },
+      "BankAccount": {
+        "additionalProperties": false,
+        "properties": {
+          "holder_name": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "ifsc": {
+            "type": "string"
+          },
+          "last4": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "holder_name",
+          "last4",
+          "ifsc",
+          "status"
+        ],
+        "type": "object"
+      },
+      "CatalogKind": {
+        "enum": [
+          "PRODUCT",
+          "SERVICE",
+          "FOOD"
+        ],
+        "type": "string"
+      },
+      "Dashboard": {
+        "additionalProperties": false,
+        "properties": {
+          "application": {
+            "$ref": "#/components/schemas/VendorApplication"
+          },
+          "catalog_items": {
+            "type": "integer"
+          },
+          "low_stock_items": {
+            "type": "integer"
+          },
+          "offline_snapshot_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "open_work_items": {
+            "type": "integer"
+          },
+          "points": {
+            "type": "integer"
+          },
+          "recommendations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sales": {
+            "$ref": "#/components/schemas/Money"
+          }
+        },
+        "required": [
+          "application",
+          "catalog_items",
+          "low_stock_items",
+          "offline_snapshot_at",
+          "open_work_items",
+          "points",
+          "recommendations",
+          "sales"
+        ],
+        "type": "object"
+      },
+      "FieldVisit": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_radius_m": {
+            "type": "number"
+          },
+          "check_in_distance_m": {
+            "type": "number"
+          },
+          "checked_in_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": "number"
+          },
+          "longitude": {
+            "type": "number"
+          },
+          "officer_id": {
+            "type": "string"
+          },
+          "scheduled_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "allowed_radius_m",
+          "id",
+          "latitude",
+          "longitude",
+          "scheduled_at"
+        ],
+        "type": "object"
+      },
+      "Money": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_minor": {
+            "type": "integer"
+          },
+          "currency": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_minor",
+          "currency"
+        ],
+        "type": "object"
+      },
+      "Promotion": {
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "conversions": {
+            "type": "integer"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "impressions": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "vendor_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "budget",
+          "conversions",
+          "ends_at",
+          "id",
+          "impressions",
+          "kind",
+          "starts_at",
+          "status",
+          "title",
+          "vendor_id"
+        ],
+        "type": "object"
+      },
+      "ScheduleWindow": {
+        "additionalProperties": false,
+        "properties": {
+          "buffer_minutes": {
+            "type": "integer"
+          },
+          "capacity": {
+            "type": "integer"
+          },
+          "ends_minute": {
+            "type": "integer"
+          },
+          "starts_minute": {
+            "type": "integer"
+          },
+          "time_zone": {
+            "type": "string"
+          },
+          "weekday": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "buffer_minutes",
+          "capacity",
+          "ends_minute",
+          "starts_minute",
+          "time_zone",
+          "weekday"
+        ],
+        "type": "object"
+      },
+      "ServiceZone": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": "number"
+          },
+          "longitude": {
+            "type": "number"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "postal_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "radius_km": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "latitude",
+          "longitude",
+          "policy_version",
+          "postal_codes",
+          "radius_km"
+        ],
+        "type": "object"
+      },
+      "TimelineEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ApplicationStatus"
+          }
+        },
+        "required": [
+          "actor",
+          "created_at",
+          "status"
+        ],
+        "type": "object"
+      },
+      "VendorApplication": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "bank_account": {
+            "$ref": "#/components/schemas/BankAccount",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BankAccount"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "business_name": {
+            "type": "string"
+          },
+          "business_type": {
+            "type": "string"
+          },
+          "contact_name": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/VendorDocument"
+            },
+            "type": "array"
+          },
+          "field_visit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FieldVisit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "service_zones": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceZone"
+            },
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ApplicationStatus"
+          },
+          "timeline": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineEvent"
+            },
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "vendor_id": {
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "vendor_id",
+          "revision",
+          "status",
+          "business_name",
+          "documents",
+          "service_zones",
+          "verified",
+          "timeline",
+          "created_at",
+          "updated_at",
+          "allowed_actions",
+          "business_type",
+          "contact_name"
+        ],
+        "type": "object"
+      },
+      "VendorCatalogItem": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "approval_status": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CatalogKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "schedules": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleWindow"
+            },
+            "type": "array"
+          },
+          "sku": {
+            "type": "string"
+          },
+          "stock": {
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "vendor_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "vendor_id",
+          "revision",
+          "kind",
+          "name",
+          "price",
+          "stock",
+          "approval_status",
+          "active",
+          "schedules",
+          "updated_at",
+          "allowed_actions",
+          "description",
+          "sku"
+        ],
+        "type": "object"
+      },
+      "VendorDocument": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "extracted_fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "x-planext4u-sensitive": true
+          },
+          "kind": {
+            "type": "string"
+          },
+          "ocr_status": {
+            "type": "string"
+          },
+          "review_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "asset_id",
+          "ocr_status"
+        ],
+        "type": "object"
+      },
+      "WorkItem": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "customer_label": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "reference_id": {
+            "type": "string"
+          },
+          "reference_type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "total": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "vendor_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "allowed_actions",
+          "customer_label",
+          "id",
+          "reference_id",
+          "reference_type",
+          "status",
+          "total",
+          "updated_at",
+          "vendor_id"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
     }
-  }
+  },
+  "info": {
+    "title": "Planext4u Supply API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/vendor/application": {
+      "get": {
+        "operationId": "getVendorApplication",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VendorApplication"
+                }
+              }
+            },
+            "description": "Application"
+          }
+        }
+      }
+    },
+    "/v1/vendor/application/bank": {
+      "post": {
+        "operationId": "submitVendorBank",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VendorApplication"
+                }
+              }
+            },
+            "description": "Bank submitted"
+          }
+        }
+      }
+    },
+    "/v1/vendor/application/documents": {
+      "post": {
+        "operationId": "submitVendorDocuments",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VendorApplication"
+                }
+              }
+            },
+            "description": "Documents submitted"
+          }
+        }
+      }
+    },
+    "/v1/vendor/application/field-visit": {
+      "post": {
+        "operationId": "scheduleVendorFieldVisit",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VendorApplication"
+                }
+              }
+            },
+            "description": "Visit scheduled"
+          }
+        }
+      }
+    },
+    "/v1/vendor/application/zones": {
+      "post": {
+        "operationId": "setVendorZones",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VendorApplication"
+                }
+              }
+            },
+            "description": "Zones stored"
+          }
+        }
+      }
+    },
+    "/v1/vendor/applications": {
+      "post": {
+        "operationId": "registerVendor",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VendorApplication"
+                }
+              }
+            },
+            "description": "Registered"
+          }
+        }
+      }
+    },
+    "/v1/vendor/applications/{vendor_id}/bank-verification": {
+      "post": {
+        "operationId": "verifyVendorBank",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/VendorID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VendorApplication"
+                }
+              }
+            },
+            "description": "Bank verified"
+          }
+        }
+      }
+    },
+    "/v1/vendor/applications/{vendor_id}/field-check-in": {
+      "post": {
+        "operationId": "checkInVendorFieldVisit",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/VendorID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VendorApplication"
+                }
+              }
+            },
+            "description": "Checked in"
+          }
+        }
+      }
+    },
+    "/v1/vendor/applications/{vendor_id}/transitions": {
+      "post": {
+        "operationId": "transitionVendorApplication",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/VendorID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VendorApplication"
+                }
+              }
+            },
+            "description": "Transitioned"
+          }
+        }
+      }
+    },
+    "/v1/vendor/catalog": {
+      "get": {
+        "operationId": "listVendorCatalog",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/VendorCatalogItem"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Catalog"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createVendorCatalogItem",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VendorCatalogItem"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/v1/vendor/catalog/{item_id}": {
+      "put": {
+        "operationId": "updateVendorCatalogItem",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ItemID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VendorCatalogItem"
+                }
+              }
+            },
+            "description": "Updated"
+          }
+        }
+      }
+    },
+    "/v1/vendor/catalog/{item_id}/approval": {
+      "post": {
+        "operationId": "approveVendorCatalog",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ItemID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VendorCatalogItem"
+                }
+              }
+            },
+            "description": "Approval stored"
+          }
+        }
+      }
+    },
+    "/v1/vendor/catalog/{item_id}/inventory": {
+      "post": {
+        "operationId": "setVendorInventory",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ItemID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VendorCatalogItem"
+                }
+              }
+            },
+            "description": "Inventory stored"
+          }
+        }
+      }
+    },
+    "/v1/vendor/catalog/{item_id}/schedule": {
+      "post": {
+        "operationId": "setVendorSchedule",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ItemID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VendorCatalogItem"
+                }
+              }
+            },
+            "description": "Schedule stored"
+          }
+        }
+      }
+    },
+    "/v1/vendor/dashboard": {
+      "get": {
+        "operationId": "getVendorDashboard",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Dashboard"
+                }
+              }
+            },
+            "description": "Dashboard"
+          }
+        }
+      }
+    },
+    "/v1/vendor/promotions": {
+      "post": {
+        "operationId": "createVendorPromotion",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Promotion"
+                }
+              }
+            },
+            "description": "Promotion created"
+          }
+        }
+      }
+    },
+    "/v1/vendor/work": {
+      "get": {
+        "operationId": "listVendorWork",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/WorkItem"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Work queue"
+          }
+        }
+      }
+    },
+    "/v1/vendor/work/{work_id}/transition": {
+      "post": {
+        "operationId": "transitionVendorWork",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "work_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItem"
+                }
+              }
+            },
+            "description": "Transitioned"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "x-planext4u-reviewers": [
+    "architecture",
+    "security",
+    "privacy",
+    "mobile"
+  ]
 }

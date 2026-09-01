@@ -8,12 +8,18 @@ export type AuditPage = components["schemas"]["AuditPage"];
 export type AdminOperationChange = components["schemas"]["AdminOperationChange"];
 export type AdminOperationInput = components["schemas"]["AdminOperationInput"];
 export type AdminOperationPage = components["schemas"]["AdminOperationPage"];
+export type CMSPage = components["schemas"]["Page"];
+export type CMSPageBlock = components["schemas"]["PageBlock"];
+export type CMSPageDraft = components["schemas"]["CMSPageDraft"];
+export type CMSPageDraftPage = components["schemas"]["CMSPageDraftPage"];
+export type CMSWorkspace = components["schemas"]["Workspace"];
+export type CMSWorkspaceDraft = components["schemas"]["CMSWorkspaceDraft"];
 
 const roleSchema = z.enum(["SUPER_ADMIN", "COUNTRY_ADMIN", "CONTENT_ADMIN", "SUPPORT_ADMIN", "AUDITOR"]);
 const navigationSchema = z.object({
   id: z.string().min(1).max(64),
   label: z.string().min(1).max(80),
-  path: z.enum(["/", "/operations", "/governance", "/audit"]),
+  path: z.enum(["/", "/operations", "/governance", "/cms", "/audit"]),
   capability: z.string().min(1).max(128),
 });
 const sessionSchema = z.object({
@@ -80,6 +86,64 @@ const governanceSchema = z.object({
   metrics: z.array(z.object({id: z.string(), title: z.string(), value: z.number().int(), unit: z.string(), freshness: z.iso.datetime({offset: true}), masked: z.boolean()})),
   privacy_mode: z.literal("aggregate_and_masked"),
   generated_at: z.iso.datetime({offset: true}),
+});
+const pageBlockSchema = z.object({
+  id: z.string().min(1).max(128),
+  kind: z.string().min(1).max(64),
+  title_key: z.string().min(1).max(160).optional(),
+  enabled: z.boolean(),
+  priority: z.number().int().nonnegative(),
+  content: z.record(z.string(), z.unknown()),
+});
+const pageSchema = z.object({
+  id: z.string().min(1).max(128),
+  route: z.string().startsWith("/").max(256),
+  title_key: z.string().min(1).max(160),
+  audience: z.array(z.enum(["PUBLIC", "CUSTOMER", "VENDOR", "RIDER"])).min(1).max(4),
+  enabled: z.boolean(),
+  blocks: z.array(pageBlockSchema).max(128),
+});
+const cmsPageDraftSchema = z.object({
+  tenant_id: z.string().min(1).max(128),
+  country: z.string().regex(/^[A-Z]{2}$/),
+  page: pageSchema,
+  revision: z.number().int().positive(),
+  updated_by: z.string().min(1).max(128),
+  updated_at: z.iso.datetime({offset: true}),
+});
+const cmsPageDraftPageSchema = z.object({items: z.array(cmsPageDraftSchema)});
+const semanticVersionSchema = z.string().regex(/^\d+\.\d+\.\d+$/);
+const workspaceSchema = z.object({
+  minimum_versions: z.object({ANDROID: semanticVersionSchema, IOS: semanticVersionSchema}),
+  latest_versions: z.object({ANDROID: semanticVersionSchema, IOS: semanticVersionSchema}),
+  supported_locales: z.array(z.enum(["en", "ta"])).min(1).max(2),
+  default_locale: z.enum(["en", "ta"]),
+  consent_policies: z.array(z.object({
+    purpose: z.string().min(1).max(128),
+    policy_version: z.string().min(1).max(128),
+    required: z.boolean(),
+  })).max(32),
+  flags: z.record(z.string(), z.boolean()),
+  home_sections: z.array(z.object({
+    id: z.string().min(1).max(128),
+    kind: z.string().min(1).max(64),
+    title_key: z.string().min(1).max(160),
+    enabled: z.boolean(),
+    priority: z.number().int(),
+  })).max(64),
+  maintenance_window: z.object({
+    starts_at: z.iso.datetime({offset: true}),
+    ends_at: z.iso.datetime({offset: true}),
+    message: z.string().min(1).max(240),
+  }).optional(),
+});
+const cmsWorkspaceDraftSchema = z.object({
+  tenant_id: z.string().min(1).max(128),
+  country: z.string().regex(/^[A-Z]{2}$/),
+  workspace: workspaceSchema,
+  revision: z.number().int().positive(),
+  updated_by: z.string().min(1).max(128),
+  updated_at: z.iso.datetime({offset: true}),
 });
 export type GovernanceView = z.infer<typeof governanceSchema>;
 const problemSchema = z.object({
@@ -165,6 +229,38 @@ export function listOperations(signal?: AbortSignal): Promise<AdminOperationPage
 
 export function getGovernance(signal?: AbortSignal): Promise<GovernanceView> {
   return requestJSON("/admin/api/v1/governance", governanceSchema, {signal});
+}
+
+export function listCMSPageDrafts(signal?: AbortSignal): Promise<CMSPageDraftPage> {
+  return requestJSON("/admin/api/v1/cms/pages", cmsPageDraftPageSchema, {signal});
+}
+
+export function saveCMSPageDraft(pageID: string, expectedRevision: number, page: CMSPage, csrfToken: string): Promise<CMSPageDraft> {
+  return requestJSON(`/admin/api/v1/cms/pages/${encodeURIComponent(pageID)}/draft`, cmsPageDraftSchema, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+      "X-Correlation-ID": `admin-web-${globalThis.crypto.randomUUID()}`,
+    },
+    body: JSON.stringify({expected_revision: expectedRevision, page}),
+  });
+}
+
+export function getCMSWorkspace(signal?: AbortSignal): Promise<CMSWorkspaceDraft> {
+  return requestJSON("/admin/api/v1/cms/workspace", cmsWorkspaceDraftSchema, {signal});
+}
+
+export function saveCMSWorkspace(expectedRevision: number, workspace: CMSWorkspace, csrfToken: string): Promise<CMSWorkspaceDraft> {
+  return requestJSON("/admin/api/v1/cms/workspace/draft", cmsWorkspaceDraftSchema, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+      "X-Correlation-ID": `admin-web-${globalThis.crypto.randomUUID()}`,
+    },
+    body: JSON.stringify({expected_revision: expectedRevision, workspace}),
+  });
 }
 
 export function submitOperation(input: AdminOperationInput, csrfToken: string): Promise<AdminOperationChange> {

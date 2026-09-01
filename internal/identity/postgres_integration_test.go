@@ -39,19 +39,24 @@ func TestPostgresIdentityLifecycleAndConcurrentReuse(t *testing.T) {
 		defer cleanupCancel()
 		_, _ = pool.Exec(cleanupContext, `DROP SCHEMA IF EXISTS identity CASCADE`)
 	})
-	rolesMigration, err := os.ReadFile("../../migrations/platform/000001_service_roles.up.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, string(rolesMigration)); err != nil {
-		t.Fatalf("apply service role migration: %v", err)
-	}
-	migration, err := os.ReadFile("../../migrations/identity/000001_identity.up.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, string(migration)); err != nil {
-		t.Fatalf("apply identity migration: %v", err)
+	for _, path := range []string{
+		"../../migrations/platform/000001_service_roles.up.sql",
+		"../../migrations/platform/000002_commerce_roles.up.sql",
+		"../../migrations/platform/000003_transaction_roles.up.sql",
+		"../../migrations/platform/000004_booking_roles.up.sql",
+		"../../migrations/platform/000005_phase4_roles.up.sql",
+		"../../migrations/platform/000006_phase5_roles.up.sql",
+		"../../migrations/platform/000007_transaction_runtime.up.sql",
+		"../../migrations/identity/000001_identity.up.sql",
+		"../../migrations/identity/000002_profile_contacts.up.sql",
+	} {
+		migration, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if _, applyErr := pool.Exec(ctx, string(migration)); applyErr != nil {
+			t.Fatalf("apply %s: %v", path, applyErr)
+		}
 	}
 	repository, err := NewPostgresRepository(pool)
 	if err != nil {
@@ -195,6 +200,18 @@ func TestPostgresIdentityLifecycleAndConcurrentReuse(t *testing.T) {
 	consents, err := service.Consents(ctx, profileTrusted)
 	if err != nil || len(consents) != 1 || consents[0].Granted {
 		t.Fatalf("PostgreSQL current consents = %#v, %v", consents, err)
+	}
+	exported, err := service.ExportData(ctx, profileTrusted)
+	if err != nil || exported.IdentityID != profileAuth.IdentityID || exported.Profile.DisplayName != profile.DisplayName || len(exported.Consents) != 1 || len(exported.Sessions) != 1 {
+		t.Fatalf("PostgreSQL data export = %#v, %v", exported, err)
+	}
+	deletion, err := service.RequestDeletion(ctx, profileTrusted, "Customer-requested account closure")
+	if err != nil || deletion.Status != "SCHEDULED" || deletion.IdentityID != profileAuth.IdentityID || !deletion.EffectiveAt.Equal(deletion.RequestedAt.Add(30*24*time.Hour)) {
+		t.Fatalf("PostgreSQL deletion request = %#v, %v", deletion, err)
+	}
+	updatedDeletion, err := service.RequestDeletion(ctx, profileTrusted, "Updated closure reason")
+	if err != nil || updatedDeletion.ID != deletion.ID || updatedDeletion.Reason != "Updated closure reason" {
+		t.Fatalf("PostgreSQL deletion request update = %#v, %v", updatedDeletion, err)
 	}
 	secondProfileSession, err := service.Exchange(ctx, ExchangeInput{
 		Provider:      "local",

@@ -1,0 +1,68 @@
+terraform_deployment_role_arn = "arn:aws:iam::333333333333:role/planext4u-terraform-deploy"
+permissions_boundary_arn     = "arn:aws:iam::333333333333:policy/planext4u-permissions-boundary"
+certificate_arn              = "arn:aws:acm:ap-south-1:333333333333:certificate/33333333-3333-4333-8333-333333333333"
+otel_endpoint                = "https://otel-collector.production.planext4u.internal:4318"
+
+services = {
+  platform      = { image = "333333333333.dkr.ecr.ap-south-1.amazonaws.com/planext4u/platform@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8080, cpu = 2048, memory = 4096, desired_count = 4, health_path = "/healthz" }
+  gateway       = { image = "333333333333.dkr.ecr.ap-south-1.amazonaws.com/planext4u/gateway@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8082, cpu = 2048, memory = 4096, desired_count = 4, health_path = "/healthz" }
+  identity      = { image = "333333333333.dkr.ecr.ap-south-1.amazonaws.com/planext4u/identity@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8083, cpu = 2048, memory = 4096, desired_count = 4, health_path = "/healthz" }
+  configuration = { image = "333333333333.dkr.ecr.ap-south-1.amazonaws.com/planext4u/configuration@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8084, cpu = 1024, memory = 2048, desired_count = 3, health_path = "/healthz" }
+  catalog       = { image = "333333333333.dkr.ecr.ap-south-1.amazonaws.com/planext4u/catalog@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8085, cpu = 2048, memory = 4096, desired_count = 4, health_path = "/healthz" }
+  transaction   = { image = "333333333333.dkr.ecr.ap-south-1.amazonaws.com/planext4u/transaction@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8086, cpu = 4096, memory = 8192, desired_count = 6, health_path = "/healthz" }
+  media         = { image = "333333333333.dkr.ecr.ap-south-1.amazonaws.com/planext4u/media@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8087, cpu = 2048, memory = 4096, desired_count = 4, health_path = "/healthz" }
+  messaging     = { image = "333333333333.dkr.ecr.ap-south-1.amazonaws.com/planext4u/messaging@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8088, cpu = 1024, memory = 2048, desired_count = 3, health_path = "/healthz" }
+  notification  = { image = "333333333333.dkr.ecr.ap-south-1.amazonaws.com/planext4u/notification@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8089, cpu = 1024, memory = 2048, desired_count = 3, health_path = "/healthz" }
+  admin         = { image = "333333333333.dkr.ecr.ap-south-1.amazonaws.com/planext4u/admin@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8090, cpu = 2048, memory = 4096, desired_count = 3, health_path = "/healthz" }
+  audit         = { image = "333333333333.dkr.ecr.ap-south-1.amazonaws.com/planext4u/audit@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8091, cpu = 1024, memory = 2048, desired_count = 3, health_path = "/healthz" }
+}
+
+service_environment = {
+  gateway = {
+    JWT_ISSUER       = "https://identity.planext4u.example"
+    JWT_AUDIENCE     = "planext4u"
+    JWT_KEY_ID       = "replace-with-active-key-id"
+    UPSTREAM_URL     = "http://transaction:8086"
+    ANONYMOUS_ROUTES = jsonencode({
+      "/v1/payments/webhooks/razorpay"      = ["POST"]
+      "/v1/payments/webhooks/paystack"      = ["POST"]
+      "/v1/provider/notification-receipts" = ["POST"]
+    })
+    UPSTREAM_ROUTES = jsonencode({
+      "/v1/auth"               = "http://identity:8083"
+      "/v1/me"                 = "http://identity:8083"
+      "/v1/bootstrap"          = "http://configuration:8084"
+      "/v1/pages"              = "http://configuration:8084"
+      "/v1/catalog"            = "http://catalog:8085"
+      "/v1/geocoding"          = "http://catalog:8085"
+      "/v1/home"               = "http://catalog:8085"
+      "/v1/serviceability"     = "http://catalog:8085"
+      "/v1/media"              = "http://media:8087"
+      "/v1/notifications"      = "http://notification:8089"
+      "/v1/notification"       = "http://notification:8089"
+      "/v1/provider/notification-receipts" = "http://notification:8089"
+      "/v1/admin/notification-templates"   = "http://notification:8089"
+      "/v1/admin/audit"        = "http://audit:8091"
+      "/v1/governance"         = "http://admin:8090"
+    })
+  }
+  identity = { TENANT_ID = "00000000-0000-4000-8000-000000000000", ALLOWED_COUNTRIES = "IN", JWT_ISSUER = "https://identity.planext4u.example", JWT_AUDIENCE = "planext4u", JWT_KEY_ID = "replace-with-active-key-id", PROVIDER_BASE_URL = "https://approved-identity-provider.example" }
+  transaction = { TENANT_ID = "00000000-0000-4000-8000-000000000000", SUPPORTED_COUNTRIES = "IN", RAZORPAY_KEY_ID = "replace-with-key-id", RAZORPAY_BASE_URL = "https://api.razorpay.com", NOTIFICATION_BASE_URL = "http://notification:8089" }
+  admin = { ADMIN_ALLOWED_ORIGINS = "https://admin.planext4u.example", ADMIN_REQUIRE_MFA = "true" }
+  media = { MALWARE_SCANNER_URL = "https://scanner.production.planext4u.internal" }
+  messaging = { WORKER_ID = "messaging-production", NATS_STREAM = "P4U_EVENTS", NATS_SUBJECT_PREFIX = "planext4u.events" }
+}
+
+# Each ARN must reference a pre-provisioned Secrets Manager value. Names ending
+# in _FILE_VALUE are materialized into mode-0600 files by the image bootstrap;
+# plaintext secret values never enter Terraform state or task definitions.
+service_secret_arns = {
+  gateway = { JWT_PUBLIC_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:gateway-jwt-public", REDIS_URL_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:gateway-redis" }
+  identity = { JWT_PRIVATE_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:identity-jwt-private", REFRESH_HMAC_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:identity-refresh-hmac" }
+  catalog = { SERVICEABILITY_ZONES_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:catalog-serviceability-zones" }
+  transaction = { WALLET_PROGRAM_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:wallet-program", BOOKING_OTP_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:booking-otp", EMERGENCY_DATA_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:emergency-data", LOCAL_VERTICALS_CONTACT_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:market-contact", RAZORPAY_API_SECRET_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:razorpay-api", RAZORPAY_WEBHOOK_SECRET_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:razorpay-webhook", ORDER_NOTIFICATION_HMAC_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:order-notification" }
+  admin = { ADMIN_EXCHANGE_SECRET_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:admin-exchange" }
+  media = { MALWARE_SCANNER_TOKEN_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:scanner-token" }
+  messaging = { NATS_URL_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:nats-url", NATS_CREDENTIALS_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:nats-creds" }
+  notification = { DEVICE_TOKEN_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:device-token-key", FIREBASE_SERVICE_ACCOUNT_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:firebase-service-account", ORDER_NOTIFICATION_HMAC_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:333333333333:secret:order-notification" }
+}

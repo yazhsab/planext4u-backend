@@ -12,11 +12,11 @@ on:
         default: staging
         options: [staging, production]
       service:
-        description: ECS service and container name
+        description: Deploy the complete backend or one service
         type: choice
         required: true
-        default: platform
-        options: [platform]
+        default: all
+        options: [all, platform, gateway, identity, configuration, catalog, transaction, admin, audit, media, messaging, notification]
 
 permissions:
   contents: read
@@ -24,21 +24,48 @@ permissions:
   attestations: write
 
 concurrency:
-  group: backend-delivery-${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}-${{ github.event_name == 'workflow_dispatch' && inputs.service || 'platform' }}
+  group: backend-delivery-${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}-${{ github.event_name == 'workflow_dispatch' && inputs.service || 'all' }}
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Build, sign and publish immutable image
+  prepare:
+    name: Resolve immutable release set
     if: vars.DELIVERY_ENABLED == 'true' && (github.event_name == 'push' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
     outputs:
-      digest: ${{ steps.build.outputs.digest }}
-      image: ${{ vars.ECR_REPOSITORY }}
-      target_environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
-      service: ${{ github.event_name == 'workflow_dispatch' && inputs.service || 'platform' }}
+      services: ${{ steps.release.outputs.services }}
+      migration_service: ${{ steps.release.outputs.migration_service }}
+      target_environment: ${{ steps.release.outputs.target_environment }}
+    steps:
+      - id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
+          REQUESTED_SERVICE: ${{ inputs.service }}
+        run: |
+          set -euo pipefail
+          target_environment="${REQUESTED_ENVIRONMENT:-staging}"
+          requested_service="${REQUESTED_SERVICE:-all}"
+          services='["platform","gateway","identity","configuration","catalog","transaction","admin","audit","media","messaging","notification"]'
+          migration_service=platform
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$requested_service" != "all" ]]; then
+            services="$(jq -cn --arg service "$requested_service" '[ $service ]')"
+            migration_service="$requested_service"
+          fi
+          echo "services=$services" >>"$GITHUB_OUTPUT"
+          echo "migration_service=$migration_service" >>"$GITHUB_OUTPUT"
+          echo "target_environment=$target_environment" >>"$GITHUB_OUTPUT"
+
+  publish:
+    name: Build, sign and publish ${{ matrix.service }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ${{ needs.prepare.outputs.target_environment }}
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.prepare.outputs.services) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,7 +74,7 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_ARTIFACT_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-          role-session-name: planext4u-artifact-${{ github.run_id }}
+          role-session-name: planext4u-artifact-${{ github.run_id }}-${{ matrix.service }}
       - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       - name: Build and push by source commit
@@ -56,51 +83,100 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
+          tags: ${{ vars.ECR_REGISTRY }}/${{ matrix.service }}:${{ github.sha }}
           build-args: |
             VERSION=${{ github.sha }}
             COMMIT=${{ github.sha }}
-            SERVICE_COMMAND=${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'production') && 'platform' || 'staging-slice' }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            SERVICE_COMMAND=${{ matrix.service }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Keyless-sign the image digest
         env:
-          IMAGE: ${{ vars.ECR_REPOSITORY }}
+          IMAGE: ${{ vars.ECR_REGISTRY }}/${{ matrix.service }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: cosign sign --yes "$IMAGE@$DIGEST"
       - name: Generate SPDX SBOM from the published digest
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
-          image: ${{ vars.ECR_REPOSITORY }}@${{ steps.build.outputs.digest }}
+          image: ${{ vars.ECR_REGISTRY }}/${{ matrix.service }}@${{ steps.build.outputs.digest }}
           format: spdx-json
-          output-file: sbom.spdx.json
+          output-file: sbom-${{ matrix.service }}.spdx.json
           upload-artifact: false
       - name: Keyless-sign the SBOM attestation
         env:
-          IMAGE: ${{ vars.ECR_REPOSITORY }}
+          IMAGE: ${{ vars.ECR_REGISTRY }}/${{ matrix.service }}
           DIGEST: ${{ steps.build.outputs.digest }}
-        run: cosign attest --yes --predicate sbom.spdx.json --type spdxjson "$IMAGE@$DIGEST"
-      - name: Record GitHub build provenance when enabled for the private repository
+          SBOM: sbom-${{ matrix.service }}.spdx.json
+        run: cosign attest --yes --predicate "$SBOM" --type spdxjson "$IMAGE@$DIGEST"
+      - name: Record GitHub build provenance when enabled
         if: vars.ENABLE_GITHUB_ATTESTATIONS == 'true'
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-name: ${{ vars.ECR_REPOSITORY }}
+          subject-name: ${{ vars.ECR_REGISTRY }}/${{ matrix.service }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-sbom-${{ github.sha }}
-          path: sbom.spdx.json
+          name: release-sbom-${{ matrix.service }}-${{ github.sha }}
+          path: sbom-${{ matrix.service }}.spdx.json
           if-no-files-found: error
           retention-days: 90
 
-  deploy:
-    name: Deploy digest with rollback
-    needs: publish
+  migrate:
+    name: Apply checked migrations before rollout
+    needs: [prepare, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: ${{ needs.publish.outputs.target_environment }}
+    environment: ${{ needs.prepare.outputs.target_environment }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: planext4u-migrate-${{ github.run_id }}
+      - id: image
+        name: Resolve signed migration image digest
+        env:
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          SERVICE: ${{ needs.prepare.outputs.migration_service }}
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          repository_prefix="${ECR_REGISTRY#*/}"
+          repository="${repository_prefix}/${SERVICE}"
+          digest="$(aws ecr describe-images --repository-name "$repository" --image-ids imageTag="$SOURCE_REVISION" --query 'imageDetails[0].imageDigest' --output text)"
+          [[ "$digest" == sha256:* ]]
+          echo "uri=${ECR_REGISTRY}/${SERVICE}@${digest}" >>"$GITHUB_OUTPUT"
+      - name: Run one-off migration task
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          MIGRATION_TASK_DEFINITION: ${{ vars.ECS_MIGRATION_TASK_DEFINITION }}
+          MIGRATION_CONTAINER_NAME: migration
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+          ECS_SUBNETS: ${{ vars.ECS_PRIVATE_SUBNETS }}
+          ECS_SECURITY_GROUPS: ${{ vars.ECS_SECURITY_GROUPS }}
+          MIGRATION_EVIDENCE: migration-evidence.json
+        run: ./scripts/run-migrations-ecs.sh
+      - name: Upload migration evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: migration-evidence-${{ needs.prepare.outputs.target_environment }}-${{ github.run_id }}
+          path: migration-evidence.json
+          if-no-files-found: error
+          retention-days: 365
+
+  deploy:
+    name: Deploy release set with atomic rollback
+    needs: [prepare, migrate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: ${{ needs.prepare.outputs.target_environment }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -110,23 +186,28 @@ jobs:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           role-session-name: planext4u-deploy-${{ github.run_id }}
-      - name: Deploy and smoke check
+      - name: Deploy, validate and atomically roll back on failure
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
           ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
-          ECS_SERVICE: ${{ needs.publish.outputs.service }}
-          CONTAINER_NAME: ${{ needs.publish.outputs.service }}
-          IMAGE_URI: ${{ needs.publish.outputs.image }}@${{ needs.publish.outputs.digest }}
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          SOURCE_REVISION: ${{ github.sha }}
+          SERVICES_JSON: ${{ needs.prepare.outputs.services }}
           SMOKE_URL: ${{ vars.SMOKE_URL }}
           VERTICAL_SLICE_SMOKE_ORIGIN: ${{ vars.VERTICAL_SLICE_SMOKE_ORIGIN }}
-          DEPLOYMENT_ENVIRONMENT: ${{ needs.publish.outputs.target_environment }}
-          DEPLOYMENT_EVIDENCE: deployment-evidence.json
-        run: ./scripts/deploy-ecs.sh
+          STAGING_SMOKE_PROVIDER: ${{ vars.STAGING_SMOKE_PROVIDER }}
+          STAGING_SMOKE_PROVIDER_TOKEN: ${{ secrets.STAGING_SMOKE_PROVIDER_TOKEN }}
+          STAGING_SMOKE_COUNTRY: ${{ vars.STAGING_SMOKE_COUNTRY }}
+          STAGING_SMOKE_LATITUDE: ${{ vars.STAGING_SMOKE_LATITUDE }}
+          STAGING_SMOKE_LONGITUDE: ${{ vars.STAGING_SMOKE_LONGITUDE }}
+          DEPLOYMENT_ENVIRONMENT: ${{ needs.prepare.outputs.target_environment }}
+          RELEASE_EVIDENCE: release-evidence.json
+        run: ./scripts/deploy-release-ecs.sh
       - name: Upload deployment and rollback evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: deployment-evidence-${{ needs.publish.outputs.target_environment }}-${{ github.run_id }}
-          path: deployment-evidence.json
+          name: release-evidence-${{ needs.prepare.outputs.target_environment }}-${{ github.run_id }}
+          path: release-evidence.json
           if-no-files-found: error
           retention-days: 365

@@ -1,0 +1,5 @@
+REVOKE planext4u_governance_runtime, planext4u_governance_publisher FROM planext4u_admin_runtime;
+REVOKE planext4u_governance_owner FROM CURRENT_USER;
+DROP ROLE IF EXISTS planext4u_governance_publisher;
+DROP ROLE IF EXISTS planext4u_governance_runtime;
+DROP ROLE IF EXISTS planext4u_governance_owner;

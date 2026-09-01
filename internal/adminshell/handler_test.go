@@ -11,6 +11,8 @@ import (
 
 	"github.com/yazhsab/planext4u-backend/internal/adminops"
 	"github.com/yazhsab/planext4u-backend/internal/audit"
+	"github.com/yazhsab/planext4u-backend/internal/configcms"
+	"github.com/yazhsab/planext4u-backend/internal/governance"
 )
 
 var testNow = time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
@@ -197,6 +199,46 @@ func TestOperationsListIsCountryAndCapabilityScoped(t *testing.T) {
 	}
 }
 
+func TestCMSPageDraftIsCountryScopedCSRFProtectedAndRevisionSafe(t *testing.T) {
+	handler, store := testHandler(t, true)
+	principal := testPrincipal(RoleContentAdmin)
+	token := issue(t, store, principal)
+	csrf := resolveCSRF(t, store, token)
+	body := []byte(`{"expected_revision":0,"page":{"id":"customer-home","route":"/home","title_key":"page.home","audience":["CUSTOMER"],"enabled":true,"blocks":[{"id":"hero","kind":"HERO","enabled":true,"priority":10,"content":{"title":"Local first"}}]}}`)
+
+	withoutCSRF := serve(handler, http.MethodPut, "/admin/api/v1/cms/pages/customer-home/draft", body, token, "", "https://admin.planext4u.net")
+	assertStatusAndCode(t, withoutCSRF, http.StatusForbidden, "ADMIN_CSRF_INVALID")
+	saved := serve(handler, http.MethodPut, "/admin/api/v1/cms/pages/customer-home/draft", body, token, csrf, "https://admin.planext4u.net")
+	if saved.Code != http.StatusOK || !bytes.Contains(saved.Body.Bytes(), []byte(`"revision":1`)) || !bytes.Contains(saved.Body.Bytes(), []byte(`"country":"IN"`)) {
+		t.Fatalf("saved=%d %s", saved.Code, saved.Body.String())
+	}
+	stale := serve(handler, http.MethodPut, "/admin/api/v1/cms/pages/customer-home/draft", body, token, csrf, "https://admin.planext4u.net")
+	assertStatusAndCode(t, stale, http.StatusConflict, "CMS_REVISION_CONFLICT")
+	listed := serve(handler, http.MethodGet, "/admin/api/v1/cms/pages", nil, token, "", "")
+	if listed.Code != http.StatusOK || !bytes.Contains(listed.Body.Bytes(), []byte(`"id":"customer-home"`)) {
+		t.Fatalf("listed=%d %s", listed.Code, listed.Body.String())
+	}
+}
+
+func TestCMSWorkspaceDraftControlsGlobalMobileConfiguration(t *testing.T) {
+	handler, store := testHandler(t, true)
+	token := issue(t, store, testPrincipal(RoleContentAdmin))
+	csrf := resolveCSRF(t, store, token)
+	missing := serve(handler, http.MethodGet, "/admin/api/v1/cms/workspace", nil, token, "", "")
+	assertStatusAndCode(t, missing, http.StatusNotFound, "CMS_PAGE_NOT_FOUND")
+	body := []byte(`{"expected_revision":0,"workspace":{"minimum_versions":{"ANDROID":"1.0.0","IOS":"1.0.0"},"latest_versions":{"ANDROID":"1.2.0","IOS":"1.2.0"},"supported_locales":["en","ta"],"default_locale":"en","consent_policies":[{"purpose":"ANALYTICS","policy_version":"privacy-2026-01","required":false}],"flags":{"customer_home":true,"vendor_home":true,"rider_home":true},"home_sections":[{"id":"hero","kind":"HERO","title_key":"home.hero","enabled":true,"priority":10}]}}`)
+	withoutCSRF := serve(handler, http.MethodPut, "/admin/api/v1/cms/workspace/draft", body, token, "", "https://admin.planext4u.net")
+	assertStatusAndCode(t, withoutCSRF, http.StatusForbidden, "ADMIN_CSRF_INVALID")
+	saved := serve(handler, http.MethodPut, "/admin/api/v1/cms/workspace/draft", body, token, csrf, "https://admin.planext4u.net")
+	if saved.Code != http.StatusOK || !bytes.Contains(saved.Body.Bytes(), []byte(`"revision":1`)) || !bytes.Contains(saved.Body.Bytes(), []byte(`"rider_home":true`)) {
+		t.Fatalf("saved=%d %s", saved.Code, saved.Body.String())
+	}
+	loaded := serve(handler, http.MethodGet, "/admin/api/v1/cms/workspace", nil, token, "", "")
+	if loaded.Code != http.StatusOK || !bytes.Contains(loaded.Body.Bytes(), []byte(`"vendor_home":true`)) {
+		t.Fatalf("loaded=%d %s", loaded.Code, loaded.Body.String())
+	}
+}
+
 func testHandler(t *testing.T, requireMFA bool) (http.Handler, *MemorySessionStore) {
 	t.Helper()
 	store, err := NewMemorySessionStore(func() time.Time { return testNow })
@@ -222,8 +264,24 @@ func testHandler(t *testing.T, requireMFA bool) (http.Handler, *MemorySessionSto
 	if err != nil {
 		t.Fatalf("create operations: %v", err)
 	}
+	cms, err := configcms.NewAuthoringService(configcms.NewMemoryDraftRepository(), func() time.Time { return testNow })
+	if err != nil {
+		t.Fatalf("create CMS authoring: %v", err)
+	}
+	workspace, err := configcms.NewWorkspaceAuthoringService(configcms.NewMemoryWorkspaceDraftRepository(), func() time.Time { return testNow })
+	if err != nil {
+		t.Fatalf("create CMS workspace authoring: %v", err)
+	}
+	governanceService, err := governance.NewService(governance.Configuration{
+		TenantID:  "tenant-1",
+		Countries: []governance.CountryControl{{Country: "IN", Currency: "INR", Locales: []string{"en", "ta"}, FeatureFlags: map[string]bool{"socio": true, "homes": true, "classifieds": true, "emergency": true}, PolicyVersion: "policy-IN-2026.08"}},
+		Reports:   []governance.ReportCard{{ID: "social-active", Title: "Socio active", Value: 5600, Unit: "count", Freshness: testNow}, {ID: "homes-active", Title: "Homes active", Value: 98, Unit: "count", Freshness: testNow}, {ID: "classifieds-active", Title: "Classifieds active", Value: 340, Unit: "count", Freshness: testNow}, {ID: "emergency-sla", Title: "Emergency within SLA", Value: 99, Unit: "percent", Freshness: testNow}},
+	}, func() time.Time { return testNow })
+	if err != nil {
+		t.Fatalf("create governance: %v", err)
+	}
 	handler, err := NewHandler(Config{
-		Sessions: store, Audit: auditService, Operations: operations, Clock: func() time.Time { return testNow },
+		Sessions: store, Audit: auditService, Operations: operations, CMS: cms, CMSWorkspace: workspace, Governance: governanceService, Clock: func() time.Time { return testNow },
 		AllowedOrigins: []string{"https://admin.planext4u.net"}, RequireMFA: requireMFA,
 	})
 	if err != nil {

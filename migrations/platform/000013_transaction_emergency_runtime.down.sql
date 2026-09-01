@@ -1,0 +1,1 @@
+REVOKE planext4u_emergency_runtime FROM planext4u_transaction_runtime;

@@ -23,6 +23,14 @@ variable "services" {
     health_path   = string
   }))
 }
+variable "service_environment" {
+  type    = map(map(string))
+  default = {}
+}
+variable "service_secret_arns" {
+  type    = map(map(string))
+  default = {}
+}
 variable "database_min_capacity" { type = number }
 variable "database_max_capacity" { type = number }
 variable "database_instance_count" { type = number }

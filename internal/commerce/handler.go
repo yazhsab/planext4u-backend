@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-type Handler struct{ service *Service }
+type Handler struct{ service CartService }
 
-func NewHandler(service *Service) (http.Handler, error) {
+func NewHandler(service CartService) (http.Handler, error) {
 	if service == nil {
 		return nil, ErrInvalidRequest
 	}

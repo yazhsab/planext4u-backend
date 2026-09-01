@@ -19,9 +19,10 @@ func TestMediaHandlerDeniesMissingAndCrossOwnerScope(t *testing.T) {
 		t.Fatalf("missing scope status = %d", response.Code)
 	}
 
-	grant, _ := service.Presign(request.Context(), "tenant-synthetic", "owner-a", validRequest())
+	grant, _ := service.Presign(request.Context(), "tenant-synthetic", "IN", "owner-a", validRequest())
 	request = httptest.NewRequest(http.MethodGet, "/v1/media/"+grant.Asset.ID, nil)
 	request.Header.Set("X-Planext4u-Tenant", "tenant-synthetic")
+	request.Header.Set("X-Planext4u-Country", "IN")
 	request.Header.Set("X-Planext4u-Subject", "owner-b")
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

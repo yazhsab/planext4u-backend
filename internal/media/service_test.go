@@ -11,7 +11,7 @@ import (
 func TestBEMedia001CleanLifecycleAndIdempotentCompletion(t *testing.T) {
 	t.Parallel()
 	service, objects, scanner, now := mediaFixture(t)
-	grant, err := service.Presign(context.Background(), "tenant-synthetic", "customer-synthetic", validRequest())
+	grant, err := service.Presign(context.Background(), "tenant-synthetic", "IN", "customer-synthetic", validRequest())
 	if err != nil || grant.Asset.State != StatePendingUpload || grant.UploadURL == "" || grant.Headers["x-amz-checksum-sha256"] == "" {
 		t.Fatalf("grant = %#v, %v", grant, err)
 	}
@@ -33,21 +33,21 @@ func TestBEMedia001ExpiryMismatchMalwareAndIDORDenial(t *testing.T) {
 	t.Parallel()
 	service, objects, scanner, now := mediaFixture(t)
 
-	expiredGrant, _ := service.Presign(context.Background(), "tenant-synthetic", "owner-a", validRequest())
+	expiredGrant, _ := service.Presign(context.Background(), "tenant-synthetic", "IN", "owner-a", validRequest())
 	*now = now.Add(11 * time.Minute)
 	if _, err := service.Complete(context.Background(), "tenant-synthetic", "owner-a", expiredGrant.Asset.ID); !errors.Is(err, ErrExpired) {
 		t.Fatalf("expiry error = %v", err)
 	}
 
 	*now = now.Add(-11 * time.Minute)
-	mismatch, _ := service.Presign(context.Background(), "tenant-synthetic", "owner-a", validRequest())
+	mismatch, _ := service.Presign(context.Background(), "tenant-synthetic", "IN", "owner-a", validRequest())
 	objects.metadata[mismatch.Asset.ObjectKey] = ObjectMetadata{ContentType: "image/png", SizeBytes: mismatch.Asset.SizeBytes, SHA256: mismatch.Asset.SHA256}
 	rejected, err := service.Complete(context.Background(), "tenant-synthetic", "owner-a", mismatch.Asset.ID)
 	if err != nil || rejected.State != StateRejected || rejected.RejectedCode != "UPLOAD_METADATA_MISMATCH" || !objects.deleted[mismatch.Asset.ObjectKey] {
 		t.Fatalf("metadata rejection = %#v, %v", rejected, err)
 	}
 
-	infected, _ := service.Presign(context.Background(), "tenant-synthetic", "owner-a", validRequest())
+	infected, _ := service.Presign(context.Background(), "tenant-synthetic", "IN", "owner-a", validRequest())
 	objects.metadata[infected.Asset.ObjectKey] = ObjectMetadata{ContentType: infected.Asset.ContentType, SizeBytes: infected.Asset.SizeBytes, SHA256: infected.Asset.SHA256}
 	scanner.result = ScanResult{Clean: false, ReasonCode: "MALWARE_DETECTED"}
 	rejected, err = service.Complete(context.Background(), "tenant-synthetic", "owner-a", infected.Asset.ID)
@@ -67,10 +67,10 @@ func TestBEMedia001ValidationDeletionAndRetryableScan(t *testing.T) {
 	service, objects, scanner, _ := mediaFixture(t)
 	invalid := validRequest()
 	invalid.SizeBytes = 20 << 20
-	if _, err := service.Presign(context.Background(), "tenant-synthetic", "owner-a", invalid); !errors.Is(err, ErrInvalidRequest) {
+	if _, err := service.Presign(context.Background(), "tenant-synthetic", "IN", "owner-a", invalid); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("oversized error = %v", err)
 	}
-	grant, _ := service.Presign(context.Background(), "tenant-synthetic", "owner-a", validRequest())
+	grant, _ := service.Presign(context.Background(), "tenant-synthetic", "IN", "owner-a", validRequest())
 	objects.metadata[grant.Asset.ObjectKey] = ObjectMetadata{ContentType: grant.Asset.ContentType, SizeBytes: grant.Asset.SizeBytes, SHA256: grant.Asset.SHA256}
 	scanner.err = errors.New("synthetic scanner outage")
 	if _, err := service.Complete(context.Background(), "tenant-synthetic", "owner-a", grant.Asset.ID); !errors.Is(err, ErrDependency) {

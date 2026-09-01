@@ -104,29 +104,30 @@ type Visit struct {
 }
 
 type ClassifiedListing struct {
-	ID              string     `json:"id"`
-	Revision        int64      `json:"revision"`
-	OwnerID         string     `json:"owner_id"`
-	Category        string     `json:"category"`
-	Title           string     `json:"title"`
-	Description     string     `json:"description"`
-	Price           Money      `json:"price"`
-	Locality        string     `json:"locality"`
-	MediaAssetIDs   []string   `json:"media_asset_ids"`
-	Status          string     `json:"status"`
-	Plan            string     `json:"plan"`
-	ContactMasked   string     `json:"contact_masked"`
-	ContactRevealed string     `json:"contact_revealed,omitempty"`
-	WhatsAppEnabled bool       `json:"whatsapp_enabled"`
-	ExpiresAt       time.Time  `json:"expires_at"`
-	FeaturedUntil   *time.Time `json:"featured_until,omitempty"`
-	ReportCount     int        `json:"report_count"`
-	AllowedActions  []string   `json:"allowed_actions"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	tenantID        string
-	country         string
-	contact         string
+	ID               string     `json:"id"`
+	Revision         int64      `json:"revision"`
+	OwnerID          string     `json:"owner_id"`
+	Category         string     `json:"category"`
+	Title            string     `json:"title"`
+	Description      string     `json:"description"`
+	Price            Money      `json:"price"`
+	Locality         string     `json:"locality"`
+	MediaAssetIDs    []string   `json:"media_asset_ids"`
+	Status           string     `json:"status"`
+	Plan             string     `json:"plan"`
+	ContactMasked    string     `json:"contact_masked"`
+	ContactRevealed  string     `json:"contact_revealed,omitempty"`
+	WhatsAppEnabled  bool       `json:"whatsapp_enabled"`
+	ExpiresAt        time.Time  `json:"expires_at"`
+	FeaturedUntil    *time.Time `json:"featured_until,omitempty"`
+	ReportCount      int        `json:"report_count"`
+	AllowedActions   []string   `json:"allowed_actions"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	tenantID         string
+	country          string
+	contact          string
+	encryptedContact []byte
 }
 
 type ClassifiedRequest struct {

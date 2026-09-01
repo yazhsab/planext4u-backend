@@ -81,6 +81,8 @@ resource "aws_iam_role_policy" "deploy" {
     Statement = [
       { Effect = "Allow", Action = ["ecs:DescribeTaskDefinition", "ecs:RegisterTaskDefinition"], Resource = "*" },
       { Effect = "Allow", Action = ["ecs:DescribeServices", "ecs:UpdateService"], Resource = var.ecs_service_arns, Condition = { ArnEquals = { "ecs:cluster" = var.ecs_cluster_arn } } },
+      { Effect = "Allow", Action = ["ecs:RunTask"], Resource = replace(var.migration_task_definition_arn, "/:[0-9]+$/", ":*"), Condition = { ArnEquals = { "ecs:cluster" = var.ecs_cluster_arn } } },
+      { Effect = "Allow", Action = ["ecs:DescribeTasks", "ecs:StopTask"], Resource = "*", Condition = { ArnEquals = { "ecs:cluster" = var.ecs_cluster_arn } } },
       { Effect = "Allow", Action = ["iam:PassRole"], Resource = var.task_role_arns, Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } } }
     ]
   })

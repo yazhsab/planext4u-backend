@@ -17,7 +17,26 @@ func NewHandler(service *Service) (http.Handler, error) {
 	handler := &Handler{service: service}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/bootstrap", handler.bootstrap)
+	mux.HandleFunc("GET /v1/pages/{page_id}", handler.page)
 	return mux, nil
+}
+
+func (handler *Handler) page(writer http.ResponseWriter, request *http.Request) {
+	tenantID := strings.TrimSpace(request.Header.Get("X-Planext4u-Tenant"))
+	country := strings.TrimSpace(request.Header.Get("X-Planext4u-Country"))
+	result, err := handler.service.Page(request.Context(), tenantID, country, request.PathValue("page_id"), request.URL.Query().Get("locale"))
+	if err != nil {
+		status, code, message := http.StatusUnprocessableEntity, "PAGE_REQUEST_INVALID", "The page request is invalid."
+		if errors.Is(err, ErrNotFound) {
+			status, code, message = http.StatusNotFound, "PAGE_NOT_FOUND", "The page is unavailable for this region."
+		}
+		writeProblem(writer, request, status, code, message)
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	writer.Header().Set("Cache-Control", "private, max-age=60, stale-if-error=300")
+	writer.Header().Set("ETag", `"config-`+strconv.FormatInt(result.Revision, 10)+`-page-`+result.Page.ID+`"`)
+	_ = json.NewEncoder(writer).Encode(result)
 }
 
 func (handler *Handler) bootstrap(writer http.ResponseWriter, request *http.Request) {

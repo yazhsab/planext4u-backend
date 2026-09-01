@@ -36,10 +36,15 @@ type Service struct {
 }
 
 type Zone struct {
-	ID, Country, Locality              string
-	MinimumLatitude, MaximumLatitude   float64
-	MinimumLongitude, MaximumLongitude float64
-	PostalCodes                        []string
+	TenantID         string   `json:"tenant_id"`
+	ID               string   `json:"id"`
+	Country          string   `json:"country"`
+	Locality         string   `json:"locality"`
+	MinimumLatitude  float64  `json:"minimum_latitude"`
+	MaximumLatitude  float64  `json:"maximum_latitude"`
+	MinimumLongitude float64  `json:"minimum_longitude"`
+	MaximumLongitude float64  `json:"maximum_longitude"`
+	PostalCodes      []string `json:"postal_codes"`
 }
 
 func NewService(repository Repository, zones []Zone, staleTTL time.Duration, clock func() time.Time) (*Service, error) {
@@ -47,7 +52,7 @@ func NewService(repository Repository, zones []Zone, staleTTL time.Duration, clo
 		return nil, fmt.Errorf("invalid catalog service")
 	}
 	for _, zone := range zones {
-		if !safeID(zone.ID) || len(zone.Country) != 2 || strings.TrimSpace(zone.Locality) == "" ||
+		if !safeID(zone.TenantID) || !safeID(zone.ID) || len(zone.Country) != 2 || strings.TrimSpace(zone.Locality) == "" ||
 			zone.MinimumLatitude < -90 || zone.MaximumLatitude > 90 || zone.MinimumLatitude > zone.MaximumLatitude ||
 			zone.MinimumLongitude < -180 || zone.MaximumLongitude > 180 || zone.MinimumLongitude > zone.MaximumLongitude {
 			return nil, fmt.Errorf("invalid serviceability zone")
@@ -62,14 +67,14 @@ func NewService(repository Repository, zones []Zone, staleTTL time.Duration, clo
 		itemCache: map[string]cachedItems{}, categoryCache: map[string]cachedCategories{}}, nil
 }
 
-func (service *Service) Geocode(country, query string) ([]GeocodeCandidate, error) {
+func (service *Service) Geocode(tenantID, country, query string) ([]GeocodeCandidate, error) {
 	query = strings.ToLower(strings.TrimSpace(query))
-	if len(country) != 2 || len(query) < 2 || len(query) > 100 {
+	if !safeID(tenantID) || len(country) != 2 || len(query) < 2 || len(query) > 100 {
 		return nil, ErrInvalidRequest
 	}
 	result := []GeocodeCandidate{}
 	for _, zone := range service.zones {
-		if zone.Country != country {
+		if zone.TenantID != tenantID || zone.Country != country {
 			continue
 		}
 		postalCodes := zone.PostalCodes
@@ -324,14 +329,14 @@ func (service *Service) Home(ctx context.Context, tenantID, country string) (Hom
 	}, nil
 }
 
-func (service *Service) CheckServiceability(country string, point GeoPoint) (Serviceability, error) {
-	if len(country) != 2 || math.IsNaN(point.Latitude) || math.IsNaN(point.Longitude) || point.Latitude < -90 || point.Latitude > 90 ||
+func (service *Service) CheckServiceability(tenantID, country string, point GeoPoint) (Serviceability, error) {
+	if !safeID(tenantID) || len(country) != 2 || math.IsNaN(point.Latitude) || math.IsNaN(point.Longitude) || point.Latitude < -90 || point.Latitude > 90 ||
 		point.Longitude < -180 || point.Longitude > 180 || point.AccuracyMetres < 0 || point.AccuracyMetres > 50000 ||
 		point.CapturedAt.IsZero() || point.Purpose != "LOCATION_SERVICEABILITY" {
 		return Serviceability{}, ErrInvalidRequest
 	}
 	for _, zone := range service.zones {
-		if zone.Country == country && point.Latitude >= zone.MinimumLatitude && point.Latitude <= zone.MaximumLatitude &&
+		if zone.TenantID == tenantID && zone.Country == country && point.Latitude >= zone.MinimumLatitude && point.Latitude <= zone.MaximumLatitude &&
 			point.Longitude >= zone.MinimumLongitude && point.Longitude <= zone.MaximumLongitude {
 			return Serviceability{Serviceable: true, ZoneID: zone.ID, Locality: zone.Locality, ReasonCode: "SERVICEABLE"}, nil
 		}

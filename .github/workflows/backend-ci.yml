@@ -45,6 +45,29 @@ jobs:
     name: Go verification and SCA
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.10-alpine3.22
+        env:
+          POSTGRES_DB: planext4u_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d planext4u_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:8.10.0-alpine3.23
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -55,8 +78,107 @@ jobs:
           cache: true
       - name: Verify source, contracts, migrations and race safety
         run: make verify
+      - name: Verify identity rotation, consent, tenancy and coverage against PostgreSQL
+        env:
+          IDENTITY_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-identity-integration
+      - name: Verify distributed gateway rate limits against Redis
+        env:
+          REDIS_TEST_URL: redis://127.0.0.1:6379/15
+        run: make test-gateway-integration
+      - name: Verify atomic CMS publication against PostgreSQL
+        env:
+          CONFIGURATION_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-configuration-integration
+      - name: Verify tenant-isolated catalog persistence against PostgreSQL
+        env:
+          CATALOG_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-catalog-integration
+      - name: Verify durable carts, revisions and idempotency against PostgreSQL
+        env:
+          COMMERCE_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-commerce-integration
+      - name: Verify durable checkout orchestration and recovery links against PostgreSQL
+        env:
+          CHECKOUT_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-checkout-integration
+      - name: Verify oversell-safe inventory reservations against PostgreSQL
+        env:
+          INVENTORY_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-inventory-integration
+      - name: Verify durable order lifecycle and notification intents against PostgreSQL
+        env:
+          ORDER_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-order-integration
+      - name: Verify durable provider payments and exactly-once webhooks against PostgreSQL
+        env:
+          PAYMENT_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-payment-integration
+      - name: Verify oversell-safe durable service bookings and restart recovery
+        env:
+          BOOKING_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-booking-integration
+      - name: Verify durable vendor onboarding, field operations and catalog controls
+        env:
+          SUPPLY_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-supply-integration
+      - name: Verify durable food pricing, payment, restaurant and dispatch lifecycle
+        env:
+          FOOD_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-food-integration
+      - name: Verify durable driver assignment, tracking, chat, settlement and operations
+        env:
+          FULFILLMENT_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-fulfillment-integration
+      - name: Verify encrypted emergency lifecycle, responder locking and SLA controls
+        env:
+          EMERGENCY_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-emergency-integration
+      - name: Verify durable homes, classifieds, contact encryption and retention
+        env:
+          LOCAL_VERTICALS_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-local-verticals-integration
+      - name: Verify durable social privacy, messaging, moderation and rewards
+        env:
+          SOCIAL_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-social-integration
+      - name: Verify published governance dashboards, masking and country isolation
+        env:
+          GOVERNANCE_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-governance-integration
+      - name: Verify FIFO wallet ledger, refunds and reward controls against PostgreSQL
+        env:
+          WALLET_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-wallet-integration
+      - name: Verify tenant-isolated append-only audit chains against PostgreSQL
+        env:
+          AUDIT_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-audit-integration
+      - name: Verify durable administrator sessions, four-eyes controls and CMS routing
+        env:
+          ADMIN_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-admin-integration
+      - name: Verify secure media lifecycle persistence against PostgreSQL
+        env:
+          MEDIA_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-media-integration
+      - name: Start isolated JetStream broker
+        run: docker run --detach --name planext4u-nats-test --publish 4222:4222 nats:2.14.5-alpine3.22 --jetstream
+      - name: Verify durable outbox, inbox and JetStream publication
+        env:
+          MESSAGING_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+          NATS_TEST_URL: nats://127.0.0.1:4222
+        run: make test-messaging-integration
+      - name: Verify notification queue, receipts and encrypted device tokens
+        env:
+          NOTIFICATION_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-notification-integration
+      - name: Verify all migrations from zero, rollback isolation and checksum drift
+        env:
+          MIGRATION_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-migrations-integration
       - name: Scan reachable Go vulnerabilities
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./cmd/... ./internal/...
 
   codeql:
     name: CodeQL

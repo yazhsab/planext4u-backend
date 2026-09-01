@@ -10,9 +10,46 @@ import (
 	"strings"
 )
 
-type Handler struct{ service *Service }
+type Application interface {
+	RegisterRider(Actor, string, RiderRegistrationRequest) (RiderProfile, bool, error)
+	Rider(Actor) (RiderProfile, error)
+	ReviewRider(Actor, string, string, int64, bool, string) (RiderProfile, bool, error)
+	StartDuty(Actor, string, string) (DutySession, bool, error)
+	EndDuty(Actor, string, int64) (DutySession, bool, error)
+	Duty(Actor) (DutySession, error)
+	SeedTask(Actor, TaskSeed) (DeliveryTask, error)
+	OfferTask(Actor, string, string, int64) (DeliveryTask, bool, error)
+	Offers(Actor) ([]DeliveryTask, error)
+	AcceptOffer(Actor, string, string, int64) (DeliveryTask, bool, error)
+	UpdateLocation(Actor, string, LocationUpdate) (RiderLocation, bool, error)
+	Location(Actor, string) (RiderLocation, error)
+	MarkPickedUp(Actor, string, string, int64) (DeliveryTask, bool, error)
+	CompleteDelivery(Actor, string, string, int64, CompletionRequest) (DeliveryTask, bool, error)
+	Tasks(Actor) ([]DeliveryTask, error)
+	Reassign(Actor, string, string, int64, string) (DeliveryTask, bool, error)
+	RecoverOffline(Actor, []OfflineCommand) ([]OfflineResult, error)
+	Conversation(Actor, string) (Conversation, error)
+	SendMessage(Actor, string, string, string) (ChatMessage, bool, error)
+	MessageReceipt(Actor, string, string, string, string) (ChatMessage, bool, error)
+	BlockConversation(Actor, string, string, string) (Conversation, bool, error)
+	SeedSettlement(Actor, string, string, string, Money) (LedgerEntry, error)
+	Ledger(Actor, string) ([]LedgerEntry, error)
+	RequestPayout(Actor, string, []string) (Payout, bool, error)
+	ApprovePayout(Actor, string, string, int64, string) (Payout, bool, error)
+	ExecutePayout(Actor, string, string, int64, string, bool) (Payout, bool, error)
+	Payouts(Actor, string) ([]Payout, error)
+	Reconcile(Actor, string) (Reconciliation, error)
+	Territories(Actor) ([]Territory, error)
+	FieldCheckIn(Actor, string, string, Point) (FieldCheckIn, bool, error)
+	Attendance(Actor, string) ([]AttendanceEntry, error)
+	RegionalDashboard(Actor, string) (RegionalDashboard, error)
+	Audits(Actor) ([]AuditEvent, error)
+	SweepStaleAssignments(Actor, string, string) (int, error)
+}
 
-func NewHandler(service *Service) (http.Handler, error) {
+type Handler struct{ service Application }
+
+func NewHandler(service Application) (http.Handler, error) {
 	if service == nil {
 		return nil, ErrInvalidRequest
 	}

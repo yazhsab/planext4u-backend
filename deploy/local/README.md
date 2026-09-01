@@ -57,10 +57,26 @@ make identity-schema-local
 APP_ENV=development HTTP_ADDRESS=:8083 \
 DATABASE_URL_FILE=.local/identity/database.url \
 PROVIDER_BASE_URL=http://127.0.0.1:18081 \
-TENANT_ID=tenant_synthetic_001 ALLOWED_COUNTRIES=IN,GB \
+TENANT_ID=c688a212-50fc-4d5c-b370-35a8c1d04f55 ALLOWED_COUNTRIES=IN,GB \
 JWT_ISSUER=http://identity.local JWT_AUDIENCE=planext4u-mobile \
 JWT_KEY_ID=identity-local-01 JWT_PRIVATE_KEY_FILE=.local/identity/jwt-private.pem \
 REFRESH_HMAC_KEY_FILE=.local/identity/refresh-hmac.key make run-identity
+```
+
+The transaction runtime also owns durable commerce, checkout, payment, wallet,
+order and service-booking orchestration. Create a private 32-byte booking OTP
+encryption key, seed synthetic local catalog/booking data, and start it with the
+restricted transaction login:
+
+```bash
+mkdir -p .local/transaction
+openssl rand -base64 24 > .local/transaction/booking-otp.key
+openssl rand -base64 24 > .local/transaction/emergency-data.key
+openssl rand -base64 24 > .local/transaction/local-contact.key
+make local-seed-transaction
+APP_ENV=development DATABASE_URL='postgres://planext4u_transaction_login:local-transaction-only@127.0.0.1:54320/planext4u_local?sslmode=disable' \
+TENANT_ID=afc1e0db-73cf-40b3-9927-33590133da0b SUPPORTED_COUNTRIES=IN \
+BOOKING_OTP_KEY_FILE=.local/transaction/booking-otp.key EMERGENCY_DATA_KEY_FILE=.local/transaction/emergency-data.key LOCAL_VERTICALS_CONTACT_KEY_FILE=.local/transaction/local-contact.key make run-transaction
 ```
 
 `make test-identity-integration` applies and removes only the `identity` schema

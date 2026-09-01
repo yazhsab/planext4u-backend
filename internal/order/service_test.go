@@ -139,10 +139,10 @@ func (notifier *flakyOrderNotifier) Send(_ context.Context, _ Notification) erro
 
 func orderSnapshot() CheckoutSnapshot {
 	return CheckoutSnapshot{
-		CartRevision: 3, Lines: []LineSnapshot{{VariantID: "variant-oil", ItemID: "item-oil", ItemName: "Local oil", VariantName: "500ml", Quantity: 2, UnitPrice: Money{AmountMinor: 10000, Currency: "INR"}, LineTotal: Money{AmountMinor: 20000, Currency: "INR"}, VendorID: "vendor-local-001", TaxMinor: 800, DiscountMinor: 1800}},
+		CartRevision: 3, Lines: []LineSnapshot{{VariantID: "variant-oil", ItemID: "item-oil", ItemName: "Local oil", VariantName: "500ml", Quantity: 2, UnitPrice: Money{AmountMinor: 10000, Currency: "INR"}, LineTotal: Money{AmountMinor: 20000, Currency: "INR"}, VendorID: "vendor-local-001", TaxMinor: 800, DiscountMinor: 1800, VendorTier: "LOCAL_BASIC", CommissionBasisPoints: 1200, WalletRedemptionBasisPoints: 10000, CommissionMinor: 2400, CommercialRuleSource: "PLAN_DEFAULT"}},
 		Address: AddressSnapshot{AddressID: "address-001", Label: "Home", PostalCode: "641001", Locality: "Coimbatore"}, Delivery: DeliverySnapshot{SlotID: "tomorrow-standard", WindowStart: orderClock().Add(24 * time.Hour), WindowEnd: orderClock().Add(28 * time.Hour), Fee: Money{AmountMinor: 1000, Currency: "INR"}},
-		Subtotal: Money{AmountMinor: 20000, Currency: "INR"}, Discount: Money{AmountMinor: 1800, Currency: "INR"}, Tax: Money{AmountMinor: 800, Currency: "INR"}, Fees: Money{AmountMinor: 1000, Currency: "INR"}, WalletApplied: Money{AmountMinor: 100, Currency: "INR"}, Total: Money{AmountMinor: 19900, Currency: "INR"},
-		PromotionCode: "LOCAL10", PricingPolicyVersion: "pricing-2026-01", ReservationID: "reservation-001", PaymentID: "payment-001", PaymentMethod: "RAZORPAY",
+		Subtotal: Money{AmountMinor: 20000, Currency: "INR"}, Discount: Money{AmountMinor: 1800, Currency: "INR"}, Tax: Money{AmountMinor: 800, Currency: "INR"}, Fees: Money{AmountMinor: 1000, Currency: "INR"}, ProductTax: Money{AmountMinor: 800, Currency: "INR"}, ProductTaxTreatment: "EXCLUSIVE", PlatformFee: Money{AmountMinor: 0, Currency: "INR"}, PlatformFeeTax: Money{AmountMinor: 0, Currency: "INR"}, DeliveryFee: Money{AmountMinor: 1000, Currency: "INR"}, MarketplaceCommission: Money{AmountMinor: 2400, Currency: "INR"}, WalletRedemptionLimit: Money{AmountMinor: 18200, Currency: "INR"}, WalletApplied: Money{AmountMinor: 100, Currency: "INR"}, Total: Money{AmountMinor: 19900, Currency: "INR"},
+		PromotionCode: "LOCAL10", PricingPolicyVersion: "pricing-2026-01", CommercialPolicyVersion: "commercial-2026-01", ReservationID: "reservation-001", PaymentID: "payment-001", PaymentMethod: "RAZORPAY",
 	}
 }
 func orderScope() Scope {

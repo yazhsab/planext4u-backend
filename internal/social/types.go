@@ -15,11 +15,12 @@ var (
 )
 
 type Actor struct {
-	TenantID    string
-	Country     string
-	Subject     string
-	Roles       []string
-	MFAVerified bool
+	TenantID        string
+	Country         string
+	Subject         string
+	DeviceReference string
+	Roles           []string
+	MFAVerified     bool
 }
 
 type Profile struct {
@@ -61,6 +62,7 @@ type Post struct {
 	ModerationReason string     `json:"moderation_reason,omitempty"`
 	LikeCount        int        `json:"like_count"`
 	CommentCount     int        `json:"comment_count"`
+	ShareCount       int        `json:"share_count"`
 	Liked            bool       `json:"liked"`
 	Saved            bool       `json:"saved"`
 	AllowedActions   []string   `json:"allowed_actions"`
@@ -122,6 +124,10 @@ type CreatePostRequest struct {
 
 type EngagementRequest struct {
 	Active bool `json:"active"`
+}
+
+type ShareRequest struct {
+	Channel string `json:"channel"`
 }
 
 type RelationshipRequest struct {

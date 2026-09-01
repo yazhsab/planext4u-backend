@@ -1,9 +1,8 @@
 # Staging vertical slice
 
-`BE-P2-016` integrates the Phase 2 service foundations into one deliberately
-staging-only deployment artifact. It proves the customer journey required by
-the paired Flutter gate without introducing real customer data or weakening
-the production identity boundary.
+`BE-P2-016` provides both a local synthetic contract harness and a distributed
+staging release gate. The cloud gate runs against the same independently
+deployed services and gateway routing used by production.
 
 ## Journey and evidence
 
@@ -23,9 +22,10 @@ deterministic catalog projections. The shell and Dart staging smoke clients
 perform the same live journey without printing the access token or response
 bodies.
 
-## Environment isolation
+## Local synthetic harness
 
-The `cmd/staging-slice` executable refuses to start unless all of the following
+The `cmd/staging-slice` executable is retained only for local contract and
+mobile-development testing. It refuses to start unless all of the following
 are true:
 
 - `APP_ENV=staging`
@@ -37,14 +37,19 @@ the environment data key, and injects it only into the staging platform task.
 The key value is provisioned outside Terraform state. Production delivery
 builds `cmd/platform`, not the synthetic executable.
 
-## Delivery and rollback
+It is not built or deployed by the protected cloud delivery workflow.
 
-The staging delivery workflow builds an immutable digest, signs the image and
-SBOM, updates ECS, waits for service stability, and then runs the complete
-journey against `VERTICAL_SLICE_SMOKE_ORIGIN`. A failed readiness check,
-stabilization, or journey restores the previous task definition. The uploaded
-JSON evidence records `vertical_slice_smoke` as `passed`, `failed`, or
-`not_requested` and retains the rollback reason.
+## Distributed delivery and rollback
+
+The staging delivery workflow builds and signs every selected service image and
+SBOM, applies checked migrations, updates the service set in a controlled
+sequence, and then runs the complete journey against
+`VERTICAL_SLICE_SMOKE_ORIGIN`. Login uses the approved staging identity provider
+and protected `STAGING_SMOKE_PROVIDER_TOKEN`; synthetic provider tokens are not
+accepted outside development. A failed migration, stabilization, readiness
+check, or journey restores every service changed by the release. The uploaded
+JSON evidence contains the immutable images, prior task definitions, final
+smoke result, and per-service rollback outcomes.
 
 For a localhost verification only:
 

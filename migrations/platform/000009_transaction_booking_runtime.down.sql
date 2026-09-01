@@ -1,0 +1,1 @@
+REVOKE planext4u_booking_runtime FROM planext4u_transaction_runtime;

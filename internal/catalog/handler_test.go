@@ -12,7 +12,7 @@ func TestCatalogHandlerRoutesProjectionAndLocation(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
 	repository, _ := NewMemoryRepository(syntheticCategories(), syntheticItems())
-	service, _ := NewService(repository, []Zone{{ID: "zone-chennai", Country: "IN", Locality: "Chennai", MinimumLatitude: 12.8, MaximumLatitude: 13.3, MinimumLongitude: 80, MaximumLongitude: 80.4, PostalCodes: []string{"600001"}}}, 15*time.Minute, func() time.Time { return now })
+	service, _ := NewService(repository, []Zone{{TenantID: "tenant-synthetic", ID: "zone-chennai", Country: "IN", Locality: "Chennai", MinimumLatitude: 12.8, MaximumLatitude: 13.3, MinimumLongitude: 80, MaximumLongitude: 80.4, PostalCodes: []string{"600001"}}}, 15*time.Minute, func() time.Time { return now })
 	handler, _ := NewHandler(service)
 
 	request := httptest.NewRequest(http.MethodGet, "/v1/catalog/search?q=filter&category_id=home-services&limit=1", nil)

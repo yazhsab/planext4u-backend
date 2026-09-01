@@ -10,9 +10,30 @@ import (
 	"strings"
 )
 
-type Handler struct{ service *Service }
+type ApplicationService interface {
+	Register(Actor, string, RegisterRequest) (Application, bool, error)
+	Application(Actor) (Application, error)
+	SubmitDocuments(Actor, string, int64, DocumentsRequest) (Application, bool, error)
+	TransitionForVendor(Actor, string, string, int64, TransitionRequest) (Application, bool, error)
+	ScheduleVisit(Actor, string, int64, VisitRequest) (Application, bool, error)
+	FieldCheckIn(Actor, string, string, int64, CheckInRequest) (Application, bool, error)
+	SetZones(Actor, string, int64, []ServiceZone) (Application, bool, error)
+	SubmitBank(Actor, string, int64, BankAccount) (Application, bool, error)
+	VerifyBank(Actor, string, string, int64, string) (Application, bool, error)
+	Dashboard(Actor) (Dashboard, error)
+	Catalog(Actor) ([]CatalogItem, error)
+	UpsertCatalog(Actor, string, string, int64, CatalogRequest) (CatalogItem, bool, error)
+	SetInventory(Actor, string, string, int64, int) (CatalogItem, bool, error)
+	SetSchedule(Actor, string, string, int64, []ScheduleWindow) (CatalogItem, bool, error)
+	ApproveCatalog(Actor, string, string, int64, bool, string) (CatalogItem, bool, error)
+	Work(Actor) ([]WorkItem, error)
+	TransitionWork(Actor, string, string, string) (WorkItem, bool, error)
+	UpsertPromotion(Actor, string, Promotion) (Promotion, bool, error)
+}
 
-func NewHandler(service *Service) (http.Handler, error) {
+type Handler struct{ service ApplicationService }
+
+func NewHandler(service ApplicationService) (http.Handler, error) {
 	if service == nil {
 		return nil, ErrInvalidRequest
 	}

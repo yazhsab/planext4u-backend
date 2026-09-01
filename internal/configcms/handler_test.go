@@ -45,3 +45,23 @@ func TestBootstrapHandlerReturnsSafeProblem(t *testing.T) {
 		t.Fatalf("response = %d %s", response.Code, body)
 	}
 }
+
+func TestPageHandlerReturnsPublishedPageWithRevisionETag(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
+	snapshot := validSnapshot(now)
+	snapshot.Pages = []Page{{ID: "customer-home", Route: "/home", TitleKey: "page.home", Audience: []string{"CUSTOMER"}, Enabled: true, Blocks: []PageBlock{{ID: "hero", Kind: "HERO", Enabled: true, Priority: 10, Content: map[string]any{"title": "Planext4u"}}}}}
+	repository, _ := NewMemoryRepository(snapshot)
+	service, _ := NewService(repository, func() time.Time { return now })
+	handler, _ := NewHandler(service)
+	request := httptest.NewRequest(http.MethodGet, "/v1/pages/customer-home?locale=ta", nil)
+	request.Header.Set("X-Planext4u-Tenant", snapshot.TenantID)
+	request.Header.Set("X-Planext4u-Country", snapshot.Country)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || response.Header().Get("ETag") != `"config-1-page-customer-home"` || !strings.Contains(response.Body.String(), `"locale":"ta"`) || !strings.Contains(response.Body.String(), `"title":"Planext4u"`) {
+		t.Fatalf("response = %d %v %s", response.Code, response.Header(), response.Body.String())
+	}
+}

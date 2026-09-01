@@ -1,14 +1,23 @@
 package notification
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/yazhsab/planext4u-backend/internal/order"
 )
 
-type Handler struct{ service *Service }
+type Handler struct {
+	service        *Service
+	internalSecret []byte
+	orderNotifier  *OrderNotifier
+}
 
 func NewHandler(service *Service) (http.Handler, error) {
 	if service == nil {
@@ -19,6 +28,50 @@ func NewHandler(service *Service) (http.Handler, error) {
 	mux.HandleFunc("PUT /v1/notifications/devices/current", handler.register)
 	mux.HandleFunc("DELETE /v1/notifications/devices/current", handler.unregister)
 	return mux, nil
+}
+
+func NewHandlerWithInternalOrderNotifications(service *Service, secret []byte, templateVersion int64) (http.Handler, error) {
+	if service == nil || len(secret) < 32 || len(secret) > 4096 {
+		return nil, ErrInvalidRequest
+	}
+	notifier, err := NewOrderNotifier(service, templateVersion)
+	if err != nil {
+		return nil, err
+	}
+	handler := &Handler{service: service, internalSecret: append([]byte(nil), secret...), orderNotifier: notifier}
+	mux := http.NewServeMux()
+	mux.HandleFunc("PUT /v1/notifications/devices/current", handler.register)
+	mux.HandleFunc("DELETE /v1/notifications/devices/current", handler.unregister)
+	mux.HandleFunc("POST /internal/v1/order-notifications", handler.orderNotification)
+	return mux, nil
+}
+
+func (handler *Handler) orderNotification(writer http.ResponseWriter, request *http.Request) {
+	defer request.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(request.Body, 32*1024+1))
+	if err != nil || len(body) == 0 || len(body) > 32*1024 {
+		writeNotificationProblem(writer, http.StatusUnprocessableEntity, "ORDER_NOTIFICATION_INVALID", "The order notification is invalid.")
+		return
+	}
+	provided, err := hex.DecodeString(strings.TrimSpace(request.Header.Get("X-Planext4u-Internal-Signature")))
+	mac := hmac.New(sha256.New, handler.internalSecret)
+	_, _ = mac.Write(body)
+	if err != nil || !hmac.Equal(provided, mac.Sum(nil)) {
+		writeNotificationProblem(writer, http.StatusUnauthorized, "ORDER_NOTIFICATION_UNAUTHORIZED", "The order notification signature is invalid.")
+		return
+	}
+	var value order.Notification
+	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&value) != nil || decoder.Decode(&struct{}{}) != io.EOF {
+		writeNotificationProblem(writer, http.StatusUnprocessableEntity, "ORDER_NOTIFICATION_INVALID", "The order notification is invalid.")
+		return
+	}
+	if err := handler.orderNotifier.Send(request.Context(), value); err != nil {
+		writeNotificationProblem(writer, http.StatusServiceUnavailable, "ORDER_NOTIFICATION_PENDING", "The order notification will be retried.")
+		return
+	}
+	writer.WriteHeader(http.StatusNoContent)
 }
 
 func (handler *Handler) register(writer http.ResponseWriter, request *http.Request) {

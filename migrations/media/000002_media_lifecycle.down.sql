@@ -1,0 +1,14 @@
+SET ROLE planext4u_media_owner;
+DROP INDEX IF EXISTS media.media_assets_expiry_idx;
+ALTER TABLE media.assets DROP CONSTRAINT IF EXISTS media_assets_rejected_code_safe;
+ALTER TABLE media.assets DROP CONSTRAINT IF EXISTS media_assets_version_positive;
+ALTER TABLE media.assets DROP CONSTRAINT IF EXISTS media_assets_lifecycle_fields_present;
+ALTER TABLE media.assets DROP CONSTRAINT IF EXISTS media_assets_lifecycle_state_valid;
+ALTER TABLE media.assets DROP CONSTRAINT IF EXISTS media_assets_purpose_valid;
+ALTER TABLE media.assets DROP COLUMN IF EXISTS version;
+ALTER TABLE media.assets DROP COLUMN IF EXISTS rejected_code;
+ALTER TABLE media.assets DROP COLUMN IF EXISTS ready_at;
+ALTER TABLE media.assets DROP COLUMN IF EXISTS upload_expires_at;
+ALTER TABLE media.assets DROP COLUMN IF EXISTS lifecycle_state;
+ALTER TABLE media.assets DROP COLUMN IF EXISTS purpose;
+RESET ROLE;

@@ -18,8 +18,8 @@ import (
 func TestBEMigrate001PostgresFromZeroUpgradeIsolationAndRollback(t *testing.T) {
 	databaseURL := os.Getenv("MIGRATION_DATABASE_TEST_URL")
 	parsed, err := url.Parse(databaseURL)
-	if err != nil || (parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost") || parsed.Path != "/planext4u_local" {
-		t.Skip("MIGRATION_DATABASE_TEST_URL must target the disposable local planext4u_local database")
+	if err != nil || (parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost") || (parsed.Path != "/planext4u_local" && parsed.Path != "/planext4u_test") {
+		t.Skip("MIGRATION_DATABASE_TEST_URL must target an explicitly allowed disposable local database")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
@@ -63,7 +63,13 @@ func TestBEMigrate001PostgresFromZeroUpgradeIsolationAndRollback(t *testing.T) {
 
 	failingSQL := "CREATE TABLE catalog.failed_upgrade(id bigint); SELECT 1 / 0;"
 	digest := sha256.Sum256([]byte(failingSQL))
-	failing := append(append([]Migration(nil), migrations...), Migration{Service: "catalog", Version: 2, Name: "failed_upgrade", Up: failingSQL, Down: "DROP TABLE IF EXISTS catalog.failed_upgrade", Checksum: hex.EncodeToString(digest[:])})
+	var failingVersion int64 = 1
+	for _, migration := range migrations {
+		if migration.Service == "catalog" && migration.Version >= failingVersion {
+			failingVersion = migration.Version + 1
+		}
+	}
+	failing := append(append([]Migration(nil), migrations...), Migration{Service: "catalog", Version: failingVersion, Name: "failed_upgrade", Up: failingSQL, Down: "DROP TABLE IF EXISTS catalog.failed_upgrade", Checksum: hex.EncodeToString(digest[:])})
 	if err := runner.Up(ctx, failing, "catalog"); err == nil {
 		t.Fatal("failed migration unexpectedly succeeded")
 	}
@@ -71,7 +77,7 @@ func TestBEMigrate001PostgresFromZeroUpgradeIsolationAndRollback(t *testing.T) {
 	if err := connection.QueryRow(ctx, `SELECT to_regclass('catalog.failed_upgrade') IS NOT NULL`).Scan(&relationExists); err != nil {
 		t.Fatal(err)
 	}
-	if err := connection.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM platform_migrations.applied WHERE service = 'catalog' AND version = 2)`).Scan(&ledgerExists); err != nil {
+	if err := connection.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM platform_migrations.applied WHERE service = 'catalog' AND version = $1)`, failingVersion).Scan(&ledgerExists); err != nil {
 		t.Fatal(err)
 	}
 	if relationExists || ledgerExists {

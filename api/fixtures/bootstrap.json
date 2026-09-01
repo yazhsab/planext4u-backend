@@ -14,5 +14,11 @@
   "home_sections": [
     {"id": "hero", "kind": "HERO", "title_key": "home.hero", "enabled": true, "priority": 10},
     {"id": "categories", "kind": "CATEGORY_RAIL", "title_key": "home.categories", "enabled": true, "priority": 20}
+  ],
+  "pages": [
+    {"id": "customer-home", "route": "/home", "title_key": "page.home", "audience": ["CUSTOMER"], "enabled": true, "blocks": [
+      {"id": "hero", "kind": "HERO", "title_key": "home.hero", "enabled": true, "priority": 10, "content": {"campaign_id": "campaign-local-001"}},
+      {"id": "categories", "kind": "CATEGORY_RAIL", "title_key": "home.categories", "enabled": true, "priority": 20, "content": {"source": "catalog"}}
+    ]}
   ]
 }

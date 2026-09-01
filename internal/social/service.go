@@ -26,6 +26,7 @@ type Service struct {
 	sequence      int64
 	profiles      map[string]*Profile
 	posts         map[string]*Post
+	shares        map[string]bool
 	comments      map[string]*Comment
 	follows       map[string]*Follow
 	blocked       map[string]bool
@@ -50,7 +51,7 @@ func NewService(configuration Configuration, clock func() time.Time) (*Service, 
 		configuration.RankingModel = "socio-feed-v1"
 	}
 	service := &Service{
-		clock: clock, configuration: configuration, profiles: map[string]*Profile{}, posts: map[string]*Post{},
+		clock: clock, configuration: configuration, profiles: map[string]*Profile{}, posts: map[string]*Post{}, shares: map[string]bool{},
 		comments: map[string]*Comment{}, follows: map[string]*Follow{}, blocked: map[string]bool{}, muted: map[string]bool{},
 		reports: map[string]*Report{}, idempotency: map[string]idempotentResult{},
 		mediaJobs: map[string]*MediaJob{}, ephemeral: map[string]*EphemeralContent{}, collections: map[string]*Collection{},
@@ -197,6 +198,38 @@ func (service *Service) SetSave(actor Actor, key, postID string, revision int64,
 	return service.setEngagement(actor, key, postID, revision, "save", active)
 }
 
+func (service *Service) SharePost(actor Actor, key, postID string, request ShareRequest) (Post, bool, error) {
+	channel := strings.ToUpper(strings.TrimSpace(request.Channel))
+	if !validCustomer(actor) || !validKey(key) || !safeID(postID) || !validShareChannel(channel) {
+		return Post{}, false, ErrInvalidRequest
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	value := service.posts[postID]
+	if value == nil || value.Status != PostPublished || !service.canViewPostLocked(actor, value) {
+		return Post{}, false, ErrNotFound
+	}
+	normalized := ShareRequest{Channel: channel}
+	fingerprint := digest(normalized)
+	scope := idempotencyScope(actor, "share:"+postID, key)
+	if previous, exists := service.idempotency[scope]; exists {
+		if previous.fingerprint != fingerprint {
+			return Post{}, false, ErrIdempotencyConflict
+		}
+		return service.presentPostLocked(actor, value), true, nil
+	}
+	shareKey := actor.TenantID + "|" + actor.Country + "|" + postID + "|" + actor.Subject + "|" + channel
+	replayed := service.shares[shareKey]
+	if !replayed {
+		service.shares[shareKey] = true
+		value.ShareCount++
+		value.Revision++
+		value.UpdatedAt = service.clock().UTC()
+	}
+	service.idempotency[scope] = idempotentResult{fingerprint: fingerprint, resourceID: value.ID}
+	return service.presentPostLocked(actor, value), replayed, nil
+}
+
 func (service *Service) setEngagement(actor Actor, key, postID string, revision int64, kind string, active bool) (Post, bool, error) {
 	if !validCustomer(actor) || !validKey(key) || !safeID(postID) || revision < 1 {
 		return Post{}, false, ErrInvalidRequest
@@ -233,6 +266,10 @@ func (service *Service) setEngagement(actor Actor, key, postID string, revision 
 	}
 	service.idempotency[scope] = idempotentResult{fingerprint: fingerprint, resourceID: value.ID}
 	return service.presentPostLocked(actor, value), false, nil
+}
+
+func validShareChannel(value string) bool {
+	return value == "IN_APP" || value == "LINK" || value == "EXTERNAL"
 }
 
 func (service *Service) Comments(actor Actor, postID string) ([]Comment, error) {
@@ -490,7 +527,7 @@ func (service *Service) presentPostLocked(actor Actor, value *Post) Post {
 	clone.Author = service.presentProfileLocked(actor.Subject, service.profiles[value.Author.ID])
 	clone.LikeCount, clone.CommentCount = len(value.likes), value.CommentCount
 	clone.Liked, clone.Saved = value.likes[actor.Subject], value.saves[actor.Subject]
-	clone.AllowedActions = []string{"LIKE", "SAVE", "COMMENT", "REPORT"}
+	clone.AllowedActions = []string{"LIKE", "SAVE", "SHARE", "COMMENT", "REPORT"}
 	if value.Author.ID == actor.Subject {
 		clone.AllowedActions = []string{"EDIT", "DELETE"}
 	}

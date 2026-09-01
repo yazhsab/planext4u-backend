@@ -2,6 +2,7 @@ package configcms
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -11,9 +12,11 @@ import (
 )
 
 var (
-	ErrNotFound         = errors.New("configuration not found")
-	ErrRevisionConflict = errors.New("configuration revision conflict")
-	ErrInvalidSnapshot  = errors.New("invalid configuration snapshot")
+	ErrNotFound          = errors.New("configuration not found")
+	ErrRevisionConflict  = errors.New("configuration revision conflict")
+	ErrInvalidSnapshot   = errors.New("invalid configuration snapshot")
+	ErrAuditRequired     = errors.New("configuration publication audit is required")
+	ErrInvalidRepository = errors.New("invalid configuration repository")
 )
 
 type Repository interface {
@@ -23,6 +26,10 @@ type Repository interface {
 type WritableRepository interface {
 	Repository
 	Publish(context.Context, Snapshot, int64) error
+}
+
+type AtomicPublicationRepository interface {
+	PublishWithAudit(context.Context, Snapshot, int64, AuditRecord) error
 }
 
 type AuditSink interface {
@@ -136,7 +143,7 @@ func (sink *MemoryAuditSink) Records() []AuditRecord {
 func validateSnapshot(snapshot Snapshot) error {
 	if !safeID(snapshot.TenantID) || len(snapshot.Country) != 2 || snapshot.Revision < 1 || snapshot.PublishedAt.IsZero() ||
 		len(snapshot.MinimumVersions) != 2 || len(snapshot.LatestVersions) != 2 || len(snapshot.SupportedLocales) == 0 ||
-		!containsString(snapshot.SupportedLocales, snapshot.DefaultLocale) || len(snapshot.Flags) > 256 || len(snapshot.HomeSections) > 64 {
+		!containsString(snapshot.SupportedLocales, snapshot.DefaultLocale) || len(snapshot.Flags) > 256 || len(snapshot.HomeSections) > 64 || len(snapshot.Pages) > 64 {
 		return ErrInvalidSnapshot
 	}
 	for _, platform := range []Platform{PlatformAndroid, PlatformIOS} {
@@ -166,6 +173,25 @@ func validateSnapshot(snapshot Snapshot) error {
 		}
 		seen[section.ID] = struct{}{}
 	}
+	pageIDs, routes := map[string]bool{}, map[string]bool{}
+	for _, page := range snapshot.Pages {
+		if !safeID(page.ID) || !safeID(page.TitleKey) || !validPageRoute(page.Route) || len(page.Audience) == 0 || len(page.Audience) > 4 || len(page.Blocks) > 100 || pageIDs[page.ID] || routes[page.Route] {
+			return ErrInvalidSnapshot
+		}
+		pageIDs[page.ID], routes[page.Route] = true, true
+		for _, audience := range page.Audience {
+			if audience != "PUBLIC" && audience != "CUSTOMER" && audience != "VENDOR" && audience != "RIDER" {
+				return ErrInvalidSnapshot
+			}
+		}
+		blockIDs := map[string]bool{}
+		for _, block := range page.Blocks {
+			if !safeID(block.ID) || !safeID(block.Kind) || (block.TitleKey != "" && !safeID(block.TitleKey)) || block.Priority < 0 || blockIDs[block.ID] || !validBlockContent(block.Content) {
+				return ErrInvalidSnapshot
+			}
+			blockIDs[block.ID] = true
+		}
+	}
 	if window := snapshot.MaintenanceWindow; window != nil {
 		if window.StartsAt.IsZero() || !window.EndsAt.After(window.StartsAt) || strings.TrimSpace(window.Message) == "" || len(window.Message) > 240 {
 			return ErrInvalidSnapshot
@@ -182,9 +208,69 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 	result.ConsentPolicies = append([]ConsentPolicy(nil), snapshot.ConsentPolicies...)
 	result.Flags = cloneMap(snapshot.Flags)
 	result.HomeSections = append([]HomeSection(nil), snapshot.HomeSections...)
+	result.Pages = make([]Page, len(snapshot.Pages))
+	for pageIndex, page := range snapshot.Pages {
+		result.Pages[pageIndex] = page
+		result.Pages[pageIndex].Audience = append([]string(nil), page.Audience...)
+		result.Pages[pageIndex].Blocks = make([]PageBlock, len(page.Blocks))
+		for blockIndex, block := range page.Blocks {
+			result.Pages[pageIndex].Blocks[blockIndex] = block
+			result.Pages[pageIndex].Blocks[blockIndex].Content = cloneJSONMap(block.Content)
+		}
+	}
 	if snapshot.MaintenanceWindow != nil {
 		window := *snapshot.MaintenanceWindow
 		result.MaintenanceWindow = &window
+	}
+	return result
+}
+
+func validPageRoute(value string) bool {
+	return len(value) >= 1 && len(value) <= 128 && strings.HasPrefix(value, "/") && !strings.ContainsAny(value, "?#\\\t\r\n ")
+}
+
+func validBlockContent(value map[string]any) bool {
+	if value == nil {
+		return false
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil || len(encoded) > 64*1024 {
+		return false
+	}
+	var normalized map[string]any
+	return json.Unmarshal(encoded, &normalized) == nil && !containsSensitiveContent(normalized)
+}
+
+func containsSensitiveContent(value any) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			lower := strings.ToLower(key)
+			if strings.Contains(lower, "password") || strings.Contains(lower, "secret") || strings.Contains(lower, "token") || strings.Contains(lower, "private_key") || containsSensitiveContent(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if containsSensitiveContent(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func cloneJSONMap(value map[string]any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var result map[string]any
+	if json.Unmarshal(encoded, &result) != nil {
+		return nil
 	}
 	return result
 }

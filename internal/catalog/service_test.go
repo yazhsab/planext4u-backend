@@ -95,19 +95,19 @@ func TestServiceabilityRequiresPurposeAndMatchesCountryZone(t *testing.T) {
 	now := time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
 	repository, _ := NewMemoryRepository(syntheticCategories(), syntheticItems())
 	service, _ := NewService(repository, []Zone{{
-		ID: "zone-chennai", Country: "IN", Locality: "Chennai", MinimumLatitude: 12.8, MaximumLatitude: 13.3,
+		TenantID: "tenant-synthetic", ID: "zone-chennai", Country: "IN", Locality: "Chennai", MinimumLatitude: 12.8, MaximumLatitude: 13.3,
 		MinimumLongitude: 80.0, MaximumLongitude: 80.4, PostalCodes: []string{"600001"},
 	}}, 15*time.Minute, func() time.Time { return now })
 	point := GeoPoint{Latitude: 13.08, Longitude: 80.27, AccuracyMetres: 12, CapturedAt: now, Purpose: "LOCATION_SERVICEABILITY"}
-	result, err := service.CheckServiceability("IN", point)
+	result, err := service.CheckServiceability("tenant-synthetic", "IN", point)
 	if err != nil || !result.Serviceable || result.ZoneID != "zone-chennai" {
 		t.Fatalf("result = %#v, %v", result, err)
 	}
 	point.Purpose = "TRACKING"
-	if _, err := service.CheckServiceability("IN", point); !errors.Is(err, ErrInvalidRequest) {
+	if _, err := service.CheckServiceability("tenant-synthetic", "IN", point); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("purpose error = %v", err)
 	}
-	candidates, err := service.Geocode("IN", "600")
+	candidates, err := service.Geocode("tenant-synthetic", "IN", "600")
 	if err != nil || len(candidates) != 1 || candidates[0].PostalCode != "600001" || candidates[0].Locality != "Chennai" {
 		t.Fatalf("geocode = %#v err=%v", candidates, err)
 	}

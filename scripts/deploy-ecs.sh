@@ -18,11 +18,6 @@ if [[ ! "$IMAGE_URI" =~ @sha256:[a-f0-9]{64}$ ]]; then
   printf 'IMAGE_URI must use an immutable sha256 digest\n' >&2
   exit 2
 fi
-if [[ "${DEPLOYMENT_ENVIRONMENT:-unknown}" == "staging" && -z "${VERTICAL_SLICE_SMOKE_ORIGIN:-}" ]]; then
-  printf 'VERTICAL_SLICE_SMOKE_ORIGIN is required for staging deployments\n' >&2
-  exit 2
-fi
-
 deployment_tmp="$(mktemp -d)"
 trap 'rm -rf "$deployment_tmp"' EXIT
 

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -58,6 +59,20 @@ func TestMiddlewarePreservesValidRequestID(t *testing.T) {
 
 	if got := response.Header().Get(requestIDHeader); got != "request-123" {
 		t.Errorf("X-Request-ID = %q, want request-123", got)
+	}
+}
+
+func TestReadinessFailsClosedWhenDependencyIsUnavailable(t *testing.T) {
+	t.Parallel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	service := New(config.Config{
+		ServiceName: "test-service", Environment: config.EnvironmentDevelopment, HTTPAddress: ":8080",
+		ShutdownTimeout: time.Second, LogLevel: "info",
+	}, logger, "test", WithReadiness(func(context.Context) error { return errors.New("database unavailable") }))
+	service.SetReady(true)
+	response := performRequest(service, "/readyz")
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), `"status":"dependency_unavailable"`) {
+		t.Fatalf("dependency readiness response=%d body=%q", response.Code, response.Body.String())
 	}
 }
 

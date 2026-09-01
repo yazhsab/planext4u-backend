@@ -152,3 +152,15 @@ type ProviderEvent struct {
 	AmountMinor                  int64  `json:"amount_minor"`
 	Currency                     string `json:"currency"`
 }
+
+// PaymentService is the checkout-facing payment boundary shared by the
+// in-memory test service and the durable PostgreSQL implementation.
+type PaymentService interface {
+	CreateWithPayer(context.Context, Scope, string, string, Method, Money, Payer) (Payment, bool, error)
+	RetryProvider(context.Context, Scope, string, string) (Payment, bool, error)
+	Get(Scope, string) (Payment, error)
+	HandleProviderWebhook(Method, string, string, []byte) (Payment, bool, error)
+	RequestRefundWithProvider(context.Context, Scope, string, Money, string) (Payment, error)
+	MarkCODCollected(Scope, string) (Payment, error)
+	CancelUncaptured(Scope, string) (Payment, error)
+}

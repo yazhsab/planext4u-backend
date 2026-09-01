@@ -26,7 +26,7 @@ func TestBEP4012GatewayVendorOnboardingCatalogAndFirstSettlement(t *testing.T) {
 	finance := verticalLoginProvider(t, client, server.URL, "synthetic-finance-one", "device-finance-e2e-001")
 
 	registered := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/vendor/applications", `{"business_name":"Synthetic Home Services","business_type":"Home services","contact_name":"Synthetic Vendor"}`, vendor, map[string]string{"Idempotency-Key": "e2e-vendor-register-001"})
-	assertVerticalResponse(t, registered, http.StatusCreated, `"status":"REGISTERED"`)
+	assertVerticalResponse(t, registered, http.StatusCreated, `"status":"REGISTERED"`, `"documents":[]`, `"service_zones":[]`)
 	var applicationPayload struct {
 		Revision int64 `json:"revision"`
 	}

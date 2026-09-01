@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -156,6 +157,67 @@ func TestGeneratedFixturesAreSyntheticAndStructurallyValid(t *testing.T) {
 		!strings.Contains(authentication.Tokens.AccessToken, "synthetic") ||
 		!strings.Contains(authentication.Tokens.RefreshToken, "synthetic") {
 		t.Fatalf("identity authentication fixture is incomplete or not synthetic: %#v", authentication)
+	}
+}
+
+func TestSuccessfulOpenAPIResponsesHaveConcreteJSONSchemas(t *testing.T) {
+	t.Parallel()
+	contractPaths, err := filepath.Glob(filepath.Join("..", "..", "api", "openapi", "*.openapi.json"))
+	if err != nil {
+		t.Fatalf("list OpenAPI contracts: %v", err)
+	}
+	if len(contractPaths) == 0 {
+		t.Fatal("no OpenAPI contracts found")
+	}
+
+	for _, contractPath := range contractPaths {
+		contractPath := contractPath
+		t.Run(filepath.Base(contractPath), func(t *testing.T) {
+			t.Parallel()
+			contents, readErr := os.ReadFile(contractPath)
+			if readErr != nil {
+				t.Fatalf("read contract: %v", readErr)
+			}
+			var document map[string]any
+			if unmarshalErr := json.Unmarshal(contents, &document); unmarshalErr != nil {
+				t.Fatalf("parse contract: %v", unmarshalErr)
+			}
+			components := document["components"].(map[string]any)["schemas"].(map[string]any)
+			assertNoEmptyObjectPlaceholders(t, components, "components.schemas")
+			paths := document["paths"].(map[string]any)
+			for path, pathValue := range paths {
+				pathItem := pathValue.(map[string]any)
+				for method, operationValue := range pathItem {
+					if !isHTTPMethod(method) {
+						continue
+					}
+					operation := operationValue.(map[string]any)
+					responses, _ := operation["responses"].(map[string]any)
+					for status, responseValue := range responses {
+						if len(status) != 3 || status[0] != '2' || status == "204" {
+							continue
+						}
+						response := responseValue.(map[string]any)
+						content, ok := response["content"].(map[string]any)
+						if !ok {
+							t.Errorf("%s %s response %s has no content", strings.ToUpper(method), path, status)
+							continue
+						}
+						media, ok := content["application/json"].(map[string]any)
+						if !ok {
+							t.Errorf("%s %s response %s has no application/json contract", strings.ToUpper(method), path, status)
+							continue
+						}
+						responseSchema, ok := media["schema"].(map[string]any)
+						if !ok || len(responseSchema) == 0 {
+							t.Errorf("%s %s response %s has no concrete schema", strings.ToUpper(method), path, status)
+							continue
+						}
+						assertSchemaReferencesExist(t, responseSchema, components, strings.ToUpper(method)+" "+path+" "+status)
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -573,4 +635,52 @@ func containsAny(values []any, candidate string) bool {
 		}
 	}
 	return false
+}
+
+func isHTTPMethod(method string) bool {
+	switch strings.ToLower(method) {
+	case "get", "post", "put", "patch", "delete", "head", "options":
+		return true
+	default:
+		return false
+	}
+}
+
+func assertSchemaReferencesExist(t *testing.T, value any, components map[string]any, location string) {
+	t.Helper()
+	switch typed := value.(type) {
+	case map[string]any:
+		if reference, ok := typed["$ref"].(string); ok {
+			const prefix = "#/components/schemas/"
+			if !strings.HasPrefix(reference, prefix) {
+				t.Errorf("%s uses unsupported schema reference %q", location, reference)
+			} else if _, exists := components[strings.TrimPrefix(reference, prefix)]; !exists {
+				t.Errorf("%s references missing schema %q", location, reference)
+			}
+		}
+		for _, child := range typed {
+			assertSchemaReferencesExist(t, child, components, location)
+		}
+	case []any:
+		for _, child := range typed {
+			assertSchemaReferencesExist(t, child, components, location)
+		}
+	}
+}
+
+func assertNoEmptyObjectPlaceholders(t *testing.T, value any, location string) {
+	t.Helper()
+	switch typed := value.(type) {
+	case map[string]any:
+		if typed["type"] == "object" && typed["properties"] == nil && typed["additionalProperties"] == nil {
+			t.Errorf("%s contains an unconstrained object placeholder", location)
+		}
+		for key, child := range typed {
+			assertNoEmptyObjectPlaceholders(t, child, location+"."+key)
+		}
+	case []any:
+		for index, child := range typed {
+			assertNoEmptyObjectPlaceholders(t, child, location+"["+strconv.Itoa(index)+"]")
+		}
+	}
 }

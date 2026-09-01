@@ -30,6 +30,7 @@ type Server struct {
 	httpServer *http.Server
 	logger     *slog.Logger
 	ready      atomic.Bool
+	readiness  func(context.Context) error
 	version    string
 }
 
@@ -39,6 +40,7 @@ type serverOptions struct {
 	telemetry         *telemetry.Telemetry
 	application       http.Handler
 	applicationRoutes telemetry.RouteResolver
+	readiness         func(context.Context) error
 }
 
 func WithTelemetry(value *telemetry.Telemetry) Option {
@@ -52,6 +54,10 @@ func WithApplication(handler http.Handler, routes telemetry.RouteResolver) Optio
 	}
 }
 
+func WithReadiness(check func(context.Context) error) Option {
+	return func(options *serverOptions) { options.readiness = check }
+}
+
 // New builds a server in the not-ready state.
 func New(cfg config.Config, logger *slog.Logger, version string, optionValues ...Option) *Server {
 	options := serverOptions{}
@@ -59,9 +65,10 @@ func New(cfg config.Config, logger *slog.Logger, version string, optionValues ..
 		option(&options)
 	}
 	server := &Server{
-		config:  cfg,
-		logger:  logger,
-		version: version,
+		config:    cfg,
+		logger:    logger,
+		readiness: options.readiness,
+		version:   version,
 	}
 
 	mux := http.NewServeMux()
@@ -160,10 +167,18 @@ func (s *Server) handleHealth(writer http.ResponseWriter, _ *http.Request) {
 	s.writeStatus(writer, http.StatusOK, "ok")
 }
 
-func (s *Server) handleReadiness(writer http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleReadiness(writer http.ResponseWriter, request *http.Request) {
 	if !s.Ready() {
 		s.writeStatus(writer, http.StatusServiceUnavailable, "not_ready")
 		return
+	}
+	if s.readiness != nil {
+		ctx, cancel := context.WithTimeout(request.Context(), time.Second)
+		defer cancel()
+		if err := s.readiness(ctx); err != nil {
+			s.writeStatus(writer, http.StatusServiceUnavailable, "dependency_unavailable")
+			return
+		}
 	}
 	s.writeStatus(writer, http.StatusOK, "ready")
 }

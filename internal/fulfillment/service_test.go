@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/yazhsab/planext4u-backend/internal/order"
 )
 
 func TestBEP4008RiderOnboardingDutyAndAtomicConcurrentOffer(t *testing.T) {
@@ -212,6 +214,20 @@ func TestBEP4010ImmutableSettlementFourEyesRetryAndZeroVariance(t *testing.T) {
 	reconciliation, err := service.Reconcile(financeOne, vendor.Subject)
 	if err != nil || reconciliation.VarianceMinor != 0 || reconciliation.PaidMinor != entry.Net.AmountMinor {
 		t.Fatalf("reconciliation=%#v err=%v", reconciliation, err)
+	}
+}
+
+func TestOrderSettlementUsesCapturedCommercialTerms(t *testing.T) {
+	t.Parallel()
+	service, _ := fulfillmentFixture(t)
+	worker := fulfillmentActor("settlement-worker-001", "SETTLEMENT_WORKER", false)
+	snapshot := order.CheckoutSnapshot{
+		PricingPolicyVersion: "pricing-2026-08", CommercialPolicyVersion: "commercial-2026-08", Total: order.Money{AmountMinor: 90000, Currency: "INR"},
+		Lines: []order.LineSnapshot{{VendorID: "vendor-settlement-001", LineTotal: order.Money{AmountMinor: 100000, Currency: "INR"}, DiscountMinor: 10000, CommissionMinor: 12000}},
+	}
+	entry, err := service.SeedOrderSettlement(worker, "vendor-settlement-001", "order-settled-001", "VENDOR_ORDER_SETTLEMENT", "vendor-settlement-001", snapshot)
+	if err != nil || entry.Gross.AmountMinor != 90000 || entry.Commission.AmountMinor != 12000 || entry.Tax.AmountMinor != 2160 || entry.Net.AmountMinor != 75840 || entry.CalculationVersion != "order:pricing-2026-08:commercial-2026-08" {
+		t.Fatalf("entry=%#v err=%v", entry, err)
 	}
 }
 

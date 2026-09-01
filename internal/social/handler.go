@@ -10,9 +10,46 @@ import (
 	"strings"
 )
 
-type Handler struct{ service *Service }
+type Application interface {
+	Feed(Actor, string, int) (FeedPage, error)
+	Profile(Actor, string) (Profile, error)
+	Post(Actor, string) (Post, error)
+	CreatePost(Actor, string, CreatePostRequest) (Post, bool, error)
+	SetLike(Actor, string, string, int64, bool) (Post, bool, error)
+	SetSave(Actor, string, string, int64, bool) (Post, bool, error)
+	SharePost(Actor, string, string, ShareRequest) (Post, bool, error)
+	Comments(Actor, string) ([]Comment, error)
+	CreateComment(Actor, string, string, CreateCommentRequest) (Comment, bool, error)
+	Follow(Actor, string, string) (Follow, bool, error)
+	AcceptFollow(Actor, string, string) (Follow, bool, error)
+	SetRelationship(Actor, string, string, string) (Profile, bool, error)
+	ReportPost(Actor, string, string, ReportRequest) (Report, bool, error)
+	ModerationQueue(Actor) ([]Report, error)
+	Moderate(Actor, string, string, ModerationDecisionRequest) (Report, bool, error)
+	CreateMedia(Actor, string, CreateMediaRequest) (MediaJob, bool, error)
+	ProcessMedia(Actor, string, string, ProcessMediaRequest) (MediaJob, bool, error)
+	AppealMedia(Actor, string, string) (MediaJob, bool, error)
+	DecideMediaAppeal(Actor, string, string, AppealDecisionRequest) (MediaJob, bool, error)
+	CreateEphemeral(Actor, string, CreateEphemeralRequest) (EphemeralContent, bool, error)
+	Ephemeral(Actor) ([]EphemeralContent, error)
+	SetHighlight(Actor, string, string, bool) (EphemeralContent, bool, error)
+	PurgeExpired(Actor) (int, error)
+	CreateCollection(Actor, string, string) (Collection, bool, error)
+	SetCollectionPost(Actor, string, string, string, bool) (Collection, bool, error)
+	OpenConversation(Actor, string, string) (Conversation, bool, error)
+	Conversations(Actor) ([]Conversation, error)
+	AcceptConversation(Actor, string, string) (Conversation, bool, error)
+	SendMessage(Actor, string, string, SendMessageRequest) (DirectMessage, bool, error)
+	Messages(Actor, string) ([]DirectMessage, error)
+	SetPresence(Actor, PresenceRequest) (Presence, error)
+	Presence(Actor, string) (Presence, error)
+	CreateCall(Actor, string, string, string) (CallSession, bool, error)
+	SignalCall(Actor, string, SignalRequest) (CallSession, error)
+}
 
-func NewHandler(service *Service) (http.Handler, error) {
+type Handler struct{ service Application }
+
+func NewHandler(service Application) (http.Handler, error) {
 	if service == nil {
 		return nil, ErrInvalidRequest
 	}
@@ -23,6 +60,7 @@ func NewHandler(service *Service) (http.Handler, error) {
 	mux.HandleFunc("GET /v1/social/posts/{post_id}", handler.post)
 	mux.HandleFunc("PUT /v1/social/posts/{post_id}/like", handler.like)
 	mux.HandleFunc("PUT /v1/social/posts/{post_id}/save", handler.save)
+	mux.HandleFunc("POST /v1/social/posts/{post_id}/shares", handler.share)
 	mux.HandleFunc("GET /v1/social/posts/{post_id}/comments", handler.comments)
 	mux.HandleFunc("POST /v1/social/posts/{post_id}/comments", handler.createComment)
 	mux.HandleFunc("POST /v1/social/posts/{post_id}/reports", handler.report)
@@ -112,6 +150,27 @@ func (handler *Handler) like(writer http.ResponseWriter, request *http.Request) 
 
 func (handler *Handler) save(writer http.ResponseWriter, request *http.Request) {
 	handler.engagement(writer, request, handler.service.SetSave)
+}
+
+func (handler *Handler) share(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := socialActor(writer, request)
+	if !ok {
+		return
+	}
+	if !validKey(request.Header.Get("Idempotency-Key")) {
+		handler.problem(writer, request, ErrInvalidRequest)
+		return
+	}
+	var input ShareRequest
+	if !decodeSocialJSON(writer, request, &input) {
+		return
+	}
+	value, replay, err := handler.service.SharePost(actor, request.Header.Get("Idempotency-Key"), request.PathValue("post_id"), input)
+	if err != nil {
+		handler.problem(writer, request, err)
+		return
+	}
+	writeSocialPost(writer, http.StatusCreated, value, replay)
 }
 
 func (handler *Handler) engagement(writer http.ResponseWriter, request *http.Request, operation func(Actor, string, string, int64, bool) (Post, bool, error)) {
@@ -299,7 +358,7 @@ func socialMutation(writer http.ResponseWriter, request *http.Request) (Actor, i
 func socialActor(writer http.ResponseWriter, request *http.Request) (Actor, bool) {
 	actor := Actor{
 		TenantID: strings.TrimSpace(request.Header.Get("X-Planext4u-Tenant")), Country: strings.TrimSpace(request.Header.Get("X-Planext4u-Country")),
-		Subject: strings.TrimSpace(request.Header.Get("X-Planext4u-Subject")), Roles: strings.Split(request.Header.Get("X-Planext4u-Roles"), ","),
+		Subject: strings.TrimSpace(request.Header.Get("X-Planext4u-Subject")), DeviceReference: strings.TrimSpace(request.Header.Get("X-Planext4u-Device")), Roles: strings.Split(request.Header.Get("X-Planext4u-Roles"), ","),
 		MFAVerified: strings.EqualFold(request.Header.Get("X-Planext4u-MFA"), "verified"),
 	}
 	if !validActor(actor) {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rsa"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -25,6 +26,8 @@ type runtimeConfig struct {
 	environment        string
 	httpAddress        string
 	upstreamURL        *url.URL
+	upstreamRoutes     map[string]*url.URL
+	anonymousRoutes    map[string]map[string]struct{}
 	issuer             string
 	audience           string
 	keyID              string
@@ -120,6 +123,10 @@ func run() int {
 	}
 
 	handlerConfig := gateway.DefaultConfig(config.upstreamURL)
+	handlerConfig.UpstreamRoutes = config.upstreamRoutes
+	for path, methods := range config.anonymousRoutes {
+		handlerConfig.AnonymousRoutes[path] = methods
+	}
 	handlerConfig.RequestTimeout = config.requestTimeout
 	handlerConfig.MaxRequestBytes = config.maxRequestBytes
 	handlerConfig.AnonymousLimiter = anonymousLimiter
@@ -191,11 +198,19 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 		logLevel:           valueOrDefault(lookup, "LOG_LEVEL", "info"),
 	}
 	upstreamValue := requiredValue(lookup, "UPSTREAM_URL")
-	parsedUpstream, err := url.Parse(upstreamValue)
-	if err != nil || parsedUpstream.Host == "" || (parsedUpstream.Scheme != "http" && parsedUpstream.Scheme != "https") {
-		return runtimeConfig{}, fmt.Errorf("UPSTREAM_URL must be an absolute HTTP(S) URL")
+	parsedUpstream, err := serviceURL(upstreamValue, config.environment)
+	if err != nil {
+		return runtimeConfig{}, fmt.Errorf("UPSTREAM_URL %w", err)
 	}
 	config.upstreamURL = parsedUpstream
+	config.upstreamRoutes, err = upstreamRoutes(requiredValue(lookup, "UPSTREAM_ROUTES"), config.environment)
+	if err != nil {
+		return runtimeConfig{}, err
+	}
+	config.anonymousRoutes, err = anonymousRoutes(requiredValue(lookup, "ANONYMOUS_ROUTES"))
+	if err != nil {
+		return runtimeConfig{}, err
+	}
 
 	if value, exists := lookup("REQUEST_TIMEOUT"); exists {
 		config.requestTimeout, err = time.ParseDuration(strings.TrimSpace(value))
@@ -233,9 +248,6 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 			return runtimeConfig{}, fmt.Errorf("RATE_WINDOW must be a duration")
 		}
 	}
-	if config.environment != "development" && parsedUpstream.Scheme != "https" {
-		return runtimeConfig{}, fmt.Errorf("UPSTREAM_URL must use HTTPS outside development")
-	}
 	if config.environment != "development" && !strings.HasPrefix(config.issuer, "https://") {
 		return runtimeConfig{}, fmt.Errorf("JWT_ISSUER must use HTTPS outside development")
 	}
@@ -259,6 +271,107 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 		return runtimeConfig{}, fmt.Errorf("required gateway configuration is missing or outside its safe range")
 	}
 	return config, nil
+}
+
+func anonymousRoutes(value string) (map[string]map[string]struct{}, error) {
+	result := map[string]map[string]struct{}{}
+	if value == "" {
+		return result, nil
+	}
+	if len(value) > 32*1024 {
+		return nil, fmt.Errorf("ANONYMOUS_ROUTES is too large")
+	}
+	var encoded map[string][]string
+	decoder := json.NewDecoder(strings.NewReader(value))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&encoded) != nil || len(encoded) == 0 || len(encoded) > 32 {
+		return nil, fmt.Errorf("ANONYMOUS_ROUTES must be a JSON object with at most 32 routes")
+	}
+	for path, methods := range encoded {
+		if !safeRoutePrefix(path) || len(methods) == 0 || len(methods) > 4 {
+			return nil, fmt.Errorf("ANONYMOUS_ROUTES contains an invalid route")
+		}
+		allowed := map[string]struct{}{}
+		for _, method := range methods {
+			method = strings.ToUpper(strings.TrimSpace(method))
+			if method != http.MethodPost {
+				return nil, fmt.Errorf("ANONYMOUS_ROUTES only permits POST routes")
+			}
+			allowed[method] = struct{}{}
+		}
+		result[path] = allowed
+	}
+	return result, nil
+}
+
+func upstreamRoutes(value, environment string) (map[string]*url.URL, error) {
+	result := map[string]*url.URL{}
+	if value == "" {
+		return result, nil
+	}
+	if len(value) > 64*1024 {
+		return nil, fmt.Errorf("UPSTREAM_ROUTES is too large")
+	}
+	var encoded map[string]string
+	decoder := json.NewDecoder(strings.NewReader(value))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&encoded) != nil || len(encoded) == 0 || len(encoded) > 64 {
+		return nil, fmt.Errorf("UPSTREAM_ROUTES must be a JSON object with at most 64 routes")
+	}
+	for prefix, rawURL := range encoded {
+		if !safeRoutePrefix(prefix) {
+			return nil, fmt.Errorf("UPSTREAM_ROUTES contains an invalid path prefix")
+		}
+		parsed, err := serviceURL(rawURL, environment)
+		if err != nil {
+			return nil, fmt.Errorf("UPSTREAM_ROUTES %s %w", prefix, err)
+		}
+		result[prefix] = parsed
+	}
+	return result, nil
+}
+
+func serviceURL(value, environment string) (*url.URL, error) {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+		return nil, fmt.Errorf("must be an absolute HTTP(S) service URL without credentials, query, fragment, or path")
+	}
+	if environment != "development" && parsed.Scheme != "https" && !privateServiceHost(parsed.Hostname()) {
+		return nil, fmt.Errorf("must use HTTPS unless it targets a private service-discovery host")
+	}
+	return parsed, nil
+}
+
+func privateServiceHost(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if host == "" || net.ParseIP(host) != nil || host == "localhost" {
+		return false
+	}
+	if strings.HasSuffix(host, ".internal") {
+		return true
+	}
+	if strings.Contains(host, ".") {
+		return false
+	}
+	for _, character := range host {
+		if character != '-' && (character < 'a' || character > 'z') && (character < '0' || character > '9') {
+			return false
+		}
+	}
+	return host[0] != '-' && host[len(host)-1] != '-'
+}
+
+func safeRoutePrefix(value string) bool {
+	if value == "" || value == "/" || value[0] != '/' || strings.HasSuffix(value, "/") || strings.ContainsAny(value, "?#") {
+		return false
+	}
+	for _, character := range value {
+		if character <= 0x20 || character >= 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func redisOptionsForEnvironment(value, environment string) (*redis.Options, error) {

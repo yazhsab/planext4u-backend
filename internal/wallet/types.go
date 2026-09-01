@@ -99,3 +99,16 @@ type Experience struct {
 	Refills   []RefillOffer    `json:"refills"`
 	Campaigns []RewardCampaign `json:"campaigns"`
 }
+
+// WalletService is the checkout-facing points ledger boundary.
+type WalletService interface {
+	Experience(Scope) (Experience, error)
+	RefillOffer(Scope, string) (RefillOffer, error)
+	ApplyReferral(Scope, string, string) (ReferralProfile, bool, error)
+	ActivateReferral(Scope, string) ([]LedgerEntry, error)
+	Account(Scope) (Account, error)
+	Credit(Scope, string, string, string, int64, time.Time) (LedgerEntry, bool, error)
+	Redeem(Scope, string, string, int64) (LedgerEntry, bool, error)
+	ReverseDebit(Scope, string, string, string) (LedgerEntry, bool, error)
+	RefundDebit(Scope, string, string, string, int64) (LedgerEntry, bool, error)
+}

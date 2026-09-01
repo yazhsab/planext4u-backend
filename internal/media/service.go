@@ -2,13 +2,13 @@ package media
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type UploadSigner interface {
@@ -41,8 +41,8 @@ func NewService(repository Repository, signer UploadSigner, objects ObjectStore,
 	return &Service{repository: repository, signer: signer, objects: objects, scanner: scanner, uploadTTL: uploadTTL, clock: clock, newID: secureID}, nil
 }
 
-func (service *Service) Presign(ctx context.Context, tenantID, ownerID string, request PresignRequest) (UploadGrant, error) {
-	if !safeID(tenantID) || !safeID(ownerID) || !validPurpose(request.Purpose) || !validMetadata(ObjectMetadata{
+func (service *Service) Presign(ctx context.Context, tenantID, country, ownerID string, request PresignRequest) (UploadGrant, error) {
+	if !safeID(tenantID) || !validCountry(country) || !safeID(ownerID) || !validPurpose(request.Purpose) || !validMetadata(ObjectMetadata{
 		ContentType: request.ContentType, SizeBytes: request.SizeBytes, SHA256: request.SHA256,
 	}, request.Purpose) {
 		return UploadGrant{}, ErrInvalidRequest
@@ -53,7 +53,7 @@ func (service *Service) Presign(ctx context.Context, tenantID, ownerID string, r
 	}
 	now := service.clock().UTC()
 	expiresAt := now.Add(service.uploadTTL)
-	asset := Asset{ID: id, TenantID: tenantID, OwnerID: ownerID, ObjectKey: objectKey(tenantID, ownerID, id), Purpose: request.Purpose,
+	asset := Asset{ID: id, TenantID: tenantID, Country: country, OwnerID: ownerID, ObjectKey: objectKey(tenantID, ownerID, id), Purpose: request.Purpose,
 		ContentType: request.ContentType, SizeBytes: request.SizeBytes, SHA256: strings.ToLower(request.SHA256), State: StatePendingUpload,
 		CreatedAt: now, UploadExpiresAt: expiresAt, Version: 1}
 	url, headers, err := service.signer.PresignPut(ctx, asset.ObjectKey, ObjectMetadata{ContentType: asset.ContentType, SizeBytes: asset.SizeBytes, SHA256: asset.SHA256}, expiresAt)
@@ -170,16 +170,17 @@ func safeID(value string) bool {
 	return regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`).MatchString(value)
 }
 
+func validCountry(value string) bool {
+	return regexp.MustCompile(`^[A-Z]{2}$`).MatchString(value)
+}
+
 func objectKey(tenantID, ownerID, id string) string {
 	return fmt.Sprintf("tenants/%s/owners/%s/media/%s", tenantID, ownerID, id)
 }
 
 func secureID() (string, error) {
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return "med_" + hex.EncodeToString(bytes), nil
+	value, err := uuid.NewRandom()
+	return value.String(), err
 }
 
 func cloneHeaders(values map[string]string) map[string]string {

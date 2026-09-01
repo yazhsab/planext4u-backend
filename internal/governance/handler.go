@@ -7,9 +7,13 @@ import (
 	"strings"
 )
 
-type Handler struct{ service *Service }
+type Application interface {
+	Dashboard(Actor) (Dashboard, error)
+}
 
-func NewHandler(service *Service) (http.Handler, error) {
+type Handler struct{ service Application }
+
+func NewHandler(service Application) (http.Handler, error) {
 	if service == nil {
 		return nil, ErrInvalidRequest
 	}

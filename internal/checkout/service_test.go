@@ -178,11 +178,12 @@ func newCheckoutFixture(t *testing.T, mode WalletMode) checkoutFixture {
 	secret := []byte("synthetic-provider-secret-32-bytes-minimum")
 	paymentService, _ := payment.NewServiceWithProviders(clock, map[payment.Method][]byte{payment.MethodRazorpay: secret, payment.MethodPaystack: secret}, map[payment.Method]payment.ProviderInitializer{payment.MethodRazorpay: checkoutPaymentProvider{}})
 	orderService, _ := order.NewService(clock)
-	service, err := NewService(Dependencies{Cart: cart, Inventory: inventoryService, Wallet: walletService, Payment: paymentService, Orders: orderService}, Configuration{
+	commercialTerms, _ := NewStaticCommercialTermsResolver([]CommercialTermsPolicy{{TenantID: scope.TenantID, Country: scope.Country, Version: "commercial-2026-01", DefaultVendorTier: "LOCAL_BASIC", DefaultCommissionBasisPoints: 1200, DefaultWalletBasisPoints: 10000}})
+	service, err := NewService(Dependencies{Cart: cart, Inventory: inventoryService, Wallet: walletService, Payment: paymentService, Orders: orderService, CommercialTerms: commercialTerms}, Configuration{
 		Addresses:  []Address{{ID: "address-home-001", Label: "Home", Line1: "12 Market Street", PostalCode: "641001", Locality: "Coimbatore", TenantID: scope.TenantID, Country: scope.Country, CustomerID: scope.CustomerID}},
 		Slots:      []DeliverySlot{{ID: "slot-standard-001", Country: "IN", WindowStart: clock().Add(24 * time.Hour), WindowEnd: clock().Add(28 * time.Hour), Fee: Money{AmountMinor: 1000, Currency: "INR"}, Capacity: 20}},
 		Promotions: []Promotion{{Code: "LOCAL10", Country: "IN", MinimumSubtotal: 10000, DiscountBasisPts: 1000, MaximumDiscount: 5000, StartsAt: clock().Add(-time.Hour), EndsAt: clock().Add(24 * time.Hour)}},
-		Policies:   []PricingPolicy{{Version: "pricing-2026-01", Country: "IN", TaxBasisPoints: 500, PlatformFeeMinor: 500, WalletPointValueMinor: 1, WalletMode: mode, QuoteTTL: 10 * time.Minute, ReservationTTL: 15 * time.Minute}},
+		Policies:   []PricingPolicy{{Version: "pricing-2026-01", Country: "IN", ProductTaxBasisPoints: 500, ProductTaxTreatment: ProductTaxExclusive, PlatformFeeMinor: 500, PlatformFeeTaxBasisPoints: 0, WalletPointValueMinor: 1, WalletMode: mode, QuoteTTL: 10 * time.Minute, ReservationTTL: 15 * time.Minute}},
 	}, clock)
 	if err != nil {
 		t.Fatal(err)

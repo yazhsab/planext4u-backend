@@ -345,11 +345,11 @@ func (repository *PostgresRepository) UpdateProfile(ctx context.Context, identit
 	var profile Profile
 	err = transaction.QueryRow(ctx, `
 		UPDATE identity.profiles
-		SET display_name = $3, locale = $4, time_zone = $5, version = version + 1, updated_at = $6
+		SET display_name = $3, email = $4, phone = $5, locale = $6, time_zone = $7, version = version + 1, updated_at = $8
 		WHERE identity_id = $1 AND version = $2
-		RETURNING display_name, locale, time_zone, version, updated_at`,
-		identityID, update.Version, update.DisplayName, update.Locale, update.TimeZone, now).Scan(
-		&profile.DisplayName, &profile.Locale, &profile.TimeZone, &profile.Version, &profile.UpdatedAt)
+		RETURNING display_name, email, phone, locale, time_zone, version, updated_at`,
+		identityID, update.Version, update.DisplayName, update.Email, update.Phone, update.Locale, update.TimeZone, now).Scan(
+		&profile.DisplayName, &profile.Email, &profile.Phone, &profile.Locale, &profile.TimeZone, &profile.Version, &profile.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var exists bool
 		if checkErr := transaction.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM identity.profiles WHERE identity_id = $1)`, identityID).Scan(&exists); checkErr != nil {
@@ -483,7 +483,7 @@ func loadIdentityByID(ctx context.Context, query queryRower, identityID string) 
 
 const identitySelect = `
 	SELECT i.id, i.tenant_id, i.provider, i.provider_subject, i.created_at, i.disabled_at,
-	       p.display_name, p.locale, p.time_zone, p.version, p.updated_at,
+	       p.display_name, p.email, p.phone, p.locale, p.time_zone, p.version, p.updated_at,
 	       ARRAY_AGG(r.role ORDER BY r.role)
 	FROM identity.identities i
 	JOIN identity.profiles p ON p.identity_id = i.id
@@ -493,8 +493,8 @@ func scanIdentity(row pgx.Row) (Identity, error) {
 	var account Identity
 	var roleValues []string
 	if err := row.Scan(&account.ID, &account.TenantID, &account.Provider, &account.ProviderSubject,
-		&account.CreatedAt, &account.DisabledAt, &account.Profile.DisplayName, &account.Profile.Locale,
-		&account.Profile.TimeZone, &account.Profile.Version, &account.Profile.UpdatedAt, &roleValues); err != nil {
+		&account.CreatedAt, &account.DisabledAt, &account.Profile.DisplayName, &account.Profile.Email,
+		&account.Profile.Phone, &account.Profile.Locale, &account.Profile.TimeZone, &account.Profile.Version, &account.Profile.UpdatedAt, &roleValues); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Identity{}, ErrNotFound
 		}
@@ -530,7 +530,7 @@ func loadPrincipalSession(ctx context.Context, query queryRower, sessionID strin
 		SELECT s.id, s.identity_id, s.tenant_id, s.country, s.device_id, s.device_reference,
 		       s.refresh_expires_at, s.authenticated_at, s.last_seen_at, s.revoked_at, s.rotation,
 		       i.id, i.tenant_id, i.provider, i.provider_subject, i.created_at, i.disabled_at,
-		       p.display_name, p.locale, p.time_zone, p.version, p.updated_at,
+		       p.display_name, p.email, p.phone, p.locale, p.time_zone, p.version, p.updated_at,
 		       ARRAY_AGG(r.role ORDER BY r.role)
 		FROM identity.sessions s
 		JOIN identity.identities i ON i.id = s.identity_id
@@ -542,8 +542,8 @@ func loadPrincipalSession(ctx context.Context, query queryRower, sessionID strin
 		&session.DeviceReference, &session.RefreshExpires, &session.AuthenticatedAt,
 		&session.LastSeenAt, &session.RevokedAt, &session.Rotation,
 		&account.ID, &account.TenantID, &account.Provider, &account.ProviderSubject,
-		&account.CreatedAt, &account.DisabledAt, &account.Profile.DisplayName, &account.Profile.Locale,
-		&account.Profile.TimeZone, &account.Profile.Version, &account.Profile.UpdatedAt, &roleValues)
+		&account.CreatedAt, &account.DisabledAt, &account.Profile.DisplayName, &account.Profile.Email,
+		&account.Profile.Phone, &account.Profile.Locale, &account.Profile.TimeZone, &account.Profile.Version, &account.Profile.UpdatedAt, &roleValues)
 	if err != nil {
 		return Identity{}, Session{}, err
 	}

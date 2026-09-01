@@ -17,6 +17,20 @@
           "422": {"$ref": "#/components/responses/Problem"}
         }
       }
+    },
+    "/v1/pages/{page_id}": {
+      "get": {
+        "operationId": "configurationGetPage",
+        "parameters": [
+          {"name": "page_id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"}},
+          {"name": "locale", "in": "query", "required": false, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "Published CMS page for the tenant and country", "headers": {"ETag": {"schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PageDocument"}}}},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
     }
   },
   "components": {
@@ -27,9 +41,27 @@
       "UpdateGate": {"type": "string", "enum": ["NONE", "OPTIONAL", "REQUIRED"]},
       "ConsentPolicy": {"type": "object", "additionalProperties": false, "required": ["purpose", "policy_version", "required"], "properties": {"purpose": {"type": "string"}, "policy_version": {"type": "string"}, "required": {"type": "boolean"}}},
       "HomeSection": {"type": "object", "additionalProperties": false, "required": ["id", "kind", "title_key", "enabled", "priority"], "properties": {"id": {"type": "string"}, "kind": {"type": "string"}, "title_key": {"type": "string"}, "enabled": {"type": "boolean"}, "priority": {"type": "integer"}}},
+      "MaintenanceWindow": {"type": "object", "additionalProperties": false, "required": ["starts_at", "ends_at", "message"], "properties": {"starts_at": {"type": "string", "format": "date-time"}, "ends_at": {"type": "string", "format": "date-time"}, "message": {"type": "string", "minLength": 1, "maxLength": 240}}},
+      "Workspace": {
+        "type": "object", "additionalProperties": false,
+        "required": ["minimum_versions", "latest_versions", "supported_locales", "default_locale", "consent_policies", "flags", "home_sections"],
+        "properties": {
+          "minimum_versions": {"type": "object", "additionalProperties": false, "required": ["ANDROID", "IOS"], "properties": {"ANDROID": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "IOS": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}}},
+          "latest_versions": {"type": "object", "additionalProperties": false, "required": ["ANDROID", "IOS"], "properties": {"ANDROID": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "IOS": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}}},
+          "supported_locales": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["en", "ta"]}},
+          "default_locale": {"type": "string", "enum": ["en", "ta"]},
+          "consent_policies": {"type": "array", "items": {"$ref": "#/components/schemas/ConsentPolicy"}},
+          "flags": {"type": "object", "maxProperties": 256, "additionalProperties": {"type": "boolean"}},
+          "home_sections": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/HomeSection"}},
+          "maintenance_window": {"$ref": "#/components/schemas/MaintenanceWindow"}
+        }
+      },
+      "PageBlock": {"type": "object", "additionalProperties": false, "required": ["id", "kind", "enabled", "priority", "content"], "properties": {"id": {"type": "string"}, "kind": {"type": "string"}, "title_key": {"type": "string"}, "enabled": {"type": "boolean"}, "priority": {"type": "integer", "minimum": 0}, "content": {"type": "object", "additionalProperties": true}}},
+      "Page": {"type": "object", "additionalProperties": false, "required": ["id", "route", "title_key", "audience", "enabled", "blocks"], "properties": {"id": {"type": "string"}, "route": {"type": "string", "pattern": "^/"}, "title_key": {"type": "string"}, "audience": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["PUBLIC", "CUSTOMER", "VENDOR", "RIDER"]}}, "enabled": {"type": "boolean"}, "blocks": {"type": "array", "items": {"$ref": "#/components/schemas/PageBlock"}}}},
+      "PageDocument": {"type": "object", "additionalProperties": false, "required": ["revision", "published_at", "locale", "page"], "properties": {"revision": {"type": "integer", "minimum": 1}, "published_at": {"type": "string", "format": "date-time"}, "locale": {"type": "string"}, "page": {"$ref": "#/components/schemas/Page"}}},
       "Bootstrap": {
         "type": "object", "additionalProperties": false,
-        "required": ["revision", "published_at", "update_gate", "latest_version", "maintenance", "locale", "supported_locales", "consent_policies", "flags", "home_sections"],
+        "required": ["revision", "published_at", "update_gate", "latest_version", "maintenance", "locale", "supported_locales", "consent_policies", "flags", "home_sections", "pages"],
         "properties": {
           "revision": {"type": "integer", "minimum": 1}, "published_at": {"type": "string", "format": "date-time"},
           "update_gate": {"$ref": "#/components/schemas/UpdateGate"}, "latest_version": {"type": "string"},
@@ -37,7 +69,8 @@
           "locale": {"type": "string"}, "supported_locales": {"type": "array", "items": {"type": "string"}},
           "consent_policies": {"type": "array", "items": {"$ref": "#/components/schemas/ConsentPolicy"}},
           "flags": {"type": "object", "additionalProperties": {"type": "boolean"}},
-          "home_sections": {"type": "array", "items": {"$ref": "#/components/schemas/HomeSection"}}
+          "home_sections": {"type": "array", "items": {"$ref": "#/components/schemas/HomeSection"}},
+          "pages": {"type": "array", "items": {"$ref": "#/components/schemas/Page"}}
         }
       }
     }

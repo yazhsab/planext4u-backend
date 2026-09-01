@@ -227,6 +227,8 @@ func (repository *MemoryRepository) UpdateProfile(_ context.Context, identityID 
 	}
 	account.Profile = Profile{
 		DisplayName: update.DisplayName,
+		Email:       update.Email,
+		Phone:       update.Phone,
 		Locale:      update.Locale,
 		TimeZone:    update.TimeZone,
 		Version:     account.Profile.Version + 1,

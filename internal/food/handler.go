@@ -10,9 +10,20 @@ import (
 	"strings"
 )
 
-type Handler struct{ service *Service }
+type Application interface {
+	Restaurants(Actor, string, string) ([]Restaurant, error)
+	Menu(Actor, string, string) ([]MenuItem, error)
+	SetCart(Actor, string, CartRequest) (Cart, bool, error)
+	CreateOrder(Actor, string, CreateOrderRequest) (Order, bool, error)
+	Orders(Actor) ([]Order, error)
+	Order(Actor, string) (Order, error)
+	RestaurantTransition(Actor, string, string, int64, RestaurantTransitionRequest) (Order, bool, error)
+	DispatchTransition(Actor, string, string, int64, OrderStatus) (Order, bool, error)
+}
 
-func NewHandler(service *Service) (http.Handler, error) {
+type Handler struct{ service Application }
+
+func NewHandler(service Application) (http.Handler, error) {
 	if service == nil {
 		return nil, ErrInvalidRequest
 	}

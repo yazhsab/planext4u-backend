@@ -26,9 +26,24 @@ type bookingReplay struct {
 	value       Booking
 }
 
+// PaymentService and WalletService keep booking orchestration independent of
+// the storage implementation. Both the deterministic in-memory test services
+// and the durable PostgreSQL services implement these contracts.
+type PaymentService interface {
+	Create(payment.Scope, string, string, payment.Method, payment.Money) (payment.Payment, bool, error)
+	Get(payment.Scope, string) (payment.Payment, error)
+	RequestRefund(payment.Scope, string, payment.Money) (payment.Payment, error)
+	CancelUncaptured(payment.Scope, string) (payment.Payment, error)
+}
+
+type WalletService interface {
+	Redeem(wallet.Scope, string, string, int64) (wallet.LedgerEntry, bool, error)
+	ReverseDebit(wallet.Scope, string, string, string) (wallet.LedgerEntry, bool, error)
+}
+
 type Service struct {
-	payments *payment.Service
-	wallet   *wallet.Service
+	payments PaymentService
+	wallet   WalletService
 	clock    func() time.Time
 
 	mu              sync.Mutex
@@ -42,7 +57,7 @@ type Service struct {
 	bookingRequests map[string]bookingReplay
 }
 
-func NewService(payments *payment.Service, walletService *wallet.Service, configuration Configuration, clock func() time.Time) (*Service, error) {
+func NewService(payments PaymentService, walletService WalletService, configuration Configuration, clock func() time.Time) (*Service, error) {
 	if payments == nil || clock == nil || !validConfiguration(configuration) {
 		return nil, ErrInvalidRequest
 	}
@@ -66,6 +81,8 @@ func NewService(payments *payment.Service, walletService *wallet.Service, config
 	}
 	return service, nil
 }
+
+func (service *Service) Now() time.Time { return service.clock().UTC() }
 
 func (service *Service) Offerings(scope Scope, postalCode, categoryID string) ([]Offering, error) {
 	if !validScope(scope) || !safePostalCode(postalCode) || (categoryID != "" && !safeID(categoryID)) {

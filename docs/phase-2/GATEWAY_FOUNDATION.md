@@ -4,7 +4,8 @@
 
 `cmd/gateway` is the runnable stateless edge process. It verifies platform
 tokens, applies distributed abuse controls and forwards only derived identity
-context to an allow-listed upstream. It does not contain profile, consent,
+context to an allow-listed private service selected by the longest exact path
+prefix. It does not contain profile, consent,
 catalog, order, money, stock, permission or workflow truth. Owning services
 remain the only authorities for resource access and allowed actions.
 
@@ -36,7 +37,11 @@ The exact `POST /v1/auth/exchange`, `POST /v1/auth/refresh` and
 `POST /v1/auth/revoke` routes are anonymous upstream routes. They still pass the
 anonymous/IP limiter, body bound, timeout, correlation and header-stripping
 pipeline. Other methods, path prefixes and suffixes remain authenticated, and
-no empty or client-supplied trusted identity header is forwarded.
+no empty or client-supplied trusted identity header is forwarded. Additional
+anonymous POST routes, such as signed payment webhooks and notification
+receipts, must be explicitly enumerated through `ANONYMOUS_ROUTES`. The provider
+signature header is preserved for the owning service to verify; identity-scope
+headers are always removed and regenerated from a verified JWT.
 
 ## Rate and request controls
 
@@ -74,6 +79,8 @@ The process requires:
 | Setting | Purpose |
 | --- | --- |
 | `UPSTREAM_URL` | Allow-listed BFF/service base URL |
+| `UPSTREAM_ROUTES` | JSON map of exact path prefixes to allow-listed private service URLs |
+| `ANONYMOUS_ROUTES` | JSON map of exact provider callback paths to the only allowed method (`POST`) |
 | `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_KEY_ID` | Verification policy |
 | `JWT_PUBLIC_KEY_FILE` | Mounted public key; never a private signing key |
 | `REDIS_URL_FILE` | Mounted secret/config file containing the Redis URL |
@@ -81,7 +88,9 @@ The process requires:
 | `REQUEST_TIMEOUT`, `SHUTDOWN_TIMEOUT`, `MAX_REQUEST_BYTES` | Bounded lifecycle controls |
 | `IP_RATE_LIMIT`, `PRINCIPAL_RATE_LIMIT`, `RATE_WINDOW` | Distributed abuse policy |
 
-Staging/production require HTTPS upstream/issuer URLs and a TLS Redis URL.
+Staging/production require HTTPS for public upstream hosts; plaintext HTTP is
+accepted only for single-label or `.internal` private service-discovery hosts.
+The issuer must use HTTPS and Redis must use TLS.
 Redis credentials are read from the mounted file and are never logged or placed
 in Flutter configuration.
 

@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+    "/internal/v1/admin-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["adminExchangeVerifiedSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/api/v1/session": {
         parameters: {
             query?: never;
@@ -14,7 +30,7 @@ export interface paths {
         get: operations["adminGetSession"];
         put?: never;
         post?: never;
-        delete?: never;
+        delete: operations["adminEndSession"];
         options?: never;
         head?: never;
         patch?: never;
@@ -100,6 +116,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/api/v1/cms/pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["adminListCMSPageDrafts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/cms/pages/{page_id}/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["adminSaveCMSPageDraft"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/cms/workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["adminGetCMSWorkspaceDraft"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/cms/workspace/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["adminSaveCMSWorkspaceDraft"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/api/v1/governance": {
         parameters: {
             query?: never;
@@ -138,6 +218,25 @@ export interface components {
     schemas: {
         /** @enum {string} */
         AdminRole: "SUPER_ADMIN" | "COUNTRY_ADMIN" | "CONTENT_ADMIN" | "SUPPORT_ADMIN" | "AUDITOR";
+        AdminSessionAssertion: {
+            /** Format: uuid */
+            subject_id: string;
+            /** Format: uuid */
+            session_id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            display_name: string;
+            roles: components["schemas"]["AdminRole"][];
+            allowed_countries: string[];
+            selected_country: string;
+            /** Format: date-time */
+            authenticated_at: string;
+            auth_methods: string[];
+        };
+        AdminSessionExchangeResult: {
+            /** Format: date-time */
+            expires_at: string;
+        };
         AdminAssurance: {
             mfa_satisfied: boolean;
             fresh_auth: boolean;
@@ -192,6 +291,40 @@ export interface components {
         AdminOperationRisk: "STANDARD" | "HIGH";
         /** @enum {string} */
         AdminOperationStatus: "PENDING_APPROVAL" | "EXECUTED" | "REJECTED";
+        CMSPageDraftInput: {
+            /** Format: int64 */
+            expected_revision: number;
+            page: components["schemas"]["Page"];
+        };
+        CMSPageDraft: {
+            tenant_id: string;
+            country: string;
+            page: components["schemas"]["Page"];
+            /** Format: int64 */
+            revision: number;
+            updated_by: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        CMSPageDraftPage: {
+            items: components["schemas"]["CMSPageDraft"][];
+        };
+        CMSWorkspaceDraftInput: {
+            /** Format: int64 */
+            expected_revision: number;
+            workspace: components["schemas"]["Workspace"];
+        };
+        CMSWorkspaceDraft: {
+            /** Format: uuid */
+            tenant_id: string;
+            country: string;
+            workspace: components["schemas"]["Workspace"];
+            /** Format: int64 */
+            revision: number;
+            updated_by: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
         AdminOperationInput: {
             domain: components["schemas"]["AdminOperationDomain"];
             action: string;
@@ -304,6 +437,62 @@ export interface components {
         ErrorEnvelope: {
             error: components["schemas"]["ErrorDetail"];
         };
+        PageBlock: {
+            id: string;
+            kind: string;
+            title_key?: string;
+            enabled: boolean;
+            priority: number;
+            content: {
+                [key: string]: unknown;
+            };
+        };
+        Page: {
+            id: string;
+            route: string;
+            title_key: string;
+            audience: ("PUBLIC" | "CUSTOMER" | "VENDOR" | "RIDER")[];
+            enabled: boolean;
+            blocks: components["schemas"]["PageBlock"][];
+        };
+        ConsentPolicy: {
+            purpose: string;
+            policy_version: string;
+            required: boolean;
+        };
+        HomeSection: {
+            id: string;
+            kind: string;
+            title_key: string;
+            enabled: boolean;
+            priority: number;
+        };
+        MaintenanceWindow: {
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: date-time */
+            ends_at: string;
+            message: string;
+        };
+        Workspace: {
+            minimum_versions: {
+                ANDROID: string;
+                IOS: string;
+            };
+            latest_versions: {
+                ANDROID: string;
+                IOS: string;
+            };
+            supported_locales: ("en" | "ta")[];
+            /** @enum {string} */
+            default_locale: "en" | "ta";
+            consent_policies: components["schemas"]["ConsentPolicy"][];
+            flags: {
+                [key: string]: boolean;
+            };
+            home_sections: components["schemas"]["HomeSection"][];
+            maintenance_window?: components["schemas"]["MaintenanceWindow"];
+        };
     };
     responses: {
         /** @description Safe standard error */
@@ -325,6 +514,40 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    adminExchangeVerifiedSession: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-P4U-Admin-Timestamp": string;
+                "X-P4U-Admin-Signature": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminSessionAssertion"];
+            };
+        };
+        responses: {
+            /** @description Opaque browser session issued from a verified upstream identity assertion */
+            201: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSessionExchangeResult"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            415: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
     adminGetSession: {
         parameters: {
             query?: never;
@@ -345,6 +568,29 @@ export interface operations {
             };
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
+        };
+    };
+    adminEndSession: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": components["parameters"]["CSRFToken"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Administrator session revoked and cookie cleared */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
         };
     };
     adminSetCountry: {
@@ -518,6 +764,113 @@ export interface operations {
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
             404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    adminListCMSPageDrafts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Country-scoped CMS page drafts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CMSPageDraftPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+        };
+    };
+    adminSaveCMSPageDraft: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": components["parameters"]["CSRFToken"];
+            };
+            path: {
+                page_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CMSPageDraftInput"];
+            };
+        };
+        responses: {
+            /** @description Revision-safe CMS page draft */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CMSPageDraft"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    adminGetCMSWorkspaceDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Country-scoped global mobile configuration draft */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CMSWorkspaceDraft"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    adminSaveCMSWorkspaceDraft: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": components["parameters"]["CSRFToken"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CMSWorkspaceDraftInput"];
+            };
+        };
+        responses: {
+            /** @description Revision-safe global mobile configuration draft */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CMSWorkspaceDraft"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
         };

@@ -51,6 +51,8 @@ type ProviderVerifier interface {
 
 type Profile struct {
 	DisplayName string    `json:"display_name"`
+	Email       string    `json:"email,omitempty"`
+	Phone       string    `json:"phone,omitempty"`
 	Locale      string    `json:"locale"`
 	TimeZone    string    `json:"time_zone"`
 	Version     int64     `json:"version"`
@@ -147,6 +149,8 @@ type ExchangeInput struct {
 
 type ProfileUpdate struct {
 	DisplayName string
+	Email       string
+	Phone       string
 	Locale      string
 	TimeZone    string
 	Version     int64

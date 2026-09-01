@@ -91,7 +91,7 @@ func validIdentityConfig() map[string]string {
 	return map[string]string{
 		"DATABASE_URL_FILE":     "/run/secrets/identity-database-url",
 		"PROVIDER_BASE_URL":     "http://127.0.0.1:18081",
-		"TENANT_ID":             "tenant_synthetic_001",
+		"TENANT_ID":             "c688a212-50fc-4d5c-b370-35a8c1d04f55",
 		"ALLOWED_COUNTRIES":     "IN, GB, IN",
 		"JWT_ISSUER":            "http://identity.local",
 		"JWT_AUDIENCE":          "planext4u-mobile",

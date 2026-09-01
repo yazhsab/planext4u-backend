@@ -11,6 +11,7 @@ const session = {
   navigation: [
     {id: "workspace", label: "Workspace", path: "/", capability: "admin.shell.read"},
     {id: "operations", label: "Operations", path: "/operations", capability: "admin.operations.read"},
+    {id: "cms", label: "Page builder", path: "/cms", capability: "admin.config.manage"},
     {id: "audit", label: "Audit trail", path: "/audit", capability: "admin.audit.read"},
   ],
   csrf_token: "csrf_synthetic_012345678901234567890123456789",
@@ -31,6 +32,24 @@ const audit = {
   ],
   has_more: false,
 };
+const cmsPages = {
+  items: [{
+    tenant_id: "tenant-synthetic-001", country: "IN", revision: 3, updated_by: "admin-synthetic-001", updated_at: "2026-08-29T10:00:00Z",
+    page: {id: "customer-home", route: "/app", title_key: "Customer home", audience: ["PUBLIC", "CUSTOMER"], enabled: true, blocks: [
+      {id: "home-hero", kind: "HERO", title_key: "Welcome", enabled: true, priority: 0, content: {headline: "Smart shopping, everyday."}},
+      {id: "home-products", kind: "ITEM_RAIL", title_key: "Bestsellers", enabled: true, priority: 1, content: {collection_id: "bestsellers", limit: 8}},
+    ]},
+  }],
+};
+const cmsWorkspace = {
+  tenant_id: "tenant-synthetic-001", country: "IN", revision: 4, updated_by: "admin-synthetic-001", updated_at: "2026-08-29T10:00:00Z",
+  workspace: {
+    minimum_versions: {ANDROID: "1.0.0", IOS: "1.0.0"}, latest_versions: {ANDROID: "1.2.0", IOS: "1.2.0"},
+    supported_locales: ["en", "ta"], default_locale: "en", consent_policies: [],
+    flags: {shop: true, services: true, homes: true, classifieds: true, socio: true},
+    home_sections: [{id: "hero", kind: "HERO", title_key: "Home hero", enabled: true, priority: 0}],
+  },
+};
 
 createServer((request, response) => {
   response.setHeader("Content-Type", "application/json");
@@ -46,6 +65,14 @@ createServer((request, response) => {
   }
   if (request.url?.startsWith("/admin/api/v1/audit/events")) {
     response.end(JSON.stringify(audit));
+    return;
+  }
+  if (request.url === "/admin/api/v1/cms/pages") {
+    response.end(JSON.stringify(cmsPages));
+    return;
+  }
+  if (request.url === "/admin/api/v1/cms/workspace") {
+    response.end(JSON.stringify(cmsWorkspace));
     return;
   }
   if (request.url?.startsWith("/admin/api/v1/operations")) {

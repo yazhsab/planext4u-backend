@@ -2,7 +2,6 @@ package audit
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Service struct {
@@ -36,26 +37,32 @@ func (service *Service) Record(ctx context.Context, principal Principal, request
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	last, found, err := service.repository.Last(ctx, principal.TenantID)
-	if err != nil {
-		return Entry{}, err
+	for attempt := 0; attempt < 8; attempt++ {
+		last, found, err := service.repository.Last(ctx, principal.TenantID)
+		if err != nil {
+			return Entry{}, err
+		}
+		id, err := service.newID()
+		if err != nil {
+			return Entry{}, err
+		}
+		now := service.clock().UTC().Truncate(time.Microsecond)
+		entry := Entry{ID: id, TenantID: principal.TenantID, Country: request.Country, Actor: request.Actor, Action: request.Action,
+			Target: request.Target, Outcome: request.Outcome, ReasonCode: request.ReasonCode, CorrelationID: request.CorrelationID,
+			OccurredAt: request.OccurredAt.UTC().Truncate(time.Microsecond), RecordedAt: now, Before: redact(request.Before), After: redact(request.After), Sequence: 1}
+		if found {
+			entry.Sequence, entry.PreviousHash = last.Sequence+1, last.Hash
+		}
+		entry.Hash = hashEntry(entry)
+		if err := service.repository.Append(ctx, entry); err != nil {
+			if errors.Is(err, ErrConflict) {
+				continue
+			}
+			return Entry{}, err
+		}
+		return cloneEntry(entry), nil
 	}
-	id, err := service.newID()
-	if err != nil {
-		return Entry{}, err
-	}
-	now := service.clock().UTC()
-	entry := Entry{ID: id, TenantID: principal.TenantID, Country: request.Country, Actor: request.Actor, Action: request.Action,
-		Target: request.Target, Outcome: request.Outcome, ReasonCode: request.ReasonCode, CorrelationID: request.CorrelationID,
-		OccurredAt: request.OccurredAt.UTC(), RecordedAt: now, Before: redact(request.Before), After: redact(request.After), Sequence: 1}
-	if found {
-		entry.Sequence, entry.PreviousHash = last.Sequence+1, last.Hash
-	}
-	entry.Hash = hashEntry(entry)
-	if err := service.repository.Append(ctx, entry); err != nil {
-		return Entry{}, err
-	}
-	return cloneEntry(entry), nil
+	return Entry{}, ErrConflict
 }
 
 func (service *Service) Search(ctx context.Context, principal Principal, filter SearchFilter) (Page, error) {
@@ -203,9 +210,6 @@ func safeReasonText(value string) bool {
 }
 
 func secureID() (string, error) {
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return "aud_" + hex.EncodeToString(bytes), nil
+	value, err := uuid.NewRandom()
+	return value.String(), err
 }

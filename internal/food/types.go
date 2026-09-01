@@ -176,6 +176,7 @@ type Order struct {
 	UpdatedAt        time.Time    `json:"updated_at"`
 	tenantID         string
 	country          string
+	walletDebitID    string
 }
 
 type CreateOrderRequest struct {

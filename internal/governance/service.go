@@ -59,7 +59,7 @@ func validActor(actor Actor) bool {
 	return safeID.MatchString(actor.TenantID) && regexp.MustCompile(`^[A-Z]{2}$`).MatchString(actor.Country) && safeID.MatchString(actor.Subject) && len(actor.Roles) > 0
 }
 func allowed(actor Actor) bool {
-	return hasRole(actor, "SUPER_ADMIN") || hasRole(actor, "OPS_ADMIN") || hasRole(actor, "FINANCE") || hasRole(actor, "CONTENT_ADMIN") || hasRole(actor, "FRANCHISE_ADMIN") || hasRole(actor, "EMERGENCY_ADMIN")
+	return hasRole(actor, "SUPER_ADMIN") || hasRole(actor, "COUNTRY_ADMIN") || hasRole(actor, "AUDITOR") || hasRole(actor, "OPS_ADMIN") || hasRole(actor, "FINANCE") || hasRole(actor, "CONTENT_ADMIN") || hasRole(actor, "FRANCHISE_ADMIN") || hasRole(actor, "EMERGENCY_ADMIN")
 }
 func hasRole(actor Actor, expected string) bool {
 	for _, role := range actor.Roles {

@@ -1,13 +1,70 @@
 package fulfillment
 
 import (
+	"math"
 	"sort"
 	"strings"
+
+	"github.com/yazhsab/planext4u-backend/internal/order"
 )
 
 func (service *Service) SeedSettlement(actor Actor, accountID, referenceID, kind string, gross Money) (LedgerEntry, error) {
 	if !validActor(actor) || !hasAnyRole(actor, "SETTLEMENT_WORKER", "FINANCE", "SUPER_ADMIN") || !safeID(accountID) || !safeID(referenceID) || !safeID(kind) || gross.AmountMinor <= 0 || len(gross.Currency) != 3 {
 		return LedgerEntry{}, ErrForbidden
+	}
+	commission, ok := settlementBasisPoints(gross.AmountMinor, service.configuration.CommissionBasisPoints)
+	if !ok {
+		return LedgerEntry{}, ErrInvalidRequest
+	}
+	tax, ok := settlementBasisPoints(commission, service.configuration.TaxBasisPoints)
+	if !ok {
+		return LedgerEntry{}, ErrInvalidRequest
+	}
+	return service.seedSettlementAmounts(actor, accountID, referenceID, kind, gross, commission, tax, "settlement-v1")
+}
+
+// SeedOrderSettlement derives a vendor payable only from the immutable terms
+// captured on the order. Later CMS policy changes therefore cannot rewrite a
+// historical vendor settlement.
+func (service *Service) SeedOrderSettlement(actor Actor, accountID, referenceID, kind, vendorID string, snapshot order.CheckoutSnapshot) (LedgerEntry, error) {
+	if !validActor(actor) || !hasAnyRole(actor, "SETTLEMENT_WORKER", "FINANCE", "SUPER_ADMIN") || !safeID(accountID) || !safeID(referenceID) || !safeID(kind) || !safeID(vendorID) || !safeID(snapshot.PricingPolicyVersion) || !safeID(snapshot.CommercialPolicyVersion) {
+		return LedgerEntry{}, ErrForbidden
+	}
+	var grossMinor, commissionMinor int64
+	currency := snapshot.Total.Currency
+	for _, line := range snapshot.Lines {
+		if line.VendorID != vendorID {
+			continue
+		}
+		if line.LineTotal.Currency != currency || line.DiscountMinor < 0 || line.TaxMinor < 0 || line.CommissionMinor < 0 {
+			return LedgerEntry{}, ErrInvalidRequest
+		}
+		lineNet := line.LineTotal.AmountMinor - line.DiscountMinor
+		var ok bool
+		if grossMinor, ok = settlementAdd(grossMinor, lineNet); !ok {
+			return LedgerEntry{}, ErrInvalidRequest
+		}
+		if grossMinor, ok = settlementAdd(grossMinor, line.TaxMinor); !ok {
+			return LedgerEntry{}, ErrInvalidRequest
+		}
+		if commissionMinor, ok = settlementAdd(commissionMinor, line.CommissionMinor); !ok {
+			return LedgerEntry{}, ErrInvalidRequest
+		}
+	}
+	if grossMinor <= 0 || commissionMinor < 0 || commissionMinor > grossMinor {
+		return LedgerEntry{}, ErrInvalidRequest
+	}
+	taxMinor, ok := settlementBasisPoints(commissionMinor, service.configuration.TaxBasisPoints)
+	if !ok {
+		return LedgerEntry{}, ErrInvalidRequest
+	}
+	return service.seedSettlementAmounts(actor, accountID, referenceID, kind, Money{AmountMinor: grossMinor, Currency: currency}, commissionMinor, taxMinor, "order:"+snapshot.PricingPolicyVersion+":"+snapshot.CommercialPolicyVersion)
+}
+
+func (service *Service) seedSettlementAmounts(actor Actor, accountID, referenceID, kind string, gross Money, commission, tax int64, calculationVersion string) (LedgerEntry, error) {
+	deductions, ok := settlementAdd(commission, tax)
+	if gross.AmountMinor <= 0 || len(gross.Currency) != 3 || commission < 0 || tax < 0 || !ok || deductions > gross.AmountMinor || calculationVersion == "" {
+		return LedgerEntry{}, ErrInvalidRequest
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -16,13 +73,25 @@ func (service *Service) SeedSettlement(actor Actor, accountID, referenceID, kind
 			return *entry, nil
 		}
 	}
-	commission := gross.AmountMinor * service.configuration.CommissionBasisPoints / 10000
-	tax := commission * service.configuration.TaxBasisPoints / 10000
 	service.sequence++
 	now := service.clock().UTC()
-	value := LedgerEntry{ID: "ledger-entry-" + sequenceID(service.sequence), AccountID: accountID, ReferenceID: referenceID, Kind: kind, Gross: gross, Commission: Money{AmountMinor: commission, Currency: gross.Currency}, Tax: Money{AmountMinor: tax, Currency: gross.Currency}, Net: Money{AmountMinor: gross.AmountMinor - commission - tax, Currency: gross.Currency}, CalculationVersion: "settlement-v1", AvailableAt: now.Add(service.configuration.SettlementCooling), CreatedAt: now, tenantID: actor.TenantID, country: actor.Country}
+	value := LedgerEntry{ID: "ledger-entry-" + sequenceID(service.sequence), AccountID: accountID, ReferenceID: referenceID, Kind: kind, Gross: gross, Commission: Money{AmountMinor: commission, Currency: gross.Currency}, Tax: Money{AmountMinor: tax, Currency: gross.Currency}, Net: Money{AmountMinor: gross.AmountMinor - commission - tax, Currency: gross.Currency}, CalculationVersion: calculationVersion, AvailableAt: now.Add(service.configuration.SettlementCooling), CreatedAt: now, tenantID: actor.TenantID, country: actor.Country}
 	service.ledger[value.ID] = &value
 	return value, nil
+}
+
+func settlementAdd(left, right int64) (int64, bool) {
+	if left < 0 || right < 0 || right > math.MaxInt64-left {
+		return 0, false
+	}
+	return left + right, true
+}
+
+func settlementBasisPoints(amount, basisPoints int64) (int64, bool) {
+	if amount < 0 || basisPoints < 0 || basisPoints > 10000 || (basisPoints != 0 && amount > math.MaxInt64/basisPoints) {
+		return 0, false
+	}
+	return amount * basisPoints / 10000, true
 }
 
 func (service *Service) Ledger(actor Actor, accountID string) ([]LedgerEntry, error) {

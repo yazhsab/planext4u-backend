@@ -56,23 +56,25 @@ type process struct {
 }
 
 type Service struct {
-	deps        Dependencies
-	config      Configuration
-	clock       func() time.Time
-	mu          sync.Mutex
-	quotes      map[string]Quote
-	quoteReqs   map[string]quoteReplay
-	placeReqs   map[string]placeReplay
-	inflight    map[string]*placeCall
-	processes   map[string]process
-	addresses   map[string]Address
-	addressReqs map[string]addressReplay
-	refills     map[string]refillProcess
-	refillReqs  map[string]refillReplay
+	deps          Dependencies
+	config        Configuration
+	clock         func() time.Time
+	store         stateStore
+	configuration ConfigurationProvider
+	mu            sync.Mutex
+	quotes        map[string]Quote
+	quoteReqs     map[string]quoteReplay
+	placeReqs     map[string]placeReplay
+	inflight      map[string]*placeCall
+	processes     map[string]process
+	addresses     map[string]Address
+	addressReqs   map[string]addressReplay
+	refills       map[string]refillProcess
+	refillReqs    map[string]refillReplay
 }
 
 func NewService(dependencies Dependencies, configuration Configuration, clock func() time.Time) (*Service, error) {
-	if dependencies.Cart == nil || dependencies.Inventory == nil || dependencies.Wallet == nil || dependencies.Payment == nil || dependencies.Orders == nil || clock == nil || !validConfiguration(configuration) {
+	if dependencies.Cart == nil || dependencies.Inventory == nil || dependencies.Wallet == nil || dependencies.Payment == nil || dependencies.Orders == nil || dependencies.CommercialTerms == nil || clock == nil || !validConfiguration(configuration) {
 		return nil, ErrInvalidRequest
 	}
 	addresses := map[string]Address{}
@@ -99,6 +101,34 @@ func NewService(dependencies Dependencies, configuration Configuration, clock fu
 	return &Service{deps: dependencies, config: configuration, clock: clock, quotes: map[string]Quote{}, quoteReqs: map[string]quoteReplay{}, placeReqs: map[string]placeReplay{}, inflight: map[string]*placeCall{}, processes: map[string]process{}, addresses: addresses, addressReqs: map[string]addressReplay{}, refills: map[string]refillProcess{}, refillReqs: map[string]refillReplay{}}, nil
 }
 
+// NewPersistentService uses PostgreSQL for checkout orchestration while
+// retaining the same domain calculations and compensating workflow.
+func NewPersistentService(dependencies Dependencies, configuration Configuration, store stateStore, clock func() time.Time) (*Service, error) {
+	if store == nil {
+		return nil, ErrInvalidRequest
+	}
+	service, err := NewService(dependencies, configuration, clock)
+	if err != nil {
+		return nil, err
+	}
+	service.store = store
+	return service, nil
+}
+
+// NewDynamicPersistentService uses durable checkout state and resolves the
+// currently published commercial configuration for every operation.
+func NewDynamicPersistentService(dependencies Dependencies, configuration ConfigurationProvider, store stateStore, clock func() time.Time) (*Service, error) {
+	if dependencies.Cart == nil || dependencies.Inventory == nil || dependencies.Wallet == nil || dependencies.Payment == nil || dependencies.Orders == nil || dependencies.CommercialTerms == nil || configuration == nil || store == nil || clock == nil {
+		return nil, ErrInvalidRequest
+	}
+	return &Service{
+		deps: dependencies, configuration: configuration, store: store, clock: clock,
+		quotes: map[string]Quote{}, quoteReqs: map[string]quoteReplay{}, placeReqs: map[string]placeReplay{},
+		inflight: map[string]*placeCall{}, processes: map[string]process{}, addresses: map[string]Address{},
+		addressReqs: map[string]addressReplay{}, refills: map[string]refillProcess{}, refillReqs: map[string]refillReplay{},
+	}, nil
+}
+
 func (service *Service) WalletExperience(scope Scope) (wallet.Experience, error) {
 	if !validScope(scope) {
 		return wallet.Experience{}, ErrInvalidRequest
@@ -123,6 +153,13 @@ func (service *Service) CreateWalletRefill(ctx context.Context, scope Scope, ide
 	}
 	fingerprint := offerID + "\x00" + string(method)
 	requestKey := "wallet-refill\x00" + scopeKey(scope) + "\x00" + idempotencyKey
+	if service.store != nil {
+		if replay, found, err := service.store.LoadRefill(scope, idempotencyKey, fingerprint); err != nil {
+			return WalletRefillResult{}, false, err
+		} else if found {
+			return replay, true, nil
+		}
+	}
 	service.mu.Lock()
 	if replay, exists := service.refillReqs[requestKey]; exists {
 		service.mu.Unlock()
@@ -147,6 +184,9 @@ func (service *Service) CreateWalletRefill(ctx context.Context, scope Scope, ide
 		return WalletRefillResult{}, false, err
 	}
 	value := WalletRefillResult{Offer: offer, Payment: paymentValue}
+	if service.store != nil {
+		return service.store.SaveRefill(scope, idempotencyKey, fingerprint, value, refillProcess{scope: scope, offer: offer})
+	}
 	service.mu.Lock()
 	if replay, exists := service.refillReqs[requestKey]; exists {
 		service.mu.Unlock()
@@ -162,6 +202,10 @@ func (service *Service) CreateWalletRefill(ctx context.Context, scope Scope, ide
 }
 
 func (service *Service) HasWalletRefill(paymentID string) bool {
+	if service.store != nil {
+		_, found, err := service.store.Refill(paymentID)
+		return err == nil && found
+	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	_, exists := service.refills[paymentID]
@@ -172,9 +216,10 @@ func (service *Service) FinalizeProviderWalletRefill(paymentID string) (wallet.L
 	if !safeID(paymentID) {
 		return wallet.LedgerEntry{}, false, ErrInvalidRequest
 	}
-	service.mu.Lock()
-	value, exists := service.refills[paymentID]
-	service.mu.Unlock()
+	value, exists, loadErr := service.refillProcess(paymentID)
+	if loadErr != nil {
+		return wallet.LedgerEntry{}, false, loadErr
+	}
 	if !exists {
 		return wallet.LedgerEntry{}, false, payment.ErrPaymentNotFound
 	}
@@ -189,6 +234,9 @@ func (service *Service) FinalizeProviderWalletRefill(paymentID string) (wallet.L
 func (service *Service) Addresses(scope Scope) ([]Address, error) {
 	if !validScope(scope) {
 		return nil, ErrInvalidRequest
+	}
+	if service.store != nil {
+		return service.store.Addresses(scope)
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -211,7 +259,20 @@ func (service *Service) CreateAddress(scope Scope, idempotencyKey string, input 
 	if !validScope(scope) || !safeID(idempotencyKey) || len(idempotencyKey) < 16 || !validAddressInput(input) {
 		return Address{}, false, ErrInvalidRequest
 	}
+	serviceable, err := service.addressIsServiceable(scope, input.PostalCode, input.Locality)
+	if err != nil {
+		return Address{}, false, err
+	}
 	fingerprint := addressFingerprint(input)
+	if service.store != nil {
+		value := Address{
+			Label: strings.TrimSpace(input.Label), Line1: strings.TrimSpace(input.Line1), Line2: strings.TrimSpace(input.Line2),
+			PostalCode: strings.ToUpper(strings.TrimSpace(input.PostalCode)), Locality: strings.TrimSpace(input.Locality),
+			Latitude: input.Latitude, Longitude: input.Longitude, Default: input.Default,
+			Serviceable: serviceable,
+		}
+		return service.store.CreateAddress(scope, idempotencyKey, fingerprint, value)
+	}
 	requestKey := "address-create\x00" + scopeKey(scope) + "\x00" + idempotencyKey
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -229,7 +290,7 @@ func (service *Service) CreateAddress(scope Scope, idempotencyKey string, input 
 		Line1: strings.TrimSpace(input.Line1), Line2: strings.TrimSpace(input.Line2),
 		PostalCode: strings.ToUpper(strings.TrimSpace(input.PostalCode)), Locality: strings.TrimSpace(input.Locality),
 		Latitude: input.Latitude, Longitude: input.Longitude, Default: input.Default,
-		Serviceable: addressServiceable(service.config.PostalZones, scope.Country, input.PostalCode, input.Locality),
+		Serviceable: serviceable,
 		Revision:    1, TenantID: scope.TenantID, Country: scope.Country, CustomerID: scope.CustomerID,
 	}
 	if !value.Default && !service.hasAddressLocked(scope) {
@@ -244,7 +305,20 @@ func (service *Service) UpdateAddress(scope Scope, idempotencyKey, addressID str
 	if !validScope(scope) || !safeID(idempotencyKey) || len(idempotencyKey) < 16 || !safeID(addressID) || expectedRevision < 1 || !validAddressInput(input) {
 		return Address{}, false, ErrInvalidRequest
 	}
+	serviceable, err := service.addressIsServiceable(scope, input.PostalCode, input.Locality)
+	if err != nil {
+		return Address{}, false, err
+	}
 	fingerprint := fmt.Sprintf("%s\x00%d\x00%s", addressID, expectedRevision, addressFingerprint(input))
+	if service.store != nil {
+		value := Address{
+			Label: strings.TrimSpace(input.Label), Line1: strings.TrimSpace(input.Line1), Line2: strings.TrimSpace(input.Line2),
+			PostalCode: strings.ToUpper(strings.TrimSpace(input.PostalCode)), Locality: strings.TrimSpace(input.Locality),
+			Latitude: input.Latitude, Longitude: input.Longitude, Default: input.Default,
+			Serviceable: serviceable,
+		}
+		return service.store.UpdateAddress(scope, idempotencyKey, fingerprint, addressID, expectedRevision, value)
+	}
 	requestKey := "address-update\x00" + scopeKey(scope) + "\x00" + idempotencyKey
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -267,7 +341,7 @@ func (service *Service) UpdateAddress(scope Scope, idempotencyKey, addressID str
 	value.Label, value.Line1, value.Line2 = strings.TrimSpace(input.Label), strings.TrimSpace(input.Line1), strings.TrimSpace(input.Line2)
 	value.PostalCode, value.Locality = strings.ToUpper(strings.TrimSpace(input.PostalCode)), strings.TrimSpace(input.Locality)
 	value.Latitude, value.Longitude, value.Default = input.Latitude, input.Longitude, input.Default
-	value.Serviceable = addressServiceable(service.config.PostalZones, scope.Country, value.PostalCode, value.Locality)
+	value.Serviceable = serviceable
 	value.Revision++
 	service.addresses[addressKey(scope, addressID)] = value
 	service.addressReqs[requestKey] = addressReplay{fingerprint: fingerprint, value: value}
@@ -277,6 +351,10 @@ func (service *Service) UpdateAddress(scope Scope, idempotencyKey, addressID str
 func (service *Service) DeleteAddress(scope Scope, idempotencyKey, addressID string, expectedRevision int64) (bool, error) {
 	if !validScope(scope) || !safeID(idempotencyKey) || len(idempotencyKey) < 16 || !safeID(addressID) || expectedRevision < 1 {
 		return false, ErrInvalidRequest
+	}
+	if service.store != nil {
+		fingerprint := addressID + "\x00" + fmt.Sprint(expectedRevision)
+		return service.store.DeleteAddress(scope, idempotencyKey, fingerprint, addressID, expectedRevision)
 	}
 	requestKey := "address-delete\x00" + scopeKey(scope) + "\x00" + idempotencyKey
 	service.mu.Lock()
@@ -307,9 +385,13 @@ func (service *Service) DeliverySlots(scope Scope) ([]DeliverySlot, error) {
 	if !validScope(scope) {
 		return nil, ErrInvalidRequest
 	}
+	configuration, err := service.configurationFor(context.Background(), scope)
+	if err != nil {
+		return nil, err
+	}
 	now := service.clock().UTC()
 	result := []DeliverySlot{}
-	for _, value := range service.config.Slots {
+	for _, value := range configuration.Slots {
 		if value.Country == scope.Country && value.Capacity > 0 && value.WindowStart.After(now) {
 			result = append(result, value)
 		}
@@ -322,6 +404,18 @@ func (service *Service) Quote(ctx context.Context, scope Scope, idempotencyKey s
 		return Quote{}, false, ErrInvalidRequest
 	}
 	fingerprint := quoteFingerprint(request)
+	if service.store != nil {
+		if replay, found, err := service.store.LoadQuote(scope, idempotencyKey, fingerprint); err != nil {
+			return Quote{}, false, err
+		} else if found {
+			return replay, true, nil
+		}
+		value, err := service.calculate(ctx, scope, idempotencyKey, request)
+		if err != nil {
+			return Quote{}, false, err
+		}
+		return service.store.SaveQuote(scope, idempotencyKey, fingerprint, value)
+	}
 	requestKey := scopeKey(scope) + "\x00" + idempotencyKey
 	service.mu.Lock()
 	if replay, exists := service.quoteReqs[requestKey]; exists {
@@ -354,6 +448,23 @@ func (service *Service) Place(ctx context.Context, scope Scope, idempotencyKey, 
 		return PlaceResult{}, false, ErrInvalidRequest
 	}
 	fingerprint := quoteID + "\x00" + string(method)
+	if service.store != nil {
+		if replay, found, err := service.store.LoadPlace(scope, idempotencyKey, fingerprint); err != nil {
+			return PlaceResult{}, false, err
+		} else if found {
+			return replay, true, nil
+		}
+		value, err := service.place(ctx, scope, idempotencyKey, quoteID, method)
+		if err != nil {
+			return PlaceResult{}, false, err
+		}
+		walletDebitID := ""
+		if value.WalletDebit != nil {
+			walletDebitID = value.WalletDebit.ID
+		}
+		checkoutProcess := process{scope: scope, reservationID: value.Reservation.ID, orderID: value.Order.ID, walletDebitID: walletDebitID}
+		return service.store.SavePlace(scope, idempotencyKey, fingerprint, value, checkoutProcess)
+	}
 	requestKey := scopeKey(scope) + "\x00" + idempotencyKey
 	for {
 		service.mu.Lock()
@@ -395,9 +506,19 @@ func (service *Service) Place(ctx context.Context, scope Scope, idempotencyKey, 
 }
 
 func (service *Service) place(ctx context.Context, scope Scope, idempotencyKey, quoteID string, method payment.Method) (PlaceResult, error) {
-	service.mu.Lock()
-	quoted, exists := service.quotes[quoteID]
-	service.mu.Unlock()
+	var quoted Quote
+	var exists bool
+	if service.store != nil {
+		var err error
+		quoted, exists, err = service.store.Quote(scope, quoteID)
+		if err != nil {
+			return PlaceResult{}, err
+		}
+	} else {
+		service.mu.Lock()
+		quoted, exists = service.quotes[quoteID]
+		service.mu.Unlock()
+	}
 	if !exists || quoted.scope != scope {
 		return PlaceResult{}, ErrQuoteNotFound
 	}
@@ -412,13 +533,21 @@ func (service *Service) place(ctx context.Context, scope Scope, idempotencyKey, 
 	if err != nil || quoteValueFingerprint(repriced) != quoteValueFingerprint(quoted) {
 		return PlaceResult{}, ErrQuoteStale
 	}
+	configuration, err := service.configurationFor(ctx, scope)
+	if err != nil {
+		return PlaceResult{}, err
+	}
+	policy, found := pricingPolicy(configuration, scope.Country)
+	if !found || policy.Version != quoted.PricingPolicyVersion {
+		return PlaceResult{}, ErrQuoteStale
+	}
 	checkoutReference := deterministicID("checkout", scopeKey(scope)+"\x00"+idempotencyKey)
 	reservationLines := make([]inventory.Line, 0, len(quoted.Items))
 	for _, line := range quoted.Items {
 		reservationLines = append(reservationLines, inventory.Line{VariantID: line.VariantID, Quantity: line.Quantity})
 	}
 	inventoryScope := inventory.Scope{TenantID: scope.TenantID, Country: scope.Country}
-	reservation, _, err := service.deps.Inventory.Reserve(inventoryScope, idempotencyKey+"-stock", checkoutReference, reservationLines, now.Add(service.policy(scope.Country).ReservationTTL))
+	reservation, _, err := service.deps.Inventory.Reserve(inventoryScope, idempotencyKey+"-stock", checkoutReference, reservationLines, now.Add(policy.ReservationTTL))
 	if err != nil {
 		return PlaceResult{}, err
 	}
@@ -449,7 +578,7 @@ func (service *Service) place(ctx context.Context, scope Scope, idempotencyKey, 
 		service.compensate(scope, idempotencyKey, checkoutReference, reservation.ID, debit)
 		return PlaceResult{}, err
 	}
-	snapshot := service.orderSnapshot(quoted, reservation.ID, paymentValue)
+	snapshot := service.orderSnapshot(quoted, reservation.ID, paymentValue, policy)
 	orderScope := order.Scope{TenantID: scope.TenantID, Country: scope.Country, CustomerID: scope.CustomerID}
 	orderValue, _, err := service.deps.Orders.Create(orderScope, idempotencyKey+"-order", snapshot, paymentValue.Status == payment.StatusCaptured || paymentValue.Status == payment.StatusReconciled)
 	if err != nil {
@@ -457,10 +586,10 @@ func (service *Service) place(ctx context.Context, scope Scope, idempotencyKey, 
 		return PlaceResult{}, err
 	}
 	if orderValue.Status == order.StatusPlaced {
-		if _, err = service.deps.Inventory.Commit(inventoryScope, reservation.ID); err != nil {
+		reservation, err = service.deps.Inventory.Commit(inventoryScope, reservation.ID)
+		if err != nil {
 			return PlaceResult{}, err
 		}
-		reservation, _ = service.deps.Inventory.Commit(inventoryScope, reservation.ID)
 	}
 	service.drainOrderNotifications(ctx)
 	return PlaceResult{Quote: quoted, Reservation: reservation, Payment: paymentValue, Order: orderValue, WalletDebit: debit}, nil
@@ -470,9 +599,10 @@ func (service *Service) FinalizeCapturedPayment(scope Scope, idempotencyKey, pay
 	if !validScope(scope) || !safeID(idempotencyKey) || len(idempotencyKey) < 16 || !safeID(paymentID) {
 		return order.Order{}, false, ErrInvalidRequest
 	}
-	service.mu.Lock()
-	value, exists := service.processes[paymentID]
-	service.mu.Unlock()
+	value, exists, loadErr := service.checkoutProcess(paymentID)
+	if loadErr != nil {
+		return order.Order{}, false, loadErr
+	}
 	if !exists || value.scope != scope {
 		return order.Order{}, false, payment.ErrPaymentNotFound
 	}
@@ -507,9 +637,10 @@ func (service *Service) FinalizeProviderPayment(idempotencyKey, paymentID string
 	if !safeID(idempotencyKey) || len(idempotencyKey) < 16 || !safeID(paymentID) {
 		return order.Order{}, false, ErrInvalidRequest
 	}
-	service.mu.Lock()
-	value, exists := service.processes[paymentID]
-	service.mu.Unlock()
+	value, exists, loadErr := service.checkoutProcess(paymentID)
+	if loadErr != nil {
+		return order.Order{}, false, loadErr
+	}
 	if !exists {
 		return order.Order{}, false, payment.ErrPaymentNotFound
 	}
@@ -545,9 +676,10 @@ func (service *Service) receiveApprovedReturn(ctx context.Context, scope Scope, 
 		return ReturnResult{}, order.ErrInvalidTransition
 	}
 	orderValueScope := order.Scope{TenantID: scope.TenantID, Country: scope.Country, CustomerID: scope.CustomerID}
-	service.mu.Lock()
-	checkoutProcess, exists := service.processes[approved.Snapshot.PaymentID]
-	service.mu.Unlock()
+	checkoutProcess, exists, loadErr := service.checkoutProcess(approved.Snapshot.PaymentID)
+	if loadErr != nil {
+		return ReturnResult{}, loadErr
+	}
 	if !exists || checkoutProcess.scope != scope || checkoutProcess.orderID != approved.ID || checkoutProcess.reservationID != approved.Snapshot.ReservationID {
 		return ReturnResult{}, payment.ErrPaymentNotFound
 	}
@@ -621,9 +753,10 @@ func (service *Service) FinalizeProviderRefund(idempotencyKey, paymentID string)
 	if !safeID(idempotencyKey) || len(idempotencyKey) < 16 || !safeID(paymentID) {
 		return order.Order{}, false, ErrInvalidRequest
 	}
-	service.mu.Lock()
-	checkoutProcess, exists := service.processes[paymentID]
-	service.mu.Unlock()
+	checkoutProcess, exists, loadErr := service.checkoutProcess(paymentID)
+	if loadErr != nil {
+		return order.Order{}, false, loadErr
+	}
 	if !exists {
 		return order.Order{}, false, payment.ErrPaymentNotFound
 	}
@@ -676,9 +809,10 @@ func (service *Service) FinalizeCancellation(ctx context.Context, scope Scope, i
 	if current.Status != order.StatusCancelRequested || current.Revision != expectedRevision {
 		return CancellationResult{}, false, order.ErrRevisionConflict
 	}
-	service.mu.Lock()
-	checkoutProcess, exists := service.processes[current.Snapshot.PaymentID]
-	service.mu.Unlock()
+	checkoutProcess, exists, loadErr := service.checkoutProcess(current.Snapshot.PaymentID)
+	if loadErr != nil {
+		return CancellationResult{}, false, loadErr
+	}
 	if !exists || checkoutProcess.scope != scope {
 		return CancellationResult{}, false, payment.ErrPaymentNotFound
 	}
@@ -770,7 +904,15 @@ func (service *Service) refundTenderSplit(value order.Order, checkoutProcess pro
 			walletMinor = walletApplied
 		}
 	}
-	pointValue := service.policy(checkoutProcess.scope.Country).WalletPointValueMinor
+	configuration, err := service.configurationFor(context.Background(), checkoutProcess.scope)
+	if err != nil {
+		return 0, 0, err
+	}
+	policy, found := pricingPolicy(configuration, checkoutProcess.scope.Country)
+	if !found {
+		return 0, 0, ErrInvalidRequest
+	}
+	pointValue := policy.WalletPointValueMinor
 	if pointValue < 1 {
 		return 0, 0, ErrInvalidRequest
 	}
@@ -780,6 +922,10 @@ func (service *Service) refundTenderSplit(value order.Order, checkoutProcess pro
 }
 
 func (service *Service) calculate(ctx context.Context, scope Scope, seed string, request QuoteRequest) (Quote, error) {
+	configuration, err := service.configurationFor(ctx, scope)
+	if err != nil {
+		return Quote{}, err
+	}
 	cart, err := service.deps.Cart.Price(ctx, commerce.Scope{TenantID: scope.TenantID, Country: scope.Country, CustomerID: scope.CustomerID}, request.CartRevision)
 	if err != nil || len(cart.Items) == 0 {
 		return Quote{}, ErrQuoteStale
@@ -793,38 +939,110 @@ func (service *Service) calculate(ctx context.Context, scope Scope, seed string,
 	if !found || !address.Serviceable {
 		return Quote{}, ErrAddressNotFound
 	}
-	slot, found := service.slot(scope.Country, request.DeliverySlot)
+	slot, found := deliverySlot(configuration, scope.Country, request.DeliverySlot)
 	if !found || !slot.WindowStart.After(service.clock().UTC()) {
 		return Quote{}, ErrSlotNotAvailable
 	}
-	policy := service.policy(scope.Country)
+	policy, found := pricingPolicy(configuration, scope.Country)
+	if !found {
+		return Quote{}, ErrInvalidRequest
+	}
 	discount := int64(0)
 	if request.PromotionCode != "" {
-		promotion, promotionFound := service.promotion(scope.Country, request.PromotionCode)
+		promotion, promotionFound := checkoutPromotion(configuration, scope.Country, request.PromotionCode)
 		now := service.clock().UTC()
 		if !promotionFound || cart.Subtotal.AmountMinor < promotion.MinimumSubtotal || now.Before(promotion.StartsAt) || !now.Before(promotion.EndsAt) {
 			return Quote{}, ErrPromotionInvalid
 		}
-		discount = cart.Subtotal.AmountMinor * promotion.DiscountBasisPts / 10000
+		discount, err = basisPointsAmount(cart.Subtotal.AmountMinor, promotion.DiscountBasisPts, false)
+		if err != nil {
+			return Quote{}, ErrInvalidRequest
+		}
 		if promotion.MaximumDiscount > 0 && discount > promotion.MaximumDiscount {
 			discount = promotion.MaximumDiscount
 		}
 	}
+	if discount > cart.Subtotal.AmountMinor {
+		return Quote{}, ErrInvalidRequest
+	}
 	taxable := cart.Subtotal.AmountMinor - discount
-	tax := (taxable*policy.TaxBasisPoints + 5000) / 10000
-	fees := policy.PlatformFeeMinor + slot.Fee.AmountMinor
-	gross := taxable + tax + fees
+	productTax, err := basisPointsAmount(taxable, policy.ProductTaxBasisPoints, true)
+	if err != nil {
+		return Quote{}, ErrInvalidRequest
+	}
+	platformFeeTax, err := basisPointsAmount(policy.PlatformFeeMinor, policy.PlatformFeeTaxBasisPoints, true)
+	if err != nil {
+		return Quote{}, ErrInvalidRequest
+	}
+	chargedProductTax := productTax
+	if policy.ProductTaxTreatment == ProductTaxInclusive {
+		chargedProductTax = 0
+	}
+	tax, err := addAmounts(chargedProductTax, platformFeeTax)
+	if err != nil {
+		return Quote{}, ErrInvalidRequest
+	}
+	fees, err := addAmounts(policy.PlatformFeeMinor, slot.Fee.AmountMinor)
+	if err != nil {
+		return Quote{}, ErrInvalidRequest
+	}
+	gross, err := addAmounts(taxable, tax, fees)
+	if err != nil {
+		return Quote{}, ErrInvalidRequest
+	}
+	discounts := allocate(cart.Items, discount)
+	lineTerms := make([]LineCommercialTerms, 0, len(cart.Items))
+	commercialPolicyVersion := ""
+	marketplaceCommission, redemptionLimitMinor := int64(0), int64(0)
+	for index, line := range cart.Items {
+		terms, termsErr := service.deps.CommercialTerms.Resolve(ctx, scope, line.ItemID, line.VariantID, line.VendorID)
+		if termsErr != nil || !validResolvedTerms(terms) || (commercialPolicyVersion != "" && commercialPolicyVersion != terms.PolicyVersion) {
+			return Quote{}, ErrCommercialTerms
+		}
+		commercialPolicyVersion = terms.PolicyVersion
+		commission, amountErr := basisPointsAmount(line.LineTotal.AmountMinor, terms.CommissionBasisPoints, true)
+		if amountErr != nil {
+			return Quote{}, ErrInvalidRequest
+		}
+		lineNet := line.LineTotal.AmountMinor - discounts[index]
+		lineLimit, amountErr := basisPointsAmount(lineNet, terms.WalletRedemptionBasisPoints, false)
+		if amountErr != nil {
+			return Quote{}, ErrInvalidRequest
+		}
+		marketplaceCommission, err = addAmounts(marketplaceCommission, commission)
+		if err != nil {
+			return Quote{}, ErrInvalidRequest
+		}
+		redemptionLimitMinor, err = addAmounts(redemptionLimitMinor, lineLimit)
+		if err != nil {
+			return Quote{}, ErrInvalidRequest
+		}
+		lineTerms = append(lineTerms, LineCommercialTerms{
+			ItemID: line.ItemID, VariantID: line.VariantID, VendorID: line.VendorID, VendorTier: terms.VendorTier,
+			CommissionBasisPoints: terms.CommissionBasisPoints, WalletRedemptionBasisPoints: terms.WalletRedemptionBasisPoints,
+			Commission: money(commission, cart.Subtotal.Currency), WalletRedemptionLimit: money(lineLimit, cart.Subtotal.Currency), Source: terms.Source,
+		})
+	}
 	account, err := service.deps.Wallet.Account(wallet.Scope{TenantID: scope.TenantID, Country: scope.Country, CustomerID: scope.CustomerID})
 	if err != nil {
 		return Quote{}, err
 	}
 	points := request.WalletPoints
+	warnings := []string{}
 	if points > account.Balance {
 		points = account.Balance
+		warnings = append(warnings, "WALLET_REDEMPTION_CAPPED_BY_BALANCE")
 	}
-	maxPoints := gross / policy.WalletPointValueMinor
+	maxPoints := redemptionLimitMinor / policy.WalletPointValueMinor
+	if grossPoints := gross / policy.WalletPointValueMinor; maxPoints > grossPoints {
+		maxPoints = grossPoints
+	}
 	if points > maxPoints {
 		points = maxPoints
+		warnings = append(warnings, "WALLET_REDEMPTION_CAPPED_BY_COMMERCIAL_POLICY")
+	}
+	if points > 0 && points > math.MaxInt64/policy.WalletPointValueMinor {
+		return Quote{}, ErrInvalidRequest
 	}
 	walletApplied := points * policy.WalletPointValueMinor
 	total := gross - walletApplied
@@ -833,14 +1051,15 @@ func (service *Service) calculate(ctx context.Context, scope Scope, seed string,
 		return Quote{}, ErrPaymentMethod
 	}
 	now := service.clock().UTC()
-	warnings := []string{}
 	if cart.PricingStatus == "REPRICED" {
 		warnings = append(warnings, "CART_REPRICED")
 	}
 	return Quote{
 		ID: deterministicID("quote", scopeKey(scope)+"\x00"+seed), CartRevision: cart.Revision, Items: append([]commerce.CartLine(nil), cart.Items...), Address: address, Delivery: slot,
-		Subtotal: money(cart.Subtotal.AmountMinor, cart.Subtotal.Currency), Discount: money(discount, cart.Subtotal.Currency), Tax: money(tax, cart.Subtotal.Currency), Fees: money(fees, cart.Subtotal.Currency), WalletApplied: money(walletApplied, cart.Subtotal.Currency), WalletPointsRedeemed: points, Total: money(total, cart.Subtotal.Currency),
-		PromotionCode: request.PromotionCode, PricingPolicyVersion: policy.Version, PaymentMethods: methods, Warnings: warnings, AllowedActions: []string{"PLACE_ORDER", "EDIT_CHECKOUT"}, ExpiresAt: now.Add(policy.QuoteTTL), CreatedAt: now, scope: scope,
+		Subtotal: money(cart.Subtotal.AmountMinor, cart.Subtotal.Currency), Discount: money(discount, cart.Subtotal.Currency), Tax: money(tax, cart.Subtotal.Currency), Fees: money(fees, cart.Subtotal.Currency),
+		ProductTax: money(productTax, cart.Subtotal.Currency), PlatformFee: money(policy.PlatformFeeMinor, cart.Subtotal.Currency), PlatformFeeTax: money(platformFeeTax, cart.Subtotal.Currency), DeliveryFee: money(slot.Fee.AmountMinor, cart.Subtotal.Currency),
+		MarketplaceCommission: money(marketplaceCommission, cart.Subtotal.Currency), WalletRedemptionLimit: money(redemptionLimitMinor, cart.Subtotal.Currency), WalletApplied: money(walletApplied, cart.Subtotal.Currency), WalletPointsRedeemed: points, LineCommercialTerms: lineTerms, Total: money(total, cart.Subtotal.Currency),
+		PromotionCode: request.PromotionCode, PricingPolicyVersion: policy.Version, CommercialPolicyVersion: commercialPolicyVersion, PaymentMethods: methods, Warnings: warnings, AllowedActions: []string{"PLACE_ORDER", "EDIT_CHECKOUT"}, ExpiresAt: now.Add(policy.QuoteTTL), CreatedAt: now, scope: scope, cartID: cart.ID,
 	}, nil
 }
 
@@ -851,14 +1070,19 @@ func (service *Service) compensate(scope Scope, idempotencyKey, reference, reser
 	}
 }
 
-func (service *Service) orderSnapshot(value Quote, reservationID string, paymentValue payment.Payment) order.CheckoutSnapshot {
+func (service *Service) orderSnapshot(value Quote, reservationID string, paymentValue payment.Payment, policy PricingPolicy) order.CheckoutSnapshot {
 	discounts := allocate(value.Items, value.Discount.AmountMinor)
-	taxes := allocate(value.Items, value.Tax.AmountMinor)
+	chargedProductTax := value.ProductTax.AmountMinor
+	if policy.ProductTaxTreatment == ProductTaxInclusive {
+		chargedProductTax = 0
+	}
+	taxes := allocate(value.Items, chargedProductTax)
 	lines := make([]order.LineSnapshot, 0, len(value.Items))
 	for index, item := range value.Items {
-		lines = append(lines, order.LineSnapshot{VariantID: item.VariantID, ItemID: item.ItemID, VendorID: item.VendorID, ItemName: item.ItemName, VariantName: item.VariantName, Quantity: item.Quantity, UnitPrice: order.Money{AmountMinor: item.UnitPrice.AmountMinor, Currency: item.UnitPrice.Currency}, LineTotal: order.Money{AmountMinor: item.LineTotal.AmountMinor, Currency: item.LineTotal.Currency}, DiscountMinor: discounts[index], TaxMinor: taxes[index]})
+		terms := value.LineCommercialTerms[index]
+		lines = append(lines, order.LineSnapshot{VariantID: item.VariantID, ItemID: item.ItemID, VendorID: item.VendorID, ItemName: item.ItemName, VariantName: item.VariantName, Quantity: item.Quantity, UnitPrice: order.Money{AmountMinor: item.UnitPrice.AmountMinor, Currency: item.UnitPrice.Currency}, LineTotal: order.Money{AmountMinor: item.LineTotal.AmountMinor, Currency: item.LineTotal.Currency}, DiscountMinor: discounts[index], TaxMinor: taxes[index], VendorTier: terms.VendorTier, CommissionBasisPoints: terms.CommissionBasisPoints, WalletRedemptionBasisPoints: terms.WalletRedemptionBasisPoints, CommissionMinor: terms.Commission.AmountMinor, CommercialRuleSource: string(terms.Source)})
 	}
-	return order.CheckoutSnapshot{CartRevision: value.CartRevision, Lines: lines, Address: order.AddressSnapshot{AddressID: value.Address.ID, Label: value.Address.Label, PostalCode: value.Address.PostalCode, Locality: value.Address.Locality}, Delivery: order.DeliverySnapshot{SlotID: value.Delivery.ID, WindowStart: value.Delivery.WindowStart, WindowEnd: value.Delivery.WindowEnd, Fee: order.Money{AmountMinor: value.Delivery.Fee.AmountMinor, Currency: value.Delivery.Fee.Currency}}, Subtotal: orderMoney(value.Subtotal), Discount: orderMoney(value.Discount), Tax: orderMoney(value.Tax), Fees: orderMoney(value.Fees), WalletApplied: orderMoney(value.WalletApplied), Total: orderMoney(value.Total), PromotionCode: value.PromotionCode, PricingPolicyVersion: value.PricingPolicyVersion, ReservationID: reservationID, PaymentID: paymentValue.ID, PaymentMethod: string(paymentValue.Method)}
+	return order.CheckoutSnapshot{CartRevision: value.CartRevision, Lines: lines, Address: order.AddressSnapshot{AddressID: value.Address.ID, Label: value.Address.Label, PostalCode: value.Address.PostalCode, Locality: value.Address.Locality}, Delivery: order.DeliverySnapshot{SlotID: value.Delivery.ID, WindowStart: value.Delivery.WindowStart, WindowEnd: value.Delivery.WindowEnd, Fee: order.Money{AmountMinor: value.Delivery.Fee.AmountMinor, Currency: value.Delivery.Fee.Currency}}, Subtotal: orderMoney(value.Subtotal), Discount: orderMoney(value.Discount), Tax: orderMoney(value.Tax), Fees: orderMoney(value.Fees), ProductTax: orderMoney(value.ProductTax), ProductTaxTreatment: string(policy.ProductTaxTreatment), PlatformFee: orderMoney(value.PlatformFee), PlatformFeeTax: orderMoney(value.PlatformFeeTax), DeliveryFee: orderMoney(value.DeliveryFee), MarketplaceCommission: orderMoney(value.MarketplaceCommission), WalletRedemptionLimit: orderMoney(value.WalletRedemptionLimit), WalletApplied: orderMoney(value.WalletApplied), Total: orderMoney(value.Total), PromotionCode: value.PromotionCode, PricingPolicyVersion: value.PricingPolicyVersion, CommercialPolicyVersion: value.CommercialPolicyVersion, ReservationID: reservationID, PaymentID: paymentValue.ID, PaymentMethod: string(paymentValue.Method)}
 }
 
 func allocate(items []commerce.CartLine, total int64) []int64 {
@@ -882,12 +1106,45 @@ func allocate(items []commerce.CartLine, total int64) []int64 {
 	return result
 }
 
+func basisPointsAmount(amount, basisPoints int64, round bool) (int64, error) {
+	if amount < 0 || !validBasisPoints(basisPoints) {
+		return 0, ErrInvalidRequest
+	}
+	if amount == 0 || basisPoints == 0 {
+		return 0, nil
+	}
+	adjustment := int64(0)
+	if round {
+		adjustment = 5000
+	}
+	if amount > (math.MaxInt64-adjustment)/basisPoints {
+		return 0, ErrInvalidRequest
+	}
+	return (amount*basisPoints + adjustment) / 10000, nil
+}
+
+func addAmounts(values ...int64) (int64, error) {
+	var total int64
+	for _, value := range values {
+		if value < 0 || value > math.MaxInt64-total {
+			return 0, ErrInvalidRequest
+		}
+		total += value
+	}
+	return total, nil
+}
+
+func validResolvedTerms(value CommercialTerms) bool {
+	return safeID(value.PolicyVersion) && safeID(value.VendorTier) && validBasisPoints(value.CommissionBasisPoints) && validBasisPoints(value.WalletRedemptionBasisPoints) &&
+		(value.Source == CommercialRulePlan || value.Source == CommercialRuleVendor || value.Source == CommercialRuleProduct)
+}
+
 func validConfiguration(value Configuration) bool {
 	if len(value.Policies) == 0 {
 		return false
 	}
 	for _, policy := range value.Policies {
-		if len(policy.Country) != 2 || !safeID(policy.Version) || policy.TaxBasisPoints < 0 || policy.TaxBasisPoints > 10000 || policy.PlatformFeeMinor < 0 || policy.WalletPointValueMinor < 1 || (policy.WalletMode != WalletHybrid && policy.WalletMode != WalletPointsOnly) || policy.QuoteTTL <= 0 || policy.QuoteTTL > 30*time.Minute || policy.ReservationTTL <= 0 || policy.ReservationTTL > 30*time.Minute {
+		if len(policy.Country) != 2 || !safeID(policy.Version) || !validBasisPoints(policy.ProductTaxBasisPoints) || (policy.ProductTaxTreatment != ProductTaxInclusive && policy.ProductTaxTreatment != ProductTaxExclusive) || policy.PlatformFeeMinor < 0 || !validBasisPoints(policy.PlatformFeeTaxBasisPoints) || policy.WalletPointValueMinor < 1 || (policy.WalletMode != WalletHybrid && policy.WalletMode != WalletPointsOnly) || policy.QuoteTTL <= 0 || policy.QuoteTTL > 30*time.Minute || policy.ReservationTTL <= 0 || policy.ReservationTTL > 30*time.Minute {
 			return false
 		}
 	}
@@ -938,21 +1195,45 @@ func ownsAddress(value Address, scope Scope) bool {
 	return value.TenantID == scope.TenantID && value.Country == scope.Country && value.CustomerID == scope.CustomerID
 }
 func (service *Service) address(scope Scope, id string) (Address, bool) {
+	if service.store != nil {
+		value, found, err := service.store.Address(scope, id)
+		return value, found && err == nil
+	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	value, found := service.addresses[addressKey(scope, id)]
 	return value, found
 }
-func (service *Service) slot(country, id string) (DeliverySlot, bool) {
-	for _, value := range service.config.Slots {
+
+func (service *Service) checkoutProcess(paymentID string) (process, bool, error) {
+	if service.store != nil {
+		return service.store.Process(paymentID)
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	value, exists := service.processes[paymentID]
+	return value, exists, nil
+}
+
+func (service *Service) refillProcess(paymentID string) (refillProcess, bool, error) {
+	if service.store != nil {
+		return service.store.Refill(paymentID)
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	value, exists := service.refills[paymentID]
+	return value, exists, nil
+}
+func deliverySlot(configuration Configuration, country, id string) (DeliverySlot, bool) {
+	for _, value := range configuration.Slots {
 		if value.ID == id && value.Country == country && value.Capacity > 0 {
 			return value, true
 		}
 	}
 	return DeliverySlot{}, false
 }
-func (service *Service) promotion(country, code string) (Promotion, bool) {
-	for _, value := range service.config.Promotions {
+func checkoutPromotion(configuration Configuration, country, code string) (Promotion, bool) {
+	for _, value := range configuration.Promotions {
 		if value.Code == code && value.Country == country {
 			return value, true
 		}
@@ -1021,13 +1302,38 @@ func (service *Service) promoteDefaultAddressLocked(scope Scope) {
 	value.Revision++
 	service.addresses[keys[0]] = value
 }
-func (service *Service) policy(country string) PricingPolicy {
-	for _, value := range service.config.Policies {
+func pricingPolicy(configuration Configuration, country string) (PricingPolicy, bool) {
+	for _, value := range configuration.Policies {
 		if value.Country == country {
-			return value
+			return value, true
 		}
 	}
-	return PricingPolicy{}
+	return PricingPolicy{}, false
+}
+
+func (service *Service) configurationFor(ctx context.Context, scope Scope) (Configuration, error) {
+	if service.configuration == nil {
+		return service.config, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	configuration, err := service.configuration.Configuration(ctx, scope)
+	if err != nil || !validConfiguration(configuration) {
+		if err != nil {
+			return Configuration{}, err
+		}
+		return Configuration{}, ErrInvalidRequest
+	}
+	return configuration, nil
+}
+
+func (service *Service) addressIsServiceable(scope Scope, postalCode, locality string) (bool, error) {
+	configuration, err := service.configurationFor(context.Background(), scope)
+	if err != nil {
+		return false, err
+	}
+	return addressServiceable(configuration.PostalZones, scope.Country, postalCode, locality), nil
 }
 func paymentMethods(country string, total int64, mode WalletMode) []payment.Method {
 	if total == 0 {
@@ -1078,10 +1384,10 @@ func quoteValueFingerprint(value Quote) string {
 	return fmt.Sprintf("%+v\x00%+v\x00%+v\x00%+v\x00%+v\x00%+v\x00%d\x00%+v\x00%s\x00%s", value.Items, value.Subtotal, value.Discount, value.Tax, value.Fees, value.WalletApplied, value.WalletPointsRedeemed, value.Total, value.PaymentMethods, value.PricingPolicyVersion)
 }
 func cloneQuote(value Quote) Quote {
-	value.Items = append([]commerce.CartLine(nil), value.Items...)
-	value.PaymentMethods = append([]payment.Method(nil), value.PaymentMethods...)
-	value.Warnings = append([]string(nil), value.Warnings...)
-	value.AllowedActions = append([]string(nil), value.AllowedActions...)
+	value.Items = append([]commerce.CartLine{}, value.Items...)
+	value.PaymentMethods = append([]payment.Method{}, value.PaymentMethods...)
+	value.Warnings = append([]string{}, value.Warnings...)
+	value.AllowedActions = append([]string{}, value.AllowedActions...)
 	return value
 }
 func clonePlaceResult(value PlaceResult) PlaceResult {

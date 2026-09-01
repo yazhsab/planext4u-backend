@@ -11,6 +11,7 @@ admin-web/*.tsbuildinfo
 *.coverprofile
 *.log
 .local/
+.understand-anything/
 
 # Terraform providers and local state are never source artifacts. Dependency
 # lock files remain committed for reproducible provider selection.

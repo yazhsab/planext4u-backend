@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-import { adminSession, auditPage, operationPage } from "../src/test/fixtures";
+import { adminSession, auditPage, cmsPageDraftPage, cmsWorkspaceDraft, operationPage } from "../src/test/fixtures";
 
 test.beforeEach(async ({page}) => {
   await page.route("**/admin/api/v1/**", async (route) => {
@@ -16,6 +16,14 @@ test.beforeEach(async ({page}) => {
     }
     if (path === "/admin/api/v1/operations") {
       await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify(operationPage)});
+      return;
+    }
+    if (path === "/admin/api/v1/cms/pages") {
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify(cmsPageDraftPage)});
+      return;
+    }
+    if (path === "/admin/api/v1/cms/workspace") {
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify(cmsWorkspaceDraft)});
       return;
     }
     if (path === "/admin/api/v1/session/country") {
@@ -41,6 +49,19 @@ test("authorized administrator can review controlled operations", async ({page})
   await expect(page.getByRole("heading", {name: "Privileged operations"})).toBeVisible();
   await expect(page.getByText("customer-synthetic-001")).toBeVisible();
   await expect(page.getByText("Pending Approval")).toBeVisible();
+
+  const results = await new AxeBuilder({page}).analyze();
+  expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
+});
+
+test("authorized content administrator can configure page drafts and workspace flags", async ({page}) => {
+  await page.goto("/cms");
+  await expect(page.getByRole("heading", {name: "CMS page builder"})).toBeVisible();
+  await expect(page.getByLabel("Edit Customer home")).toBeVisible();
+  await expect(page.getByText("home-hero")).toBeVisible();
+  await page.getByRole("tab", {name: "App workspace"}).click();
+  await expect(page.getByRole("heading", {name: "Global app workspace"})).toBeVisible();
+  await expect(page.getByText("services")).toBeVisible();
 
   const results = await new AxeBuilder({page}).analyze();
   expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
