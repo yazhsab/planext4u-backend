@@ -142,6 +142,73 @@ func TestProductDetailSnapshotsAreValidatedAndDefensivelyCloned(t *testing.T) {
 	}
 }
 
+func TestPublicCatalogProjectionsExposeTypedMediaAndDropExpiredPresentations(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)
+	future, expired := now.Add(5*time.Minute), now.Add(-time.Second)
+	icon := MediaPresentation{AssetID: "asset-category", URL: "https://media.example/category.webp", ContentType: "image/webp", Width: 256, Height: 256, AltText: "Daily needs", Variants: []ResponsiveMediaVariant{}, ExpiresAt: &future}
+	active := MediaPresentation{AssetID: "asset-milk", URL: "/media/public/milk.webp", ContentType: "image/webp", Width: 1200, Height: 1200, AltText: "Fresh milk bottle", Variants: []ResponsiveMediaVariant{{URL: "https://media.example/milk-600.webp", Width: 600, Height: 600}}, ExpiresAt: &future}
+	stale := active
+	stale.AssetID, stale.URL, stale.ExpiresAt = "asset-stale", "https://media.example/stale.webp", &expired
+	categories := []Category{{ID: "daily-needs", Name: "Daily needs", Priority: 10, Icon: &icon}}
+	items := []Item{{ID: "item-milk", CategoryID: "daily-needs", Name: "Fresh milk", Summary: "One litre", Price: Money{AmountMinor: 6500, Currency: "INR"}, Available: true, Media: []MediaPresentation{active, stale}}}
+	repository, err := NewMemoryRepository(categories, items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, _ := NewService(repository, nil, 15*time.Minute, func() time.Time { return now })
+
+	home, err := service.Home(context.Background(), "tenant-synthetic", "IN")
+	if err != nil || home.Categories[0].Icon == nil || home.Categories[0].Icon.AltText != "Daily needs" ||
+		len(home.FeaturedItems[0].Media) != 1 || home.FeaturedItems[0].Media[0].AssetID != "asset-milk" || home.FeaturedItems[0].Media[0].AltText != "Fresh milk bottle" {
+		t.Fatalf("home media=%#v err=%v", home, err)
+	}
+	item, _, err := service.Item(context.Background(), "tenant-synthetic", "IN", "item-milk")
+	if err != nil || len(item.Media) != 1 || item.Media[0].URL != "/media/public/milk.webp" {
+		t.Fatalf("item media=%#v err=%v", item.Media, err)
+	}
+
+	unsafe := items
+	unsafe[0].Media = []MediaPresentation{{AssetID: "asset-unsafe", URL: "javascript:alert(1)", ContentType: "image/webp", Width: 10, Height: 10, AltText: "Unsafe", Variants: []ResponsiveMediaVariant{}}}
+	if _, err := NewMemoryRepository(categories, unsafe); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("unsafe media URL error=%v", err)
+	}
+}
+
+func TestCMSServiceCollectionProjectionKeepsPriceAndServiceabilityServerOwned(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(5 * time.Minute)
+	media := MediaPresentation{AssetID: "asset-tv-repair", URL: "https://media.example/tv-repair.webp", ContentType: "image/webp", Width: 1200, Height: 900, AltText: "Technician repairing a television", Variants: []ResponsiveMediaVariant{}, ExpiresAt: &expiresAt}
+	projections := []ServiceCollectionProjection{{
+		Collection: ServiceCollection{CollectionID: "popular-services", Title: "Popular services", Items: []ServiceCollectionItem{
+			{ServiceID: "service-tv-repair", ProviderID: "provider-tv-001", Title: "TV repair", Summary: "Verified local technician", Media: &media, Price: Money{AmountMinor: 49900, Currency: "INR"}, PriceDisplay: "From ₹499.00", Trust: ServiceTrustSummary{VerifiedProvider: true, RatingAverage: 4.8, CompletedBookings: 241}, NavigationTarget: "/app/services/service-tv-repair"},
+			{ServiceID: "service-ac-repair", ProviderID: "provider-ac-001", Title: "AC repair", Summary: "Inspection and repair", Price: Money{AmountMinor: 69900, Currency: "INR"}, PriceDisplay: "From ₹699.00", Trust: ServiceTrustSummary{VerifiedProvider: true, RatingAverage: 4.7, CompletedBookings: 180}, NavigationTarget: "/app/services/service-ac-repair"},
+		}},
+		ServicePostalCodes: map[string][]string{"service-tv-repair": {"641001"}, "service-ac-repair": {"600001"}},
+	}}
+	repository, err := NewMemoryRepositoryWithServiceCollections(syntheticCategories(), syntheticItems(), projections)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, _ := NewService(repository, nil, 15*time.Minute, func() time.Time { return now })
+
+	home, err := service.Home(context.Background(), "tenant-synthetic", "IN", "641001")
+	collection, found := home.ServiceCollections["popular-services"]
+	if err != nil || !found || len(collection.Items) != 2 {
+		t.Fatalf("service collections=%#v err=%v", home.ServiceCollections, err)
+	}
+	if collection.Items[0].Price.AmountMinor != 49900 || collection.Items[0].PriceDisplay != "From ₹499.00" || !collection.Items[0].Serviceable || collection.Items[1].Serviceable {
+		t.Fatalf("service authority=%#v", collection.Items)
+	}
+	if _, invented := home.ServiceCollections["unknown-cms-collection"]; invented {
+		t.Fatal("unknown CMS collection was invented")
+	}
+	if _, err := service.Home(context.Background(), "tenant-synthetic", "IN", "unsafe postal code"); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("invalid postal code error=%v", err)
+	}
+}
+
 func syntheticCategories() []Category {
 	return []Category{{ID: "daily-needs", Name: "Daily needs", Priority: 10}, {ID: "home-services", Name: "Home services", Priority: 20}}
 }

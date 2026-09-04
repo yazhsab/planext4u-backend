@@ -32,6 +32,7 @@ type Service struct {
 	riders            map[string]*RiderProfile
 	duty              map[string]*DutySession
 	tasks             map[string]*DeliveryTask
+	declines          map[string]OfferDecline
 	participants      map[string]taskParticipants
 	locations         map[string]*RiderLocation
 	offlineSequence   map[string]int64
@@ -65,7 +66,7 @@ func NewService(configuration Configuration, clock func() time.Time) (*Service, 
 		configuration.SettlementCooling = 48 * time.Hour
 	}
 	service := &Service{
-		clock: clock, configuration: configuration, riders: map[string]*RiderProfile{}, duty: map[string]*DutySession{}, tasks: map[string]*DeliveryTask{}, participants: map[string]taskParticipants{}, locations: map[string]*RiderLocation{}, offlineSequence: map[string]int64{}, offlineProcessed: map[string]map[string]OfflineResult{}, conversations: map[string]*Conversation{}, conversationOrder: map[string]string{}, ledger: map[string]*LedgerEntry{}, payouts: map[string]*Payout{}, paidEntries: map[string]bool{}, attendance: map[string]*AttendanceEntry{}, territories: map[string]Territory{}, fieldCheckIns: map[string]*FieldCheckIn{}, audit: []*AuditEvent{}, idempotency: map[string]idempotentResult{},
+		clock: clock, configuration: configuration, riders: map[string]*RiderProfile{}, duty: map[string]*DutySession{}, tasks: map[string]*DeliveryTask{}, declines: map[string]OfferDecline{}, participants: map[string]taskParticipants{}, locations: map[string]*RiderLocation{}, offlineSequence: map[string]int64{}, offlineProcessed: map[string]map[string]OfflineResult{}, conversations: map[string]*Conversation{}, conversationOrder: map[string]string{}, ledger: map[string]*LedgerEntry{}, payouts: map[string]*Payout{}, paidEntries: map[string]bool{}, attendance: map[string]*AttendanceEntry{}, territories: map[string]Territory{}, fieldCheckIns: map[string]*FieldCheckIn{}, audit: []*AuditEvent{}, idempotency: map[string]idempotentResult{},
 	}
 	for _, territory := range configuration.Territories {
 		if territory.tenantID == "" {
@@ -292,7 +293,7 @@ func (service *Service) OfferTask(actor Actor, key, taskID string, revision int6
 	now := service.clock().UTC()
 	expires := now.Add(service.configuration.OfferTTL)
 	value.Status, value.Revision, value.OfferExpiresAt, value.UpdatedAt = "OFFERED", value.Revision+1, &expires, now
-	value.AssignedRiderID, value.AllowedActions = "", []string{"ACCEPT"}
+	value.AssignedRiderID, value.AllowedActions = "", []string{"ACCEPT", "DECLINE"}
 	service.recordAuditLocked(actor, "TASK_OFFERED", "DELIVERY_TASK", value.ID, "Task published to eligible riders")
 	service.idempotency[scope] = idempotentResult{fingerprint: digest(revision), resourceID: value.ID}
 	return cloneTask(*value), false, nil
@@ -311,7 +312,7 @@ func (service *Service) Offers(actor Actor) ([]DeliveryTask, error) {
 	now := service.clock().UTC()
 	values := []DeliveryTask{}
 	for _, value := range service.tasks {
-		if value.tenantID == actor.TenantID && value.country == actor.Country && value.Status == "OFFERED" && value.OfferExpiresAt != nil && value.OfferExpiresAt.After(now) && value.ZoneID == duty.ZoneID {
+		if value.tenantID == actor.TenantID && value.country == actor.Country && value.Status == "OFFERED" && value.OfferExpiresAt != nil && value.OfferExpiresAt.After(now) && value.ZoneID == duty.ZoneID && !service.hasDeclinedLocked(actor, value.ID) {
 			values = append(values, cloneTask(*value))
 		}
 	}
@@ -347,6 +348,9 @@ func (service *Service) AcceptOffer(actor Actor, key, taskID string, revision in
 	if value.Revision != revision || value.Status != "OFFERED" || value.AssignedRiderID != "" {
 		return DeliveryTask{}, false, ErrConflict
 	}
+	if service.hasDeclinedLocked(actor, taskID) {
+		return DeliveryTask{}, false, ErrConflict
+	}
 	if service.activeTaskCountLocked(actor.Subject) >= profile.MaxConcurrent {
 		return DeliveryTask{}, false, ErrConflict
 	}
@@ -360,6 +364,58 @@ func (service *Service) AcceptOffer(actor Actor, key, taskID string, revision in
 	}
 	service.idempotency[scope] = idempotentResult{fingerprint: fingerprint, resourceID: value.ID}
 	return cloneTask(*value), false, nil
+}
+
+func (service *Service) DeclineOffer(actor Actor, key, taskID string, revision int64, request OfferDeclineRequest) (OfferDecline, bool, error) {
+	if !validActor(actor) || !hasRole(actor, "RIDER") || !validKey(key) || !validOfferDecline(request) {
+		return OfferDecline{}, false, ErrInvalidRequest
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	value := service.tasks[taskID]
+	if value == nil {
+		return OfferDecline{}, false, ErrNotFound
+	}
+	scope := idempotencyScope(actor, "decline:"+taskID, key)
+	fingerprint := digest(struct {
+		Revision int64
+		Request  OfferDeclineRequest
+	}{revision, normalizedOfferDecline(request)})
+	declineKey := offerDeclineScope(actor, taskID)
+	if previous, ok := service.idempotency[scope]; ok {
+		if previous.fingerprint != fingerprint {
+			return OfferDecline{}, false, ErrIdempotencyConflict
+		}
+		return service.declines[declineKey], true, nil
+	}
+	profile, duty := service.riders[actor.Subject], service.duty[actor.Subject]
+	if profile == nil || duty == nil || profile.Status != RiderApproved || duty.Status != "ACTIVE" || duty.ZoneID != value.ZoneID || value.tenantID != actor.TenantID || value.country != actor.Country {
+		return OfferDecline{}, false, ErrForbidden
+	}
+	if value.OfferExpiresAt == nil || !value.OfferExpiresAt.After(service.clock().UTC()) {
+		return OfferDecline{}, false, ErrOfferExpired
+	}
+	if value.Revision != revision || value.Status != "OFFERED" || value.AssignedRiderID != "" {
+		return OfferDecline{}, false, ErrConflict
+	}
+	if _, exists := service.declines[declineKey]; exists {
+		return OfferDecline{}, false, ErrConflict
+	}
+	normalized := normalizedOfferDecline(request)
+	decline := OfferDecline{TaskID: taskID, TaskRevision: revision, ReasonCode: normalized.ReasonCode, Note: normalized.Note, DeclinedAt: service.clock().UTC(), tenantID: actor.TenantID, country: actor.Country, riderID: actor.Subject}
+	service.declines[declineKey] = decline
+	service.idempotency[scope] = idempotentResult{fingerprint: fingerprint, resourceID: taskID}
+	service.recordAuditLocked(actor, "OFFER_DECLINED", "DELIVERY_TASK", taskID, "Rider declined offer: "+decline.ReasonCode)
+	return decline, false, nil
+}
+
+func (service *Service) hasDeclinedLocked(actor Actor, taskID string) bool {
+	_, found := service.declines[offerDeclineScope(actor, taskID)]
+	return found
+}
+
+func offerDeclineScope(actor Actor, taskID string) string {
+	return actor.TenantID + ":" + actor.Country + ":" + actor.Subject + ":" + taskID
 }
 
 func (service *Service) UpdateLocation(actor Actor, key string, input LocationUpdate) (RiderLocation, bool, error) {
@@ -674,6 +730,23 @@ func validRiderRegistration(value RiderRegistrationRequest) bool {
 
 func validTaskSeed(value TaskSeed) bool {
 	return safeID(value.ID) && safeID(value.OrderID) && safeID(value.OrderType) && safeID(value.RegionID) && safeID(value.TerritoryID) && safeID(value.ZoneID) && validPoint(value.Pickup.Point) && validPoint(value.Dropoff.Point) && safeID(value.Pickup.AddressToken) && safeID(value.Dropoff.AddressToken) && value.DistanceMeters > 0 && value.Earning.AmountMinor > 0 && regexp.MustCompile(`^[A-Z]{3}$`).MatchString(value.Earning.Currency) && regexp.MustCompile(`^[0-9]{6}$`).MatchString(value.DeliveryOTP) && safeID(value.CustomerID) && safeID(value.CounterpartyID)
+}
+
+func normalizedOfferDecline(value OfferDeclineRequest) OfferDeclineRequest {
+	return OfferDeclineRequest{ReasonCode: strings.ToUpper(strings.TrimSpace(value.ReasonCode)), Note: strings.TrimSpace(value.Note)}
+}
+
+func validOfferDecline(value OfferDeclineRequest) bool {
+	value = normalizedOfferDecline(value)
+	if len(value.Note) > 240 || (value.ReasonCode == "OTHER" && len(value.Note) < 3) {
+		return false
+	}
+	switch value.ReasonCode {
+	case "TOO_FAR", "VEHICLE_OR_CAPACITY", "ENDING_DUTY", "SAFETY_CONCERN", "OTHER":
+		return true
+	default:
+		return false
+	}
 }
 
 func validTerritory(value Territory) bool {

@@ -2,6 +2,10 @@
   "operations": [
     {
       "method": "POST",
+      "path": "/internal/v1/customer-guest-sessions"
+    },
+    {
+      "method": "POST",
       "path": "/v1/auth/exchange"
     },
     {
@@ -51,6 +55,17 @@
       "provider_token",
       "device_id",
       "country"
+    ],
+    "GuestSessionRequest": [
+      "country"
+    ],
+    "GuestSession": [
+      "session_id",
+      "tenant_id",
+      "country",
+      "access_token",
+      "access_expires_at",
+      "token_type"
     ],
     "TokenPair": [
       "access_token",
@@ -113,6 +128,7 @@
   "enum_values": {
     "Role": [
       "CUSTOMER",
+      "GUEST",
       "VENDOR",
       "RIDER",
       "ADMIN"

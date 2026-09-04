@@ -12,6 +12,8 @@ var (
 	ErrConflict            = errors.New("emergency assignment conflict")
 	ErrIdempotencyConflict = errors.New("emergency idempotency conflict")
 	ErrMFARequired         = errors.New("emergency action requires mfa")
+	ErrRiderOffDuty        = errors.New("rider emergency requires active duty")
+	ErrDutyUnavailable     = errors.New("rider duty status is unavailable")
 )
 
 type Actor struct {

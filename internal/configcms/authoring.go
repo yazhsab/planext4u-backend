@@ -100,7 +100,7 @@ func validPageDraft(draft PageDraft) bool {
 func validatePages(pages []Page) error {
 	snapshot := Snapshot{
 		TenantID: "validation", Country: "IN", Revision: 1, PublishedAt: time.Unix(1, 0).UTC(),
-		MinimumVersions: map[Platform]string{PlatformAndroid: "1.0.0", PlatformIOS: "1.0.0"}, LatestVersions: map[Platform]string{PlatformAndroid: "1.0.0", PlatformIOS: "1.0.0"},
+		MinimumVersions: map[Platform]string{PlatformAndroid: "1.0.0", PlatformIOS: "1.0.0", PlatformWeb: "1.0.0"}, LatestVersions: map[Platform]string{PlatformAndroid: "1.0.0", PlatformIOS: "1.0.0", PlatformWeb: "1.0.0"},
 		SupportedLocales: []string{"en"}, DefaultLocale: "en", Flags: map[string]bool{}, Pages: pages,
 	}
 	return validateSnapshot(snapshot)

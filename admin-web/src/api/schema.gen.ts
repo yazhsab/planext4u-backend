@@ -196,6 +196,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/api/v1/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["adminListReports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/reports/{report_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["adminGetReportDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/reports/{report_id}/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["adminCreateReportExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/report-exports/{export_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["adminGetReportExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/report-exports/{export_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["adminDownloadReportExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/support/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["adminListSupportTickets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/api/v1/operations/audit": {
         parameters: {
             query?: never;
@@ -265,6 +361,37 @@ export interface components {
         };
         /** @enum {string} */
         AdminOperationDomain: "CATALOG" | "ORDER" | "PAYMENT" | "WALLET" | "CAMPAIGN" | "CMS" | "SUPPORT" | "REPORTING" | "SUPPLY" | "RESTAURANT" | "DISPATCH" | "SETTLEMENT" | "FRANCHISE" | "CONTENT" | "POLICY" | "COUNTRY" | "EMERGENCY" | "INTELLIGENCE";
+        /** @enum {string} */
+        Role: "CUSTOMER" | "VENDOR" | "RIDER";
+        /** @enum {string} */
+        TicketStatus: "OPEN" | "WAITING_FOR_SUPPORT" | "WAITING_FOR_REQUESTER" | "RESOLVED" | "CLOSED";
+        /** @enum {string} */
+        TicketCategory: "ACCOUNT" | "ORDER" | "PAYMENT" | "VENDOR_OPERATIONS" | "RIDER_OPERATIONS" | "OTHER";
+        /** @enum {string} */
+        TicketPriority: "LOW" | "NORMAL" | "HIGH" | "URGENT";
+        AdminTicket: {
+            /** Format: uuid */
+            id: string;
+            owner_role: components["schemas"]["Role"];
+            /** @description Opaque identity reference; no contact PII is exposed. */
+            owner_reference: string;
+            category: components["schemas"]["TicketCategory"];
+            subject: string;
+            related_reference?: string;
+            priority: components["schemas"]["TicketPriority"];
+            status: components["schemas"]["TicketStatus"];
+            message_count: number;
+            /** Format: date-time */
+            last_message_at: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        AdminTicketPage: {
+            items: components["schemas"]["AdminTicket"][];
+            next_cursor?: string;
+        };
         GovernanceMetric: {
             id: string;
             title: string;
@@ -286,6 +413,80 @@ export interface components {
             privacy_mode: "aggregate_and_masked";
             /** Format: date-time */
             generated_at: string;
+        };
+        ReportSummary: {
+            id: string;
+            title: string;
+            domain: string;
+            metric: string;
+            /** Format: int64 */
+            value: number;
+            unit: string;
+            /** Format: date-time */
+            freshness: string;
+            masked: boolean;
+            /** @enum {string} */
+            export_policy: "MFA_AND_AUDIT_REQUIRED";
+        };
+        ReportPage: {
+            items: components["schemas"]["ReportSummary"][];
+            next_cursor?: string;
+        };
+        ReportRow: {
+            label: string;
+            dimensions: {
+                [key: string]: string;
+            };
+            /** Format: int64 */
+            value: number;
+            unit: string;
+        };
+        ReportLineage: {
+            source_projection: string;
+            aggregation: string;
+            /** Format: date-time */
+            freshness: string;
+            /** Format: date-time */
+            generated_at: string;
+        };
+        ReportDetail: {
+            report: components["schemas"]["ReportSummary"];
+            country: string;
+            /** Format: date-time */
+            from?: string;
+            /** Format: date-time */
+            to?: string;
+            items: components["schemas"]["ReportRow"][];
+            next_cursor?: string;
+            lineage: components["schemas"]["ReportLineage"];
+        };
+        CreateReportExportRequest: {
+            /** @enum {string} */
+            format: "CSV";
+            reason: string;
+            /** Format: date-time */
+            from?: string;
+            /** Format: date-time */
+            to?: string;
+        };
+        ReportExport: {
+            id: string;
+            report_id: string;
+            /** @enum {string} */
+            format: "CSV";
+            /** @enum {string} */
+            status: "PROCESSING" | "READY" | "FAILED";
+            /** @enum {string} */
+            content_type?: "text/csv; charset=utf-8";
+            file_name?: string;
+            checksum_sha256?: string;
+            /** Format: int64 */
+            size_bytes?: number;
+            download_url?: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: date-time */
+            created_at: string;
         };
         /** @enum {string} */
         AdminOperationRisk: "STANDARD" | "HIGH";
@@ -455,6 +656,8 @@ export interface components {
             enabled: boolean;
             blocks: components["schemas"]["PageBlock"][];
         };
+        /** @enum {string} */
+        Locale: "en" | "ta" | "hi" | "te" | "kn" | "ml" | "mr" | "bn" | "gu";
         ConsentPolicy: {
             purpose: string;
             policy_version: string;
@@ -478,14 +681,15 @@ export interface components {
             minimum_versions: {
                 ANDROID: string;
                 IOS: string;
+                WEB: string;
             };
             latest_versions: {
                 ANDROID: string;
                 IOS: string;
+                WEB: string;
             };
-            supported_locales: ("en" | "ta")[];
-            /** @enum {string} */
-            default_locale: "en" | "ta";
+            supported_locales: components["schemas"]["Locale"][];
+            default_locale: components["schemas"]["Locale"];
             consent_policies: components["schemas"]["ConsentPolicy"][];
             flags: {
                 [key: string]: boolean;
@@ -507,6 +711,8 @@ export interface components {
     };
     parameters: {
         CSRFToken: string;
+        ReportID: string;
+        ExportID: string;
     };
     requestBodies: never;
     headers: never;
@@ -895,6 +1101,180 @@ export interface operations {
             };
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
+        };
+    };
+    adminListReports: {
+        parameters: {
+            query?: {
+                domain?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Country-scoped published report catalogue */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    adminGetReportDetail: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                report_id: components["parameters"]["ReportID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Filtered aggregate report detail with data lineage */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDetail"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    adminCreateReportExport: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": components["parameters"]["CSRFToken"];
+            };
+            path: {
+                report_id: components["parameters"]["ReportID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateReportExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Audited export materialization accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportExport"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    adminGetReportExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: components["parameters"]["ExportID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Country-scoped export status and signed artifact metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportExport"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+        };
+    };
+    adminDownloadReportExport: {
+        parameters: {
+            query: {
+                token: string;
+            };
+            header?: never;
+            path: {
+                export_id: components["parameters"]["ExportID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed, short-lived CSV report artifact */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+        };
+    };
+    adminListSupportTickets: {
+        parameters: {
+            query?: {
+                owner_role?: components["schemas"]["Role"];
+                status?: components["schemas"]["TicketStatus"];
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Country-scoped support administration queue */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminTicketPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
         };
     };
     adminListOperationAudit: {

@@ -16,7 +16,7 @@ on:
         type: choice
         required: true
         default: all
-        options: [all, platform, gateway, identity, configuration, catalog, transaction, admin, audit, media, messaging, notification]
+        options: [all, platform, gateway, identity, configuration, catalog, transaction, admin, customer-web, audit, media, messaging, notification]
 
 permissions:
   contents: read
@@ -46,7 +46,7 @@ jobs:
           set -euo pipefail
           target_environment="${REQUESTED_ENVIRONMENT:-staging}"
           requested_service="${REQUESTED_SERVICE:-all}"
-          services='["platform","gateway","identity","configuration","catalog","transaction","admin","audit","media","messaging","notification"]'
+          services='["platform","gateway","identity","configuration","catalog","transaction","admin","customer-web","audit","media","messaging","notification"]'
           migration_service=platform
           if [[ "$EVENT_NAME" == "workflow_dispatch" && "$requested_service" != "all" ]]; then
             services="$(jq -cn --arg service "$requested_service" '[ $service ]')"

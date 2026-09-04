@@ -12,7 +12,7 @@ import (
 )
 
 type Application interface {
-	SearchHomes(Actor, HomeSearch) ([]HomeListing, error)
+	SearchHomes(Actor, HomeSearch) (HomePage, error)
 	Home(Actor, string) (HomeListing, error)
 	CreateHome(Actor, string, HomeListingRequest) (HomeListing, bool, error)
 	PublishHome(Actor, string, string, int64) (HomeListing, bool, error)
@@ -20,7 +20,7 @@ type Application interface {
 	Inquire(Actor, string, string, string) (Inquiry, bool, error)
 	ScheduleVisit(Actor, string, string, time.Time) (Visit, bool, error)
 	UpgradeHome(Actor, string, string, string) (HomeListing, bool, error)
-	BrowseClassifieds(Actor, string, string, string) ([]ClassifiedListing, error)
+	BrowseClassifieds(Actor, ClassifiedSearch) (ClassifiedPage, error)
 	Classified(Actor, string) (ClassifiedListing, error)
 	CreateClassified(Actor, string, ClassifiedRequest) (ClassifiedListing, bool, error)
 	RevealContact(Actor, string, ContactRequest) (ClassifiedListing, error)
@@ -64,16 +64,17 @@ func (handler *Handler) homes(writer http.ResponseWriter, request *http.Request)
 	}
 	minPrice, minErr := parseInt(request.URL.Query().Get("min_price"))
 	maxPrice, maxErr := parseInt(request.URL.Query().Get("max_price"))
-	if minErr != nil || maxErr != nil {
+	limit, limitErr := parseLimit(request.URL.Query().Get("limit"))
+	if minErr != nil || maxErr != nil || limitErr != nil {
 		handler.problem(writer, request, ErrInvalidRequest)
 		return
 	}
-	values, err := handler.service.SearchHomes(actor, HomeSearch{Query: request.URL.Query().Get("q"), Locality: request.URL.Query().Get("locality"), PropertyType: request.URL.Query().Get("property_type"), Purpose: request.URL.Query().Get("purpose"), MinPrice: minPrice, MaxPrice: maxPrice})
+	values, err := handler.service.SearchHomes(actor, HomeSearch{Query: request.URL.Query().Get("q"), Locality: request.URL.Query().Get("locality"), PropertyType: request.URL.Query().Get("property_type"), Purpose: request.URL.Query().Get("purpose"), MinPrice: minPrice, MaxPrice: maxPrice, Cursor: request.URL.Query().Get("cursor"), Limit: limit})
 	if err != nil {
 		handler.problem(writer, request, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, map[string]any{"items": values})
+	writeJSON(writer, http.StatusOK, publicHomes(values))
 }
 
 func (handler *Handler) createHome(writer http.ResponseWriter, request *http.Request) {
@@ -103,7 +104,7 @@ func (handler *Handler) home(writer http.ResponseWriter, request *http.Request) 
 		handler.problem(writer, request, err)
 		return
 	}
-	writeResource(writer, http.StatusOK, value.Revision, value, false)
+	writeResource(writer, http.StatusOK, value.Revision, publicHome(value), false)
 }
 
 func (handler *Handler) publishHome(writer http.ResponseWriter, request *http.Request) {
@@ -194,12 +195,17 @@ func (handler *Handler) classifieds(writer http.ResponseWriter, request *http.Re
 	if !ok {
 		return
 	}
-	values, err := handler.service.BrowseClassifieds(actor, request.URL.Query().Get("q"), request.URL.Query().Get("category"), request.URL.Query().Get("locality"))
+	limit, limitErr := parseLimit(request.URL.Query().Get("limit"))
+	if limitErr != nil {
+		handler.problem(writer, request, ErrInvalidRequest)
+		return
+	}
+	values, err := handler.service.BrowseClassifieds(actor, ClassifiedSearch{Query: request.URL.Query().Get("q"), Category: request.URL.Query().Get("category"), Locality: request.URL.Query().Get("locality"), Cursor: request.URL.Query().Get("cursor"), Limit: limit})
 	if err != nil {
 		handler.problem(writer, request, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, map[string]any{"items": values})
+	writeJSON(writer, http.StatusOK, publicClassifieds(values))
 }
 
 func (handler *Handler) createClassified(writer http.ResponseWriter, request *http.Request) {
@@ -229,7 +235,7 @@ func (handler *Handler) classified(writer http.ResponseWriter, request *http.Req
 		handler.problem(writer, request, err)
 		return
 	}
-	writeResource(writer, http.StatusOK, value.Revision, value, false)
+	writeResource(writer, http.StatusOK, value.Revision, publicClassified(value), false)
 }
 
 func (handler *Handler) classifiedContact(writer http.ResponseWriter, request *http.Request) {
@@ -246,7 +252,7 @@ func (handler *Handler) classifiedContact(writer http.ResponseWriter, request *h
 		handler.problem(writer, request, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, value)
+	writeJSON(writer, http.StatusOK, ClassifiedContactDisclosure{ListingID: value.ID, Contact: value.ContactRevealed})
 }
 
 func (handler *Handler) classifiedRepost(writer http.ResponseWriter, request *http.Request) {
@@ -276,7 +282,7 @@ func (handler *Handler) classifiedReport(writer http.ResponseWriter, request *ht
 		handler.problem(writer, request, err)
 		return
 	}
-	writeResource(writer, http.StatusAccepted, value.Revision, value, replay)
+	writeResource(writer, http.StatusAccepted, value.Revision, publicClassified(value), replay)
 }
 
 func (handler *Handler) classifiedUpgrade(writer http.ResponseWriter, request *http.Request) {
@@ -365,6 +371,16 @@ func parseInt(value string) (int64, error) {
 		return 0, nil
 	}
 	return strconv.ParseInt(value, 10, 64)
+}
+func parseLimit(value string) (int, error) {
+	if strings.TrimSpace(value) == "" {
+		return defaultListingPageSize, nil
+	}
+	limit, err := strconv.Atoi(value)
+	if err != nil || limit < 1 || limit > maximumListingPageSize {
+		return 0, ErrInvalidRequest
+	}
+	return limit, nil
 }
 func writeResource(writer http.ResponseWriter, status int, revision int64, value any, replay bool) {
 	writer.Header().Set("ETag", fmt.Sprintf(`"%d"`, revision))

@@ -26,6 +26,7 @@ type Role string
 
 const (
 	RoleCustomer Role = "CUSTOMER"
+	RoleGuest    Role = "GUEST"
 	RoleVendor   Role = "VENDOR"
 	RoleRider    Role = "RIDER"
 	RoleAdmin    Role = "ADMIN"
@@ -140,6 +141,17 @@ type Authentication struct {
 	Session    SessionView `json:"session"`
 }
 
+// GuestSession is deliberately access-token only. A guest cannot be refreshed
+// or resolved through the customer identity/session repository.
+type GuestSession struct {
+	SessionID       string    `json:"session_id"`
+	TenantID        string    `json:"tenant_id"`
+	Country         string    `json:"country"`
+	AccessToken     string    `json:"access_token"`
+	AccessExpiresAt time.Time `json:"access_expires_at"`
+	TokenType       string    `json:"token_type"`
+}
+
 type ExchangeInput struct {
 	Provider      string
 	ProviderToken string
@@ -149,8 +161,8 @@ type ExchangeInput struct {
 
 type ProfileUpdate struct {
 	DisplayName string
-	Email       string
-	Phone       string
+	Email       *string
+	Phone       *string
 	Locale      string
 	TimeZone    string
 	Version     int64

@@ -126,6 +126,16 @@ func TestBEP4012GatewayFoodRiderChatDeliveryAndPayout(t *testing.T) {
 	assertVerticalResponse(t, riderApproved, http.StatusOK, `"status":"APPROVED"`)
 	duty := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/rider/duty/start", `{"zone_id":"600001"}`, rider, map[string]string{"Idempotency-Key": "e2e-rider-duty-start-01"})
 	assertVerticalResponse(t, duty, http.StatusCreated, `"status":"ACTIVE"`)
+	emergencyIncident := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/rider/emergency-incidents", `{"category":"SAFETY","description":"Rider requested urgent assistance while on duty","priority":"CRITICAL","location_consent":true,"location":{"latitude":13.0827,"longitude":80.2707,"accuracy_m":8}}`, rider, map[string]string{"Idempotency-Key": "e2e-rider-emergency-0001"})
+	assertVerticalResponse(t, emergencyIncident, http.StatusCreated, `"status":"OPEN"`, `"location_consent":true`)
+	var incident struct {
+		ID string `json:"id"`
+	}
+	decodeVerticalJSON(t, emergencyIncident, &incident)
+	incidentStatus := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/rider/emergency-incidents/"+incident.ID, "", rider)
+	assertVerticalResponse(t, incidentStatus, http.StatusOK, `"id":"`+incident.ID+`"`, `"status":"OPEN"`)
+	revokedLocation := verticalRequest(t, client, http.MethodPost, server.URL+"/v1/rider/emergency-incidents/"+incident.ID+"/location", `{"consent":false,"location":{"latitude":0,"longitude":0,"accuracy_m":0}}`, rider)
+	assertVerticalResponse(t, revokedLocation, http.StatusOK, `"location_consent":false`)
 
 	seedBody, _ := json.Marshal(map[string]any{"id": "delivery-food-e2e-001", "order_id": foodOrder.ID, "order_type": "FOOD", "region_id": "region-chennai", "territory_id": "territory-chennai-core", "zone_id": "600001", "pickup": map[string]any{"label": "Saravana Kitchen", "address_token": "address-token-pickup-e2e", "point": map[string]float64{"latitude": 13.0827, "longitude": 80.2707}}, "dropoff": map[string]any{"label": "Customer", "address_token": "address-token-dropoff-e2e", "point": map[string]float64{"latitude": 13.0674, "longitude": 80.2376}}, "distance_meters": 4800, "earning": map[string]any{"amount_minor": 8000, "currency": "INR"}, "delivery_otp": "135790", "customer_id": "customer-synthetic-001", "counterparty_id": "restaurant-owner-001"})
 	taskCreated := verticalRequest(t, client, http.MethodPost, server.URL+"/v1/dispatch/tasks", string(seedBody), admin)
@@ -138,6 +148,19 @@ func TestBEP4012GatewayFoodRiderChatDeliveryAndPayout(t *testing.T) {
 	offered := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/dispatch/tasks/"+task.ID+"/offer", "", admin, mutationHeaders("e2e-dispatch-offer-task1", task.Revision))
 	assertVerticalResponse(t, offered, http.StatusOK, `"status":"OFFERED"`)
 	decodeVerticalJSON(t, offered, &task)
+	declineSeedBody, _ := json.Marshal(map[string]any{"id": "delivery-food-decline-e2e", "order_id": "food-order-decline-e2e", "order_type": "FOOD", "region_id": "region-chennai", "territory_id": "territory-chennai-core", "zone_id": "600001", "pickup": map[string]any{"label": "Saravana Kitchen", "address_token": "address-token-pickup-decline", "point": map[string]float64{"latitude": 13.0827, "longitude": 80.2707}}, "dropoff": map[string]any{"label": "Customer", "address_token": "address-token-dropoff-decline", "point": map[string]float64{"latitude": 13.0674, "longitude": 80.2376}}, "distance_meters": 6200, "earning": map[string]any{"amount_minor": 9000, "currency": "INR"}, "delivery_otp": "246802", "customer_id": "customer-decline-e2e", "counterparty_id": "restaurant-owner-001"})
+	declineTaskCreated := verticalRequest(t, client, http.MethodPost, server.URL+"/v1/dispatch/tasks", string(declineSeedBody), admin)
+	assertVerticalResponse(t, declineTaskCreated, http.StatusCreated, `"status":"READY_FOR_DISPATCH"`)
+	var declineTask struct {
+		ID       string `json:"id"`
+		Revision int64  `json:"revision"`
+	}
+	decodeVerticalJSON(t, declineTaskCreated, &declineTask)
+	declineOffered := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/dispatch/tasks/"+declineTask.ID+"/offer", "", admin, mutationHeaders("e2e-dispatch-decline-offer", declineTask.Revision))
+	assertVerticalResponse(t, declineOffered, http.StatusOK, `"status":"OFFERED"`, `"DECLINE"`)
+	decodeVerticalJSON(t, declineOffered, &declineTask)
+	declined := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/rider/offers/"+declineTask.ID+"/decline", `{"reason_code":"TOO_FAR"}`, rider, mutationHeaders("e2e-rider-decline-offer", declineTask.Revision))
+	assertVerticalResponse(t, declined, http.StatusCreated, `"reason_code":"TOO_FAR"`, `"task_id":"`+declineTask.ID+`"`)
 	offers := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/rider/offers", "", rider)
 	assertVerticalResponse(t, offers, http.StatusOK, `"id":"`+task.ID+`"`)
 	accepted := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/rider/tasks/"+task.ID+"/accept", "", rider, mutationHeaders("e2e-rider-accept-offer1", task.Revision))

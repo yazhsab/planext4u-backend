@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -36,6 +37,7 @@ func TestPostgresMediaLifecycleIsDurableTenantScopedAndVersioned(t *testing.T) {
 		"../../migrations/platform/000001_service_roles.up.sql",
 		"../../migrations/media/000001_media.up.sql",
 		"../../migrations/media/000002_media_lifecycle.up.sql",
+		"../../migrations/media/000003_browser_presentations.up.sql",
 	} {
 		migration, readErr := os.ReadFile(path)
 		if readErr != nil {
@@ -66,6 +68,22 @@ func TestPostgresMediaLifecycleIsDurableTenantScopedAndVersioned(t *testing.T) {
 	stored, err := repository.Get(ctx, tenantID, "owner-postgres", grant.Asset.ID)
 	if err != nil || stored.Country != "IN" || stored.Purpose != PurposeCatalogImage || stored.State != StatePendingUpload {
 		t.Fatalf("stored=%#v err=%v", stored, err)
+	}
+	// Browser presentation columns arrive with migration 000003; the schema is
+	// only ready when they are applied, so assert they persist and round-trip.
+	if stored.AltText != "Fresh milk bottle" || stored.Width != 1200 || stored.Height != 1200 {
+		t.Fatalf("stored presentation alt=%q width=%d height=%d", stored.AltText, stored.Width, stored.Height)
+	}
+	var storedAltText string
+	var storedWidth, storedHeight int
+	if err := pool.QueryRow(ctx, `
+		SELECT alt_text, presentation_width, presentation_height
+		FROM media.assets
+		WHERE tenant_id = $1 AND id = $2`, tenantID, grant.Asset.ID).Scan(&storedAltText, &storedWidth, &storedHeight); err != nil {
+		t.Fatal(err)
+	}
+	if storedAltText != "Fresh milk bottle" || storedWidth != 1200 || storedHeight != 1200 {
+		t.Fatalf("presentation columns alt=%q width=%d height=%d", storedAltText, storedWidth, storedHeight)
 	}
 	if _, err := repository.Get(ctx, "23bf7434-3643-49df-9928-c9169011f69d", "owner-postgres", grant.Asset.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("cross-tenant read error=%v", err)
@@ -104,6 +122,10 @@ func TestPostgresMediaLifecycleIsDurableTenantScopedAndVersioned(t *testing.T) {
 }
 
 type postgresTestSigner struct{}
+
+func (postgresTestSigner) Present(_ context.Context, key, _ string, expiresAt time.Time) (string, error) {
+	return "https://media.example.test/" + key + "?expires=" + strconv.FormatInt(expiresAt.Unix(), 10), nil
+}
 
 func (postgresTestSigner) PresignPut(_ context.Context, key string, metadata ObjectMetadata, _ time.Time) (string, map[string]string, error) {
 	return "https://uploads.example.test/" + key, map[string]string{

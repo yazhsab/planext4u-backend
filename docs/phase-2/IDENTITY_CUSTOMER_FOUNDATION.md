@@ -35,7 +35,8 @@ cross-subject, cross-tenant, cross-country or cross-owner mismatch.
 
 ## Profile, role and consent policy
 
-Profiles support English and Tamil locale foundations, validated IANA time
+Profiles support the approved English, Tamil, Hindi, Telugu, Kannada,
+Malayalam, Marathi, Bengali and Gujarati locale codes, validated IANA time
 zones, Unicode display names and strong ETag/`If-Match` version checks. Session
 responses expose only an HMAC-derived device reference. Raw provider subjects,
 provider tokens and device identifiers never enter API responses or general

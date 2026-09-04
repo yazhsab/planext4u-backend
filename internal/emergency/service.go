@@ -41,7 +41,7 @@ func NewService(config Configuration, clock func() time.Time) (*Service, error) 
 
 func (service *Service) Create(actor Actor, key string, input CreateRequest) (Request, bool, error) {
 	category, priority, description := strings.ToUpper(strings.TrimSpace(input.Category)), strings.ToUpper(strings.TrimSpace(input.Priority)), strings.TrimSpace(input.Description)
-	if !customer(actor) || !validKey(key) || !input.LocationConsent || !map[string]bool{"MEDICAL": true, "SAFETY": true, "FIRE": true, "ACCIDENT": true, "OTHER": true}[category] || !map[string]bool{"HIGH": true, "CRITICAL": true}[priority] || len(description) < 5 || len(description) > 2000 || !validLocation(input.Location) {
+	if (!customer(actor) && !hasRole(actor, "RIDER")) || !validKey(key) || !input.LocationConsent || !map[string]bool{"MEDICAL": true, "SAFETY": true, "FIRE": true, "ACCIDENT": true, "OTHER": true}[category] || !map[string]bool{"HIGH": true, "CRITICAL": true}[priority] || len(description) < 5 || len(description) > 2000 || !validLocation(input.Location) {
 		return Request{}, false, ErrInvalidRequest
 	}
 	service.mu.Lock()
@@ -120,10 +120,13 @@ func (service *Service) UpdateLocation(actor Actor, id string, input LocationReq
 	if !validActor(actor) || !safeID(id) {
 		return Request{}, ErrForbidden
 	}
+	if input.Consent && !validLocation(input.Location) {
+		return Request{}, ErrInvalidRequest
+	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	value := service.requests[id]
-	if value == nil || (actor.Subject != value.RequesterID && actor.Subject != value.AssignedResponder) {
+	if value == nil || value.tenantID != actor.TenantID || value.country != actor.Country || (actor.Subject != value.RequesterID && actor.Subject != value.AssignedResponder) {
 		return Request{}, ErrForbidden
 	}
 	value.LocationConsent = input.Consent
@@ -132,9 +135,6 @@ func (service *Service) UpdateLocation(actor Actor, id string, input LocationReq
 	if !input.Consent {
 		value.lastLocation = nil
 		return service.present(actor, *value), nil
-	}
-	if !validLocation(input.Location) {
-		return Request{}, ErrInvalidRequest
 	}
 	location := input.Location
 	location.CapturedAt = service.clock().UTC()

@@ -34,7 +34,7 @@ func TestBootstrapVersionLocaleMaintenanceAndSafeCopies(t *testing.T) {
 		{version: "1.2.0", want: UpdateNone},
 	}
 	for _, test := range tests {
-		result, callErr := service.Bootstrap(context.Background(), "tenant-synthetic", "IN", PlatformAndroid, test.version, "unsupported")
+		result, callErr := service.Bootstrap(context.Background(), "tenant-synthetic", "IN", PlatformAndroid, test.version, "", "unsupported")
 		if callErr != nil {
 			t.Fatal(callErr)
 		}
@@ -43,9 +43,43 @@ func TestBootstrapVersionLocaleMaintenanceAndSafeCopies(t *testing.T) {
 		}
 		result.Flags["customer_home"] = false
 	}
-	result, err := service.Bootstrap(context.Background(), "tenant-synthetic", "IN", PlatformAndroid, "1.2.0", "ta")
-	if err != nil || !result.Flags["customer_home"] || result.Locale != "ta" {
+	result, err := service.Bootstrap(context.Background(), "tenant-synthetic", "IN", PlatformAndroid, "1.2.0", "", "gu")
+	if err != nil || !result.Flags["customer_home"] || result.Locale != "gu" || len(result.SupportedLocales) != 9 {
 		t.Fatalf("snapshot was mutated or locale failed: %#v, %v", result, err)
+	}
+}
+
+func TestWebBootstrapUsesDeploymentIdentityAndReloadSemantics(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)
+	repository, err := NewMemoryRepository(validSnapshot(now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewServiceWithWebDeployment(repository, func() time.Time { return now }, "web-2026.09.02-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	current, err := service.Bootstrap(context.Background(), "tenant-synthetic", "IN", PlatformWeb, "1.2.0", "web-2026.09.02-001", "en")
+	if err != nil || current.Platform != PlatformWeb || current.UpdateGate != UpdateNone || current.UpdateAction != UpdateActionNone ||
+		current.ClientVersion != "1.2.0" || current.ClientDeploymentID != "web-2026.09.02-001" || current.LatestDeploymentID != "web-2026.09.02-001" {
+		t.Fatalf("current web bootstrap=%#v err=%v", current, err)
+	}
+
+	stale, err := service.Bootstrap(context.Background(), "tenant-synthetic", "IN", PlatformWeb, "1.2.0", "web-2026.09.01-009", "en")
+	if err != nil || stale.UpdateGate != UpdateRequired || stale.UpdateAction != UpdateActionReload {
+		t.Fatalf("stale deployment bootstrap=%#v err=%v", stale, err)
+	}
+	oldVersion, err := service.Bootstrap(context.Background(), "tenant-synthetic", "IN", PlatformWeb, "0.9.9", "web-2026.09.02-001", "en")
+	if err != nil || oldVersion.UpdateGate != UpdateRequired || oldVersion.UpdateAction != UpdateActionReload {
+		t.Fatalf("old version bootstrap=%#v err=%v", oldVersion, err)
+	}
+	if _, err := service.Bootstrap(context.Background(), "tenant-synthetic", "IN", PlatformWeb, "1.2.0", "", "en"); !errors.Is(err, ErrInvalidSnapshot) {
+		t.Fatalf("missing deployment identifier error=%v", err)
+	}
+	if _, err := service.Bootstrap(context.Background(), "tenant-synthetic", "IN", PlatformWeb, "1.2.0", "bad deployment", "en"); !errors.Is(err, ErrInvalidSnapshot) {
+		t.Fatalf("unsafe deployment identifier error=%v", err)
 	}
 }
 
@@ -86,6 +120,8 @@ func TestSnapshotValidationFailsClosed(t *testing.T) {
 	tests := []func(*Snapshot){
 		func(value *Snapshot) { value.MinimumVersions[PlatformAndroid] = "2.0.0" },
 		func(value *Snapshot) { value.DefaultLocale = "fr" },
+		func(value *Snapshot) { value.SupportedLocales = append(value.SupportedLocales, "fr") },
+		func(value *Snapshot) { value.SupportedLocales = append(value.SupportedLocales, "en") },
 		func(value *Snapshot) { value.HomeSections = append(value.HomeSections, value.HomeSections[0]) },
 		func(value *Snapshot) {
 			value.MaintenanceWindow = &MaintenanceWindow{StartsAt: now, EndsAt: now, Message: "bad"}
@@ -126,7 +162,7 @@ func TestPublishedPagesAreScopedSortedAndDeepCopied(t *testing.T) {
 	if again.Page.Blocks[0].Content["title"] != "Local first" {
 		t.Fatalf("page content alias leaked: %#v", again.Page.Blocks[0].Content)
 	}
-	bootstrap, _ := service.Bootstrap(context.Background(), snapshot.TenantID, snapshot.Country, PlatformAndroid, "1.2.0", "en")
+	bootstrap, _ := service.Bootstrap(context.Background(), snapshot.TenantID, snapshot.Country, PlatformAndroid, "1.2.0", "", "en")
 	if len(bootstrap.Pages) != 1 || bootstrap.Pages[0].ID != "customer-home" {
 		t.Fatalf("bootstrap pages=%#v", bootstrap.Pages)
 	}
@@ -244,9 +280,9 @@ func TestApprovedCMSWorkspaceOperationCreatesFirstPublishedSnapshot(t *testing.T
 func validSnapshot(now time.Time) Snapshot {
 	return Snapshot{
 		TenantID: "tenant-synthetic", Country: "IN", Revision: 1, PublishedAt: now,
-		MinimumVersions:  map[Platform]string{PlatformAndroid: "1.0.0", PlatformIOS: "1.0.0"},
-		LatestVersions:   map[Platform]string{PlatformAndroid: "1.2.0", PlatformIOS: "1.2.0"},
-		SupportedLocales: []string{"en", "ta"}, DefaultLocale: "en",
+		MinimumVersions:  map[Platform]string{PlatformAndroid: "1.0.0", PlatformIOS: "1.0.0", PlatformWeb: "1.0.0"},
+		LatestVersions:   map[Platform]string{PlatformAndroid: "1.2.0", PlatformIOS: "1.2.0", PlatformWeb: "1.2.0"},
+		SupportedLocales: []string{"en", "ta", "hi", "te", "kn", "ml", "mr", "bn", "gu"}, DefaultLocale: "en",
 		ConsentPolicies: []ConsentPolicy{{Purpose: "ANALYTICS", PolicyVersion: "privacy-2026-01", Required: false}},
 		Flags:           map[string]bool{"customer_home": true, "catalog_search": false},
 		HomeSections: []HomeSection{

@@ -19,6 +19,18 @@ func TestBEP5001SocialHTTPStrictAuthRevisionAndMFA(t *testing.T) {
 	if feed.Code != http.StatusOK || feed.Header().Get("Cache-Control") != "no-store" || !strings.Contains(feed.Body.String(), `"ranking_version":"socio-feed-v1"`) {
 		t.Fatalf("feed status=%d headers=%v body=%s", feed.Code, feed.Header(), feed.Body.String())
 	}
+	profile := socialRequest(t, handler, http.MethodGet, "/v1/social/profile-handles/PUBLIC_USER", "", "customer-synthetic-001", "CUSTOMER", false, "", "")
+	if profile.Code != http.StatusOK || !strings.Contains(profile.Body.String(), `"handle":"public_user"`) {
+		t.Fatalf("handle status=%d body=%s", profile.Code, profile.Body.String())
+	}
+	content := socialRequest(t, handler, http.MethodGet, "/v1/social/profiles/customer-public-001/content?kind=POSTS&limit=1", "", "customer-synthetic-001", "CUSTOMER", false, "", "")
+	if content.Code != http.StatusOK || !strings.Contains(content.Body.String(), `"items"`) {
+		t.Fatalf("content status=%d body=%s", content.Code, content.Body.String())
+	}
+	tooManyComments := socialRequest(t, handler, http.MethodGet, "/v1/social/posts/social-post-public-001/comments?limit=51", "", "customer-synthetic-001", "CUSTOMER", false, "", "")
+	if tooManyComments.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("comments limit status=%d body=%s", tooManyComments.Code, tooManyComments.Body.String())
+	}
 
 	invalid := socialRequest(t, handler, http.MethodPost, "/v1/social/posts", `{"body":"hello","media_asset_ids":[],"unknown":true}`, "customer-synthetic-001", "CUSTOMER", false, "post-http-key-0001", "")
 	if invalid.Code != http.StatusUnprocessableEntity || !strings.Contains(invalid.Body.String(), "SOCIAL_REQUEST_INVALID") {

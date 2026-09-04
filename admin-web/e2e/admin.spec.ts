@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-import { adminSession, auditPage, cmsPageDraftPage, cmsWorkspaceDraft, operationPage } from "../src/test/fixtures";
+import { adminSession, auditPage, cmsPageDraftPage, cmsWorkspaceDraft, governanceView, operationPage, reportDetail, reportExport, reportPage } from "../src/test/fixtures";
 
 test.beforeEach(async ({page}) => {
   await page.route("**/admin/api/v1/**", async (route) => {
@@ -15,7 +15,30 @@ test.beforeEach(async ({page}) => {
       return;
     }
     if (path === "/admin/api/v1/operations") {
-      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify(operationPage)});
+      const body = route.request().method() === "POST"
+        ? {...operationPage.changes[0], id: "change-report-export-001", command: {...operationPage.changes[0]?.command, domain: "REPORTING", action: "EXPORT", target_id: "social-active"}, risk: "STANDARD", status: "EXECUTED"}
+        : operationPage;
+      await route.fulfill({status: route.request().method() === "POST" ? 201 : 200, contentType: "application/json", body: JSON.stringify(body)});
+      return;
+    }
+    if (path === "/admin/api/v1/governance") {
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify(governanceView)});
+      return;
+    }
+    if (path === "/admin/api/v1/reports") {
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify(reportPage)});
+      return;
+    }
+    if (path === "/admin/api/v1/reports/social-active/exports") {
+      await route.fulfill({status: 202, contentType: "application/json", body: JSON.stringify(reportExport)});
+      return;
+    }
+    if (path === "/admin/api/v1/reports/social-active") {
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify(reportDetail)});
+      return;
+    }
+    if (path === `/admin/api/v1/report-exports/${reportExport.id}`) {
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify(reportExport)});
       return;
     }
     if (path === "/admin/api/v1/cms/pages") {
@@ -49,6 +72,22 @@ test("authorized administrator can review controlled operations", async ({page})
   await expect(page.getByRole("heading", {name: "Privileged operations"})).toBeVisible();
   await expect(page.getByText("customer-synthetic-001")).toBeVisible();
   await expect(page.getByText("Pending Approval")).toBeVisible();
+
+  const results = await new AxeBuilder({page}).analyze();
+  expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
+});
+
+test("authorized administrator can review masked reports and request an audited export", async ({page}) => {
+  await page.goto("/reports");
+  await expect(page.getByRole("heading", {name: "Country reports"})).toBeVisible();
+  await expect(page.getByText("Socio active")).toBeVisible();
+  await page.getByRole("button", {name: "Request CSV export for Socio active"}).click();
+  await page.getByLabel("Verified export reason").fill("Quarterly operations reconciliation");
+  await page.getByRole("button", {name: "Submit request"}).click();
+  await expect(page.getByRole("link", {name: "Download CSV"})).toBeVisible();
+  await page.getByRole("link", {name: "Socio active"}).click();
+  await expect(page.getByRole("heading", {name: "Socio active"})).toBeVisible();
+  await expect(page.getByText("governance.report_cards")).toBeVisible();
 
   const results = await new AxeBuilder({page}).analyze();
   expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);

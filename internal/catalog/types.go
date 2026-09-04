@@ -25,11 +25,29 @@ type Variant struct {
 	MaxPerOrder    int    `json:"max_per_order"`
 }
 
+type ResponsiveMediaVariant struct {
+	URL    string `json:"url"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+}
+
+type MediaPresentation struct {
+	AssetID     string                   `json:"asset_id"`
+	URL         string                   `json:"url"`
+	ContentType string                   `json:"content_type"`
+	Width       int                      `json:"width"`
+	Height      int                      `json:"height"`
+	AltText     string                   `json:"alt_text"`
+	Variants    []ResponsiveMediaVariant `json:"variants"`
+	ExpiresAt   *time.Time               `json:"expires_at"`
+}
+
 type Category struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	IconRef  string `json:"icon_ref,omitempty"`
-	Priority int    `json:"priority"`
+	ID       string             `json:"id"`
+	Name     string             `json:"name"`
+	IconRef  string             `json:"icon_ref,omitempty"`
+	Icon     *MediaPresentation `json:"icon,omitempty"`
+	Priority int                `json:"priority"`
 }
 
 type Review struct {
@@ -57,27 +75,28 @@ type AskQuestionInput struct {
 }
 
 type Item struct {
-	ID                  string            `json:"id"`
-	VendorID            string            `json:"vendor_id,omitempty"`
-	CategoryID          string            `json:"category_id"`
-	Name                string            `json:"name"`
-	Summary             string            `json:"summary"`
-	MediaRef            string            `json:"media_ref,omitempty"`
-	MediaRefs           []string          `json:"media_refs,omitempty"`
-	Price               Money             `json:"price"`
-	Available           bool              `json:"available"`
-	SellerName          string            `json:"seller_name,omitempty"`
-	VerifiedLocalSeller bool              `json:"verified_local_seller,omitempty"`
-	Description         string            `json:"description,omitempty"`
-	Specifications      map[string]string `json:"specifications,omitempty"`
-	RatingAverage       float64           `json:"rating_average,omitempty"`
-	ReviewCount         int               `json:"review_count,omitempty"`
-	Variants            []Variant         `json:"variants,omitempty"`
-	DeliveryEstimate    string            `json:"delivery_estimate,omitempty"`
-	Reviews             []Review          `json:"reviews,omitempty"`
-	Questions           []Question        `json:"questions,omitempty"`
-	RelatedItemIDs      []string          `json:"related_item_ids,omitempty"`
-	SearchTerms         []string          `json:"-"`
+	ID                  string              `json:"id"`
+	VendorID            string              `json:"vendor_id,omitempty"`
+	CategoryID          string              `json:"category_id"`
+	Name                string              `json:"name"`
+	Summary             string              `json:"summary"`
+	MediaRef            string              `json:"media_ref,omitempty"`
+	MediaRefs           []string            `json:"media_refs,omitempty"`
+	Media               []MediaPresentation `json:"media,omitempty"`
+	Price               Money               `json:"price"`
+	Available           bool                `json:"available"`
+	SellerName          string              `json:"seller_name,omitempty"`
+	VerifiedLocalSeller bool                `json:"verified_local_seller,omitempty"`
+	Description         string              `json:"description,omitempty"`
+	Specifications      map[string]string   `json:"specifications,omitempty"`
+	RatingAverage       float64             `json:"rating_average,omitempty"`
+	ReviewCount         int                 `json:"review_count,omitempty"`
+	Variants            []Variant           `json:"variants,omitempty"`
+	DeliveryEstimate    string              `json:"delivery_estimate,omitempty"`
+	Reviews             []Review            `json:"reviews,omitempty"`
+	Questions           []Question          `json:"questions,omitempty"`
+	RelatedItemIDs      []string            `json:"related_item_ids,omitempty"`
+	SearchTerms         []string            `json:"-"`
 }
 
 type Page[T any] struct {
@@ -89,13 +108,14 @@ type Page[T any] struct {
 }
 
 type Home struct {
-	Categories       []Category       `json:"categories"`
-	FeaturedItems    []Item           `json:"featured_items"`
-	Recommendations  []Item           `json:"recommendations"`
-	Leaderboard      []SellerLeader   `json:"leaderboard"`
-	HelpShortcuts    []HelpShortcut   `json:"help_shortcuts"`
-	ProjectionStatus ProjectionStatus `json:"projection_status"`
-	GeneratedAt      time.Time        `json:"generated_at"`
+	Categories         []Category                   `json:"categories"`
+	FeaturedItems      []Item                       `json:"featured_items"`
+	Recommendations    []Item                       `json:"recommendations"`
+	Leaderboard        []SellerLeader               `json:"leaderboard"`
+	HelpShortcuts      []HelpShortcut               `json:"help_shortcuts"`
+	ServiceCollections map[string]ServiceCollection `json:"service_collections"`
+	ProjectionStatus   ProjectionStatus             `json:"projection_status"`
+	GeneratedAt        time.Time                    `json:"generated_at"`
 }
 
 type SellerLeader struct {
@@ -109,6 +129,39 @@ type HelpShortcut struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
 	Route string `json:"route"`
+}
+
+type ServiceTrustSummary struct {
+	VerifiedProvider  bool    `json:"verified_provider"`
+	RatingAverage     float64 `json:"rating_average"`
+	CompletedBookings int     `json:"completed_bookings"`
+}
+
+type ServiceCollectionItem struct {
+	ServiceID        string              `json:"service_id"`
+	ProviderID       string              `json:"provider_id"`
+	Title            string              `json:"title"`
+	Summary          string              `json:"summary"`
+	Media            *MediaPresentation  `json:"media"`
+	Price            Money               `json:"price"`
+	PriceDisplay     string              `json:"price_display"`
+	Serviceable      bool                `json:"serviceable"`
+	Trust            ServiceTrustSummary `json:"trust"`
+	NavigationTarget string              `json:"navigation_target"`
+}
+
+type ServiceCollection struct {
+	CollectionID string                  `json:"collection_id"`
+	Title        string                  `json:"title"`
+	Items        []ServiceCollectionItem `json:"items"`
+}
+
+// ServiceCollectionProjection is the internal materialized view populated from
+// published CMS collection IDs and booking-owned offering data. Postal codes
+// are deliberately excluded from the public home response.
+type ServiceCollectionProjection struct {
+	Collection         ServiceCollection
+	ServicePostalCodes map[string][]string
 }
 
 type GeoPoint struct {

@@ -1,5 +1,41 @@
 {
   "components": {
+    "parameters": {
+      "IdempotencyKey": {
+        "in": "header",
+        "name": "Idempotency-Key",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "minLength": 16,
+          "type": "string"
+        }
+      },
+      "IfMatch": {
+        "in": "header",
+        "name": "If-Match",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "RiderID": {
+        "in": "path",
+        "name": "rider_id",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "TaskID": {
+        "in": "path",
+        "name": "task_id",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
     "schemas": {
       "AttendanceEntry": {
         "additionalProperties": false,
@@ -487,6 +523,62 @@
         ],
         "type": "object"
       },
+      "OfferDecline": {
+        "additionalProperties": false,
+        "properties": {
+          "declined_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "note": {
+            "maxLength": 240,
+            "type": "string"
+          },
+          "reason_code": {
+            "$ref": "#/components/schemas/OfferDeclineReasonCode"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "task_revision": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "task_id",
+          "task_revision",
+          "reason_code",
+          "declined_at"
+        ],
+        "type": "object"
+      },
+      "OfferDeclineReasonCode": {
+        "enum": [
+          "TOO_FAR",
+          "VEHICLE_OR_CAPACITY",
+          "ENDING_DUTY",
+          "SAFETY_CONCERN",
+          "OTHER"
+        ],
+        "type": "string"
+      },
+      "OfferDeclineRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "maxLength": 240,
+            "type": "string"
+          },
+          "reason_code": {
+            "$ref": "#/components/schemas/OfferDeclineReasonCode"
+          }
+        },
+        "required": [
+          "reason_code"
+        ],
+        "type": "object"
+      },
       "OfflineResult": {
         "additionalProperties": false,
         "properties": {
@@ -895,6 +987,186 @@
           "region_id"
         ],
         "type": "object"
+      },
+      "OfflineCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "maxLength": 128,
+            "minLength": 16,
+            "type": "string"
+          },
+          "device_sequence": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "LOCATION",
+              "PICKUP"
+            ],
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "revision": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "device_sequence",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "RecoverRiderOfflineCommandsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "commands": {
+            "items": {
+              "$ref": "#/components/schemas/OfflineCommand"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "commands"
+        ],
+        "type": "object"
+      },
+      "RegisterRiderDocumentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "kind": {
+            "pattern": "^[A-Z_]{2,40}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "RegisterRiderRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "bank_reference": {
+            "pattern": "^bankref_[A-Za-z0-9_-]{8,100}$",
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/RegisterRiderDocumentRequest"
+            },
+            "minItems": 2,
+            "type": "array"
+          },
+          "full_name": {
+            "minLength": 3,
+            "type": "string"
+          },
+          "phone_masked": {
+            "pattern": "^\\*{2,8}[0-9]{4}$",
+            "type": "string"
+          },
+          "vehicle_number": {
+            "minLength": 5,
+            "type": "string"
+          },
+          "vehicle_type": {
+            "pattern": "^[A-Z_]{3,24}$",
+            "type": "string"
+          },
+          "zones": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "bank_reference",
+          "documents",
+          "full_name",
+          "phone_masked",
+          "vehicle_number",
+          "vehicle_type",
+          "zones"
+        ],
+        "type": "object"
+      },
+      "ReviewRiderRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "approved": {
+            "type": "boolean"
+          },
+          "reason": {
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "approved",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "StartRiderDutyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "zone_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "zone_id"
+        ],
+        "type": "object"
+      },
+      "UpdateRiderLocationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "accuracy_m": {
+            "exclusiveMinimum": 0,
+            "maximum": 500,
+            "type": "number"
+          },
+          "captured_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "point": {
+            "$ref": "#/components/schemas/Point"
+          },
+          "sequence": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "accuracy_m",
+          "captured_at",
+          "point",
+          "sequence"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -1259,6 +1531,21 @@
     "/v1/rider/applications": {
       "post": {
         "operationId": "registerRider",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRiderRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -1276,6 +1563,27 @@
     "/v1/rider/applications/{rider_id}/review": {
       "post": {
         "operationId": "reviewRider",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RiderID"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewRiderRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1310,6 +1618,14 @@
     "/v1/rider/duty/end": {
       "post": {
         "operationId": "endRiderDuty",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1321,12 +1637,28 @@
             },
             "description": "Duty ended"
           }
-        }
+        },
+        "x-planext4u-bodyless-command": true
       }
     },
     "/v1/rider/duty/start": {
       "post": {
         "operationId": "startRiderDuty",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartRiderDutyRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -1344,6 +1676,21 @@
     "/v1/rider/location": {
       "post": {
         "operationId": "updateRiderLocation",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRiderLocationRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1404,9 +1751,74 @@
         }
       }
     },
+    "/v1/rider/offers/{offer_id}/decline": {
+      "post": {
+        "operationId": "declineRiderOffer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "offer_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 16,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OfferDeclineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferDecline"
+                }
+              }
+            },
+            "description": "Offer declined for this rider"
+          }
+        }
+      }
+    },
     "/v1/rider/offline-recovery": {
       "post": {
         "operationId": "recoverRiderOfflineCommands",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoverRiderOfflineCommandsRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1482,6 +1894,17 @@
     "/v1/rider/tasks/{task_id}/accept": {
       "post": {
         "operationId": "acceptRiderOffer",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TaskID"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1493,12 +1916,34 @@
             },
             "description": "Accepted"
           }
-        }
+        },
+        "x-planext4u-bodyless-command": true
       }
     },
     "/v1/rider/tasks/{task_id}/completion": {
       "post": {
         "operationId": "completeRiderDelivery",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TaskID"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeliveryCompletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1516,6 +1961,17 @@
     "/v1/rider/tasks/{task_id}/pickup": {
       "post": {
         "operationId": "markRiderPickup",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TaskID"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1527,7 +1983,8 @@
             },
             "description": "Picked up"
           }
-        }
+        },
+        "x-planext4u-bodyless-command": true
       }
     },
     "/v1/settlements/ledger": {

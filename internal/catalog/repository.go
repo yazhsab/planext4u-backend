@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ var (
 type Repository interface {
 	Categories(context.Context, string, string) ([]Category, error)
 	Items(context.Context, string, string) ([]Item, error)
+	ServiceCollections(context.Context, string, string, string) ([]ServiceCollection, error)
 	AddQuestion(context.Context, string, string, string, Question) (Question, error)
 }
 
@@ -54,19 +56,24 @@ func (repository *MemoryRepository) AddQuestion(_ context.Context, _, _, itemID 
 }
 
 type MemoryRepository struct {
-	mu         sync.RWMutex
-	categories []Category
-	items      []Item
-	err        error
+	mu                 sync.RWMutex
+	categories         []Category
+	items              []Item
+	serviceCollections []ServiceCollectionProjection
+	err                error
 }
 
 func NewMemoryRepository(categories []Category, items []Item) (*MemoryRepository, error) {
+	return NewMemoryRepositoryWithServiceCollections(categories, items, nil)
+}
+
+func NewMemoryRepositoryWithServiceCollections(categories []Category, items []Item, projections []ServiceCollectionProjection) (*MemoryRepository, error) {
 	if len(categories) == 0 || len(categories) > 1000 || len(items) > 100000 {
 		return nil, ErrInvalidRequest
 	}
 	categoryIDs := map[string]struct{}{}
 	for _, category := range categories {
-		if !safeID(category.ID) || strings.TrimSpace(category.Name) == "" || category.Priority < 0 {
+		if !safeID(category.ID) || strings.TrimSpace(category.Name) == "" || category.Priority < 0 || (category.Icon != nil && !validMediaPresentation(*category.Icon)) {
 			return nil, ErrInvalidRequest
 		}
 		categoryIDs[category.ID] = struct{}{}
@@ -77,11 +84,16 @@ func NewMemoryRepository(categories []Category, items []Item) (*MemoryRepository
 			item.Price.AmountMinor < 0 || len(item.Price.Currency) != 3 || item.RatingAverage < 0 || item.RatingAverage > 5 || item.ReviewCount < 0 {
 			return nil, ErrInvalidRequest
 		}
-		if len(item.MediaRefs) > 20 || len(item.Reviews) > 100 || len(item.Questions) > 100 || len(item.RelatedItemIDs) > 50 || len(item.DeliveryEstimate) > 240 {
+		if len(item.MediaRefs) > 20 || len(item.Media) > 20 || len(item.Reviews) > 100 || len(item.Questions) > 100 || len(item.RelatedItemIDs) > 50 || len(item.DeliveryEstimate) > 240 {
 			return nil, ErrInvalidRequest
 		}
 		for _, value := range item.MediaRefs {
 			if !validMediaReference(value) {
+				return nil, ErrInvalidRequest
+			}
+		}
+		for _, value := range item.Media {
+			if !validMediaPresentation(value) {
 				return nil, ErrInvalidRequest
 			}
 		}
@@ -117,7 +129,28 @@ func NewMemoryRepository(categories []Category, items []Item) (*MemoryRepository
 		}
 		itemIDs[item.ID] = struct{}{}
 	}
-	result := &MemoryRepository{categories: cloneCategories(categories), items: cloneItems(items)}
+	collectionIDs := map[string]struct{}{}
+	for _, projection := range projections {
+		if !validServiceCollection(projection.Collection) {
+			return nil, ErrInvalidRequest
+		}
+		if _, duplicate := collectionIDs[projection.Collection.CollectionID]; duplicate {
+			return nil, ErrInvalidRequest
+		}
+		collectionIDs[projection.Collection.CollectionID] = struct{}{}
+		for _, item := range projection.Collection.Items {
+			postalCodes, found := projection.ServicePostalCodes[item.ServiceID]
+			if !found || len(postalCodes) == 0 || len(postalCodes) > 10000 {
+				return nil, ErrInvalidRequest
+			}
+			for _, postalCode := range postalCodes {
+				if !validPostalCode(postalCode) {
+					return nil, ErrInvalidRequest
+				}
+			}
+		}
+	}
+	result := &MemoryRepository{categories: cloneCategories(categories), items: cloneItems(items), serviceCollections: cloneServiceCollectionProjections(projections)}
 	sort.SliceStable(result.categories, func(i, j int) bool {
 		if result.categories[i].Priority == result.categories[j].Priority {
 			return result.categories[i].ID < result.categories[j].ID
@@ -125,6 +158,23 @@ func NewMemoryRepository(categories []Category, items []Item) (*MemoryRepository
 		return result.categories[i].Priority < result.categories[j].Priority
 	})
 	sort.SliceStable(result.items, func(i, j int) bool { return result.items[i].ID < result.items[j].ID })
+	return result, nil
+}
+
+func (repository *MemoryRepository) ServiceCollections(_ context.Context, _, _, postalCode string) ([]ServiceCollection, error) {
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	if repository.err != nil {
+		return nil, repository.err
+	}
+	result := make([]ServiceCollection, 0, len(repository.serviceCollections))
+	for _, projection := range repository.serviceCollections {
+		collection := cloneServiceCollection(projection.Collection)
+		for index := range collection.Items {
+			collection.Items[index].Serviceable = postalCode != "" && containsString(projection.ServicePostalCodes[collection.Items[index].ServiceID], postalCode)
+		}
+		result = append(result, collection)
+	}
 	return result, nil
 }
 
@@ -152,13 +202,26 @@ func (repository *MemoryRepository) SetError(err error) {
 	repository.mu.Unlock()
 }
 
-func cloneCategories(values []Category) []Category { return append([]Category(nil), values...) }
+func cloneCategories(values []Category) []Category {
+	result := append([]Category(nil), values...)
+	for index := range result {
+		if values[index].Icon != nil {
+			icon := cloneMediaPresentation(*values[index].Icon)
+			result[index].Icon = &icon
+		}
+	}
+	return result
+}
 
 func cloneItems(values []Item) []Item {
 	result := append([]Item(nil), values...)
 	for index := range result {
 		result[index].SearchTerms = append([]string(nil), result[index].SearchTerms...)
 		result[index].MediaRefs = append([]string(nil), result[index].MediaRefs...)
+		result[index].Media = make([]MediaPresentation, len(values[index].Media))
+		for mediaIndex := range values[index].Media {
+			result[index].Media[mediaIndex] = cloneMediaPresentation(values[index].Media[mediaIndex])
+		}
 		result[index].Reviews = append([]Review(nil), result[index].Reviews...)
 		result[index].Questions = append([]Question(nil), result[index].Questions...)
 		for questionIndex := range result[index].Questions {
@@ -183,6 +246,94 @@ func cloneItems(values []Item) []Item {
 		}
 	}
 	return result
+}
+
+func cloneMediaPresentation(value MediaPresentation) MediaPresentation {
+	value.Variants = append([]ResponsiveMediaVariant(nil), value.Variants...)
+	if value.ExpiresAt != nil {
+		expiresAt := *value.ExpiresAt
+		value.ExpiresAt = &expiresAt
+	}
+	return value
+}
+
+func cloneServiceCollection(value ServiceCollection) ServiceCollection {
+	value.Items = append([]ServiceCollectionItem(nil), value.Items...)
+	for index := range value.Items {
+		if value.Items[index].Media != nil {
+			media := cloneMediaPresentation(*value.Items[index].Media)
+			value.Items[index].Media = &media
+		}
+	}
+	return value
+}
+
+func cloneServiceCollectionProjections(values []ServiceCollectionProjection) []ServiceCollectionProjection {
+	result := make([]ServiceCollectionProjection, len(values))
+	for index, value := range values {
+		result[index].Collection = cloneServiceCollection(value.Collection)
+		result[index].ServicePostalCodes = make(map[string][]string, len(value.ServicePostalCodes))
+		for serviceID, postalCodes := range value.ServicePostalCodes {
+			result[index].ServicePostalCodes[serviceID] = append([]string(nil), postalCodes...)
+		}
+	}
+	return result
+}
+
+func validServiceCollection(value ServiceCollection) bool {
+	if !safeID(value.CollectionID) || strings.TrimSpace(value.Title) == "" || len(value.Title) > 120 || len(value.Items) == 0 || len(value.Items) > 24 {
+		return false
+	}
+	serviceIDs := map[string]struct{}{}
+	for _, item := range value.Items {
+		if !safeID(item.ServiceID) || !safeID(item.ProviderID) || strings.TrimSpace(item.Title) == "" || len(item.Title) > 120 || strings.TrimSpace(item.Summary) == "" || len(item.Summary) > 500 ||
+			item.Price.AmountMinor < 0 || len(item.Price.Currency) != 3 || strings.TrimSpace(item.PriceDisplay) == "" || len(item.PriceDisplay) > 80 ||
+			item.Trust.RatingAverage < 0 || item.Trust.RatingAverage > 5 || item.Trust.CompletedBookings < 0 ||
+			item.NavigationTarget != "/app/services/"+item.ServiceID || (item.Media != nil && !validMediaPresentation(*item.Media)) {
+			return false
+		}
+		if _, duplicate := serviceIDs[item.ServiceID]; duplicate {
+			return false
+		}
+		serviceIDs[item.ServiceID] = struct{}{}
+	}
+	return true
+}
+
+func validPostalCode(value string) bool {
+	value = strings.TrimSpace(value)
+	return len(value) >= 3 && len(value) <= 12 && !strings.ContainsAny(value, "\r\n\t ")
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func validMediaPresentation(value MediaPresentation) bool {
+	if !safeID(value.AssetID) || !safeMediaURL(value.URL) || !strings.HasPrefix(value.ContentType, "image/") ||
+		value.Width < 1 || value.Width > 16384 || value.Height < 1 || value.Height > 16384 ||
+		len(strings.TrimSpace(value.AltText)) < 1 || len(value.AltText) > 240 || len(value.Variants) > 10 {
+		return false
+	}
+	for _, variant := range value.Variants {
+		if !safeMediaURL(variant.URL) || variant.Width < 1 || variant.Width > 16384 || variant.Height < 1 || variant.Height > 16384 {
+			return false
+		}
+	}
+	return true
+}
+
+func safeMediaURL(value string) bool {
+	if strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//") && !strings.ContainsAny(value, "\r\n") {
+		return true
+	}
+	parsed, err := url.Parse(value)
+	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil && !strings.ContainsAny(value, "\r\n")
 }
 
 func validMediaReference(value string) bool {

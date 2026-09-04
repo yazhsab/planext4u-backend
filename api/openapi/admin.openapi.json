@@ -223,6 +223,110 @@
         }
       }
     },
+    "/admin/api/v1/reports": {
+      "get": {
+        "operationId": "adminListReports",
+        "x-planext4u-mfa-required": true,
+        "parameters": [
+          {"name": "domain", "in": "query", "schema": {"type": "string", "maxLength": 128}},
+          {"name": "cursor", "in": "query", "schema": {"type": "string", "maxLength": 512}},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 50}}
+        ],
+        "responses": {
+          "200": {"description": "Country-scoped published report catalogue", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReportPage"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/admin/api/v1/reports/{report_id}": {
+      "get": {
+        "operationId": "adminGetReportDetail",
+        "x-planext4u-mfa-required": true,
+        "parameters": [
+          {"$ref": "#/components/parameters/ReportID"},
+          {"name": "from", "in": "query", "schema": {"type": "string", "format": "date-time"}},
+          {"name": "to", "in": "query", "schema": {"type": "string", "format": "date-time"}},
+          {"name": "cursor", "in": "query", "schema": {"type": "string", "maxLength": 512}},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 50}}
+        ],
+        "responses": {
+          "200": {"description": "Filtered aggregate report detail with data lineage", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReportDetail"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/admin/api/v1/reports/{report_id}/exports": {
+      "post": {
+        "operationId": "adminCreateReportExport",
+        "x-planext4u-mfa-required": true,
+        "x-planext4u-fresh-auth-required": true,
+        "x-planext4u-audit-required": true,
+        "parameters": [{"$ref": "#/components/parameters/CSRFToken"}, {"$ref": "#/components/parameters/ReportID"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateReportExportRequest"}}}},
+        "responses": {
+          "202": {"description": "Audited export materialization accepted", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReportExport"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/admin/api/v1/report-exports/{export_id}": {
+      "get": {
+        "operationId": "adminGetReportExport",
+        "x-planext4u-mfa-required": true,
+        "parameters": [{"$ref": "#/components/parameters/ExportID"}],
+        "responses": {
+          "200": {"description": "Country-scoped export status and signed artifact metadata", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReportExport"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "410": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/admin/api/v1/report-exports/{export_id}/download": {
+      "get": {
+        "operationId": "adminDownloadReportExport",
+        "x-planext4u-mfa-required": true,
+        "parameters": [
+          {"$ref": "#/components/parameters/ExportID"},
+          {"name": "token", "in": "query", "required": true, "schema": {"type": "string", "minLength": 32, "maxLength": 256, "x-planext4u-sensitive": true}}
+        ],
+        "responses": {
+          "200": {"description": "Signed, short-lived CSV report artifact", "content": {"text/csv": {"schema": {"type": "string", "format": "binary"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "410": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/admin/api/v1/support/tickets": {
+      "get": {
+        "operationId": "adminListSupportTickets",
+        "parameters": [
+          {"name": "owner_role", "in": "query", "schema": {"$ref": "#/components/schemas/Role"}},
+          {"name": "status", "in": "query", "schema": {"$ref": "#/components/schemas/TicketStatus"}},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100}},
+          {"name": "cursor", "in": "query", "schema": {"type": "string", "maxLength": 512}}
+        ],
+        "responses": {
+          "200": {"description": "Country-scoped support administration queue", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminTicketPage"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/admin/api/v1/operations/audit": {
       "get": {
         "operationId": "adminListOperationAudit",
@@ -249,7 +353,9 @@
         "in": "header",
         "required": true,
         "schema": {"type": "string", "minLength": 32, "maxLength": 256}
-      }
+      },
+      "ReportID": {"name": "report_id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"}},
+      "ExportID": {"name": "export_id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^report-export-[a-f0-9]{32}$"}}
     },
     "responses": {
       "Problem": {
@@ -321,6 +427,35 @@
         "type": "string",
         "enum": ["CATALOG", "ORDER", "PAYMENT", "WALLET", "CAMPAIGN", "CMS", "SUPPORT", "REPORTING", "SUPPLY", "RESTAURANT", "DISPATCH", "SETTLEMENT", "FRANCHISE", "CONTENT", "POLICY", "COUNTRY", "EMERGENCY", "INTELLIGENCE"]
       },
+      "Role": {"type": "string", "enum": ["CUSTOMER", "VENDOR", "RIDER"]},
+      "TicketStatus": {"type": "string", "enum": ["OPEN", "WAITING_FOR_SUPPORT", "WAITING_FOR_REQUESTER", "RESOLVED", "CLOSED"]},
+      "TicketCategory": {"type": "string", "enum": ["ACCOUNT", "ORDER", "PAYMENT", "VENDOR_OPERATIONS", "RIDER_OPERATIONS", "OTHER"]},
+      "TicketPriority": {"type": "string", "enum": ["LOW", "NORMAL", "HIGH", "URGENT"]},
+      "AdminTicket": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "owner_role", "owner_reference", "category", "subject", "priority", "status", "message_count", "last_message_at", "created_at", "updated_at"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "owner_role": {"$ref": "#/components/schemas/Role"},
+          "owner_reference": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Opaque identity reference; no contact PII is exposed."},
+          "category": {"$ref": "#/components/schemas/TicketCategory"},
+          "subject": {"type": "string", "minLength": 4, "maxLength": 160},
+          "related_reference": {"type": "string", "minLength": 1, "maxLength": 128},
+          "priority": {"$ref": "#/components/schemas/TicketPriority"},
+          "status": {"$ref": "#/components/schemas/TicketStatus"},
+          "message_count": {"type": "integer", "minimum": 1},
+          "last_message_at": {"type": "string", "format": "date-time"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "AdminTicketPage": {
+        "type": "object", "additionalProperties": false, "required": ["items"],
+        "properties": {
+          "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/AdminTicket"}},
+          "next_cursor": {"type": "string", "maxLength": 512}
+        }
+      },
       "GovernanceMetric": {
         "type": "object", "additionalProperties": false,
         "required": ["id", "title", "value", "unit", "freshness", "masked"],
@@ -330,6 +465,48 @@
         "type": "object", "additionalProperties": false,
         "required": ["country", "policy_version", "feature_flags", "metrics", "privacy_mode", "generated_at"],
         "properties": {"country":{"type":"string","pattern":"^[A-Z]{2}$"},"policy_version":{"type":"string"},"feature_flags":{"type":"object","additionalProperties":{"type":"boolean"}},"metrics":{"type":"array","items":{"$ref":"#/components/schemas/GovernanceMetric"}},"privacy_mode":{"type":"string","enum":["aggregate_and_masked"]},"generated_at":{"type":"string","format":"date-time"}}
+      },
+      "ReportSummary": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "title", "domain", "metric", "value", "unit", "freshness", "masked", "export_policy"],
+        "properties": {
+          "id": {"type": "string"}, "title": {"type": "string"}, "domain": {"type": "string"}, "metric": {"type": "string"}, "value": {"type": "integer", "format": "int64"}, "unit": {"type": "string"},
+          "freshness": {"type": "string", "format": "date-time"}, "masked": {"type": "boolean"}, "export_policy": {"type": "string", "enum": ["MFA_AND_AUDIT_REQUIRED"]}
+        }
+      },
+      "ReportPage": {
+        "type": "object", "additionalProperties": false, "required": ["items"],
+        "properties": {"items": {"type": "array", "maxItems": 50, "items": {"$ref": "#/components/schemas/ReportSummary"}}, "next_cursor": {"type": "string", "maxLength": 512}}
+      },
+      "ReportRow": {
+        "type": "object", "additionalProperties": false, "required": ["label", "dimensions", "value", "unit"],
+        "properties": {"label": {"type": "string"}, "dimensions": {"type": "object", "additionalProperties": {"type": "string"}}, "value": {"type": "integer", "format": "int64"}, "unit": {"type": "string"}}
+      },
+      "ReportLineage": {
+        "type": "object", "additionalProperties": false, "required": ["source_projection", "aggregation", "freshness", "generated_at"],
+        "properties": {"source_projection": {"type": "string"}, "aggregation": {"type": "string"}, "freshness": {"type": "string", "format": "date-time"}, "generated_at": {"type": "string", "format": "date-time"}}
+      },
+      "ReportDetail": {
+        "type": "object", "additionalProperties": false, "required": ["report", "country", "items", "lineage"],
+        "properties": {
+          "report": {"$ref": "#/components/schemas/ReportSummary"}, "country": {"type": "string", "pattern": "^[A-Z]{2}$"},
+          "from": {"type": "string", "format": "date-time"}, "to": {"type": "string", "format": "date-time"},
+          "items": {"type": "array", "maxItems": 50, "items": {"$ref": "#/components/schemas/ReportRow"}}, "next_cursor": {"type": "string", "maxLength": 512},
+          "lineage": {"$ref": "#/components/schemas/ReportLineage"}
+        }
+      },
+      "CreateReportExportRequest": {
+        "type": "object", "additionalProperties": false, "required": ["format", "reason"],
+        "properties": {"format": {"type": "string", "enum": ["CSV"]}, "reason": {"type": "string", "minLength": 8, "maxLength": 500}, "from": {"type": "string", "format": "date-time"}, "to": {"type": "string", "format": "date-time"}}
+      },
+      "ReportExport": {
+        "type": "object", "additionalProperties": false, "required": ["id", "report_id", "format", "status", "expires_at", "created_at"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^report-export-[a-f0-9]{32}$"}, "report_id": {"type": "string"}, "format": {"type": "string", "enum": ["CSV"]}, "status": {"type": "string", "enum": ["PROCESSING", "READY", "FAILED"]},
+          "content_type": {"type": "string", "enum": ["text/csv; charset=utf-8"]}, "file_name": {"type": "string", "pattern": "^[A-Za-z0-9._:-]+\\.csv$"}, "checksum_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "size_bytes": {"type": "integer", "format": "int64", "minimum": 1}, "download_url": {"type": "string", "pattern": "^/admin/api/v1/report-exports/", "x-planext4u-sensitive": true},
+          "expires_at": {"type": "string", "format": "date-time"}, "created_at": {"type": "string", "format": "date-time"}
+        }
       },
       "AdminOperationRisk": {"type": "string", "enum": ["STANDARD", "HIGH"]},
       "AdminOperationStatus": {"type": "string", "enum": ["PENDING_APPROVAL", "EXECUTED", "REJECTED"]},

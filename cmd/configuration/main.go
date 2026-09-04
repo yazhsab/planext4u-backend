@@ -28,6 +28,7 @@ type runtimeConfig struct {
 	service             platformconfig.Config
 	databaseURLFile     string
 	databaseURL         string
+	webDeploymentID     string
 	cacheTTL            time.Duration
 	databaseMaxConns    int32
 	databaseMinConns    int32
@@ -83,7 +84,7 @@ func run() int {
 		logger.Error("configure snapshot cache", "error", err)
 		return 2
 	}
-	service, err := configcms.NewService(cache, time.Now)
+	service, err := configcms.NewServiceWithWebDeployment(cache, time.Now, runtime.webDeploymentID)
 	if err != nil {
 		logger.Error("configure service", "error", err)
 		return 2
@@ -141,7 +142,11 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 	if err != nil {
 		return runtimeConfig{}, err
 	}
-	result := runtimeConfig{service: base, databaseURLFile: requiredValue(lookup, "DATABASE_URL_FILE"), databaseURL: requiredValue(lookup, "DATABASE_URL"), cacheTTL: time.Minute, databaseMaxConns: 50, databaseMinConns: 5, databaseMaxLifetime: 30 * time.Minute}
+	webDeploymentID := requiredValue(lookup, "WEB_DEPLOYMENT_ID")
+	if webDeploymentID == "" && base.Environment == platformconfig.EnvironmentDevelopment {
+		webDeploymentID = "local-development"
+	}
+	result := runtimeConfig{service: base, databaseURLFile: requiredValue(lookup, "DATABASE_URL_FILE"), databaseURL: requiredValue(lookup, "DATABASE_URL"), webDeploymentID: webDeploymentID, cacheTTL: time.Minute, databaseMaxConns: 50, databaseMinConns: 5, databaseMaxLifetime: 30 * time.Minute}
 	for key, destination := range map[string]*time.Duration{"CACHE_TTL": &result.cacheTTL, "DATABASE_MAX_LIFETIME": &result.databaseMaxLifetime} {
 		if value, ok := lookup(key); ok && strings.TrimSpace(value) != "" {
 			parsed, parseErr := time.ParseDuration(strings.TrimSpace(value))
@@ -160,7 +165,7 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 			*destination = int32(parsed)
 		}
 	}
-	if (result.databaseURLFile == "") == (result.databaseURL == "") || result.cacheTTL < time.Second || result.cacheTTL > time.Hour || result.databaseMaxConns < 1 || result.databaseMaxConns > 500 || result.databaseMinConns < 0 || result.databaseMinConns > result.databaseMaxConns || result.databaseMaxLifetime < time.Minute || result.databaseMaxLifetime > 24*time.Hour {
+	if (result.databaseURLFile == "") == (result.databaseURL == "") || !configcms.ValidDeploymentID(result.webDeploymentID) || result.cacheTTL < time.Second || result.cacheTTL > time.Hour || result.databaseMaxConns < 1 || result.databaseMaxConns > 500 || result.databaseMinConns < 0 || result.databaseMinConns > result.databaseMaxConns || result.databaseMaxLifetime < time.Minute || result.databaseMaxLifetime > 24*time.Hour {
 		return runtimeConfig{}, fmt.Errorf("required configuration service settings are missing or outside their safe range")
 	}
 	return result, nil

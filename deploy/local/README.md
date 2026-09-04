@@ -52,6 +52,7 @@ umask 077
 mkdir -p .local/identity
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out .local/identity/jwt-private.pem
 openssl rand -hex 32 > .local/identity/refresh-hmac.key
+openssl rand -hex 32 > .local/identity/guest-session-hmac.key
 echo 'postgres://planext4u_local:local-only-password@127.0.0.1:54320/planext4u_local?sslmode=disable' > .local/identity/database.url
 make identity-schema-local
 APP_ENV=development HTTP_ADDRESS=:8083 \
@@ -60,7 +61,8 @@ PROVIDER_BASE_URL=http://127.0.0.1:18081 \
 TENANT_ID=c688a212-50fc-4d5c-b370-35a8c1d04f55 ALLOWED_COUNTRIES=IN,GB \
 JWT_ISSUER=http://identity.local JWT_AUDIENCE=planext4u-mobile \
 JWT_KEY_ID=identity-local-01 JWT_PRIVATE_KEY_FILE=.local/identity/jwt-private.pem \
-REFRESH_HMAC_KEY_FILE=.local/identity/refresh-hmac.key make run-identity
+REFRESH_HMAC_KEY_FILE=.local/identity/refresh-hmac.key \
+GUEST_SESSION_HMAC_KEY_FILE=.local/identity/guest-session-hmac.key make run-identity
 ```
 
 The transaction runtime also owns durable commerce, checkout, payment, wallet,
@@ -77,6 +79,22 @@ make local-seed-transaction
 APP_ENV=development DATABASE_URL='postgres://planext4u_transaction_login:local-transaction-only@127.0.0.1:54320/planext4u_local?sslmode=disable' \
 TENANT_ID=afc1e0db-73cf-40b3-9927-33590133da0b SUPPORTED_COUNTRIES=IN \
 BOOKING_OTP_KEY_FILE=.local/transaction/booking-otp.key EMERGENCY_DATA_KEY_FILE=.local/transaction/emergency-data.key LOCAL_VERTICALS_CONTACT_KEY_FILE=.local/transaction/local-contact.key make run-transaction
+```
+
+The customer web process is the only browser-facing platform boundary. It
+stores encrypted platform credentials, issues the opaque `__Host-p4u_customer`
+cookie and proxies `/web/*` plus `/platform-api/*`. Reuse the identity guest
+HMAC key and create a separate 32-byte BFF encryption key:
+
+```bash
+mkdir -p .local/customer-web
+openssl rand -base64 32 > .local/customer-web/token.key
+APP_ENV=development HTTP_ADDRESS=:8091 \
+DATABASE_URL='postgres://planext4u_customer_web_login:local-customer-web-only@127.0.0.1:54320/planext4u_local?sslmode=disable' \
+CUSTOMER_WEB_ALLOWED_ORIGINS=http://localhost:8080 \
+IDENTITY_BASE_URL=http://127.0.0.1:8083 PLATFORM_GATEWAY_URL=http://127.0.0.1:8082 \
+GUEST_SESSION_HMAC_KEY_FILE=.local/identity/guest-session-hmac.key \
+CUSTOMER_WEB_TOKEN_KEY_FILE=.local/customer-web/token.key make run-customer-web
 ```
 
 `make test-identity-integration` applies and removes only the `identity` schema

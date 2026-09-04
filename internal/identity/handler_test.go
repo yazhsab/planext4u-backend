@@ -68,6 +68,7 @@ func TestHandlerProfileConsentSessionsAndTrustedContext(t *testing.T) {
 	}
 	first := fixture.exchange(t, "provider-http-profile", "device-http-profile-1")
 	second := fixture.exchange(t, "provider-http-profile", "device-http-profile-2")
+	fixture.setProfileContacts(first.IdentityID, "customer@example.test", "+919876543210")
 	headers := trustedHeaders(first)
 	headers.Set("X-Planext4u-Roles", "ADMIN")
 	headers.Set(identityCorrelationHeader, "corr-identity-http-001")
@@ -92,8 +93,11 @@ func TestHandlerProfileConsentSessionsAndTrustedContext(t *testing.T) {
 
 	updateHeaders := headers.Clone()
 	updateHeaders.Set("If-Match", `"1"`)
-	updated := identityRequest(handler, http.MethodPatch, "/v1/me", `{"display_name":"தமிழ் வாடிக்கையாளர்","locale":"ta","time_zone":"Asia/Kolkata"}`, updateHeaders)
-	if updated.Code != http.StatusOK || updated.Header().Get("ETag") != `"2"` {
+	updated := identityRequest(handler, http.MethodPatch, "/v1/me", `{"display_name":"हिंदी ग्राहक","locale":"hi","time_zone":"Asia/Kolkata"}`, updateHeaders)
+	if updated.Code != http.StatusOK || updated.Header().Get("ETag") != `"2"` ||
+		!strings.Contains(updated.Body.String(), `"locale":"hi"`) ||
+		!strings.Contains(updated.Body.String(), `"email":"customer@example.test"`) ||
+		!strings.Contains(updated.Body.String(), `"phone":"+919876543210"`) {
 		t.Fatalf("profile update = %d %s headers=%v", updated.Code, updated.Body.String(), updated.Header())
 	}
 	stale := identityRequest(handler, http.MethodPatch, "/v1/me", `{"display_name":"Stale","locale":"en","time_zone":"Asia/Kolkata"}`, updateHeaders)

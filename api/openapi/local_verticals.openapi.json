@@ -27,9 +27,284 @@
           "maxLength": 128,
           "type": "string"
         }
+      },
+      "Cursor": {
+        "in": "query",
+        "name": "cursor",
+        "required": false,
+        "schema": {
+          "maxLength": 512,
+          "type": "string"
+        }
+      },
+      "Limit": {
+        "in": "query",
+        "name": "limit",
+        "required": false,
+        "schema": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "Query": {
+        "in": "query",
+        "name": "q",
+        "required": false,
+        "schema": {
+          "maxLength": 200,
+          "type": "string"
+        }
+      },
+      "Locality": {
+        "in": "query",
+        "name": "locality",
+        "required": false,
+        "schema": {
+          "maxLength": 200,
+          "type": "string"
+        }
+      },
+      "Category": {
+        "in": "query",
+        "name": "category",
+        "required": false,
+        "schema": {
+          "maxLength": 100,
+          "type": "string"
+        }
+      },
+      "PropertyType": {
+        "in": "query",
+        "name": "property_type",
+        "required": false,
+        "schema": {
+          "enum": ["APARTMENT", "HOUSE", "VILLA", "LAND", "COMMERCIAL"],
+          "type": "string"
+        }
+      },
+      "Purpose": {
+        "in": "query",
+        "name": "purpose",
+        "required": false,
+        "schema": {
+          "enum": ["SALE", "RENT"],
+          "type": "string"
+        }
+      },
+      "MinPrice": {
+        "in": "query",
+        "name": "min_price",
+        "required": false,
+        "schema": {
+          "format": "int64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "MaxPrice": {
+        "in": "query",
+        "name": "max_price",
+        "required": false,
+        "schema": {
+          "format": "int64",
+          "minimum": 0,
+          "type": "integer"
+        }
       }
     },
     "schemas": {
+      "ClassifiedContactDisclosure": {
+        "additionalProperties": false,
+        "properties": {
+          "contact": {
+            "minLength": 8,
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "listing_id": {
+            "type": "string"
+          }
+        },
+        "required": ["listing_id", "contact"],
+        "type": "object"
+      },
+      "ClassifiedListingPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PublicClassifiedListing"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "next_cursor": {
+            "maxLength": 512,
+            "type": "string"
+          }
+        },
+        "required": ["items"],
+        "type": "object"
+      },
+      "CreateClassifiedListingRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {"minLength": 2, "maxLength": 100, "type": "string"},
+          "contact": {"minLength": 8, "maxLength": 64, "type": "string", "x-planext4u-sensitive": true},
+          "description": {"minLength": 8, "maxLength": 5000, "type": "string"},
+          "locality": {"minLength": 2, "maxLength": 200, "type": "string"},
+          "media_asset_ids": {
+            "items": {"maxLength": 128, "type": "string", "x-planext4u-sensitive": true},
+            "maxItems": 10,
+            "type": "array"
+          },
+          "price": {"$ref": "#/components/schemas/Money"},
+          "title": {"minLength": 4, "maxLength": 240, "type": "string"},
+          "whatsapp_enabled": {"type": "boolean"}
+        },
+        "required": ["category", "title", "description", "price", "locality", "media_asset_ids", "contact", "whatsapp_enabled"],
+        "type": "object"
+      },
+      "CreateHomeInquiryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {"minLength": 3, "maxLength": 1000, "type": "string"}
+        },
+        "required": ["message"],
+        "type": "object"
+      },
+      "CreateHomeListingRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "amenities": {"items": {"maxLength": 100, "type": "string"}, "maxItems": 50, "type": "array"},
+          "area_sq_ft": {"maximum": 1000000, "minimum": 100, "type": "integer"},
+          "bedrooms": {"maximum": 50, "minimum": 0, "type": "integer"},
+          "latitude": {"maximum": 90, "minimum": -90, "type": "number", "x-planext4u-sensitive": true},
+          "locality": {"minLength": 2, "maxLength": 200, "type": "string"},
+          "longitude": {"maximum": 180, "minimum": -180, "type": "number", "x-planext4u-sensitive": true},
+          "media_asset_ids": {
+            "items": {"maxLength": 128, "type": "string", "x-planext4u-sensitive": true},
+            "maxItems": 20,
+            "type": "array"
+          },
+          "price": {"$ref": "#/components/schemas/Money"},
+          "property_type": {"enum": ["APARTMENT", "HOUSE", "VILLA", "LAND", "COMMERCIAL"], "type": "string"},
+          "purpose": {"enum": ["SALE", "RENT"], "type": "string"},
+          "title": {"minLength": 4, "maxLength": 240, "type": "string"}
+        },
+        "required": ["title", "property_type", "purpose", "locality", "latitude", "longitude", "area_sq_ft", "bedrooms", "price", "amenities", "media_asset_ids"],
+        "type": "object"
+      },
+      "HomeListingPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {"$ref": "#/components/schemas/PublicHomeListing"},
+            "maxItems": 50,
+            "type": "array"
+          },
+          "next_cursor": {"maxLength": 512, "type": "string"}
+        },
+        "required": ["items"],
+        "type": "object"
+      },
+      "MediaPresentation": {
+        "additionalProperties": false,
+        "properties": {
+          "alt_text": {"minLength": 1, "maxLength": 240, "type": "string"},
+          "content_type": {"enum": ["image/jpeg", "image/png", "image/webp"], "type": "string"},
+          "expires_at": {"anyOf": [{"format": "date-time", "type": "string"}, {"type": "null"}]},
+          "height": {"maximum": 16384, "minimum": 1, "type": "integer"},
+          "url": {"type": "string", "x-planext4u-url-policy": "HTTPS or same-origin path"},
+          "width": {"maximum": 16384, "minimum": 1, "type": "integer"}
+        },
+        "required": ["url", "content_type", "width", "height", "alt_text", "expires_at"],
+        "type": "object"
+      },
+      "PublicClassifiedListing": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {"items": {"type": "string"}, "type": "array"},
+          "category": {"type": "string"},
+          "contact_masked": {"type": "string"},
+          "created_at": {"format": "date-time", "type": "string"},
+          "description": {"type": "string"},
+          "expires_at": {"format": "date-time", "type": "string"},
+          "featured_until": {"anyOf": [{"format": "date-time", "type": "string"}, {"type": "null"}]},
+          "id": {"type": "string"},
+          "locality": {"type": "string"},
+          "media": {"items": {"$ref": "#/components/schemas/MediaPresentation"}, "maxItems": 10, "type": "array"},
+          "plan": {"enum": ["STANDARD", "FEATURED"], "type": "string"},
+          "price": {"$ref": "#/components/schemas/Money"},
+          "revision": {"minimum": 1, "type": "integer"},
+          "title": {"type": "string"},
+          "updated_at": {"format": "date-time", "type": "string"},
+          "whatsapp_enabled": {"type": "boolean"}
+        },
+        "required": ["id", "revision", "category", "title", "description", "price", "locality", "media", "plan", "contact_masked", "whatsapp_enabled", "expires_at", "allowed_actions", "created_at", "updated_at"],
+        "type": "object"
+      },
+      "PublicHomeListing": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {"items": {"type": "string"}, "type": "array"},
+          "amenities": {"items": {"type": "string"}, "type": "array"},
+          "area_sq_ft": {"type": "integer"},
+          "bedrooms": {"type": "integer"},
+          "created_at": {"format": "date-time", "type": "string"},
+          "estimate": {"$ref": "#/components/schemas/HomeEstimate"},
+          "featured_until": {"anyOf": [{"format": "date-time", "type": "string"}, {"type": "null"}]},
+          "id": {"type": "string"},
+          "kyc_verified": {"type": "boolean"},
+          "locality": {"type": "string"},
+          "media": {"items": {"$ref": "#/components/schemas/MediaPresentation"}, "maxItems": 20, "type": "array"},
+          "plan": {"enum": ["STANDARD", "FEATURED", "PREMIUM"], "type": "string"},
+          "price": {"$ref": "#/components/schemas/Money"},
+          "property_type": {"type": "string"},
+          "purpose": {"enum": ["SALE", "RENT"], "type": "string"},
+          "revision": {"minimum": 1, "type": "integer"},
+          "title": {"type": "string"},
+          "updated_at": {"format": "date-time", "type": "string"}
+        },
+        "required": ["id", "revision", "title", "property_type", "purpose", "locality", "area_sq_ft", "bedrooms", "price", "amenities", "media", "kyc_verified", "plan", "estimate", "allowed_actions", "created_at", "updated_at"],
+        "type": "object"
+      },
+      "ReportClassifiedListingRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "details": {"maxLength": 1000, "type": "string"},
+          "reason": {"minLength": 3, "maxLength": 100, "type": "string"}
+        },
+        "required": ["reason", "details"],
+        "type": "object"
+      },
+      "RevealClassifiedContactRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "channel": {"enum": ["PHONE", "WHATSAPP"], "type": "string"},
+          "consent": {"const": true, "type": "boolean"}
+        },
+        "required": ["channel", "consent"],
+        "type": "object"
+      },
+      "ScheduleHomeVisitRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "scheduled_at": {"format": "date-time", "type": "string"}
+        },
+        "required": ["scheduled_at"],
+        "type": "object"
+      },
+      "UpdateListingPlanRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "plan": {"enum": ["STANDARD", "FEATURED", "PREMIUM"], "type": "string"}
+        },
+        "required": ["plan"],
+        "type": "object"
+      },
       "ClassifiedListing": {
         "additionalProperties": false,
         "properties": {
@@ -414,30 +689,24 @@
     "/v1/classifieds/listings": {
       "get": {
         "operationId": "browseClassifieds",
+        "parameters": [
+          {"$ref": "#/components/parameters/Query"},
+          {"$ref": "#/components/parameters/Category"},
+          {"$ref": "#/components/parameters/Locality"},
+          {"$ref": "#/components/parameters/Cursor"},
+          {"$ref": "#/components/parameters/Limit"}
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "items": {
-                      "items": {
-                        "$ref": "#/components/schemas/ClassifiedListing"
-                      },
-                      "type": "array"
-                    }
-                  },
-                  "required": [
-                    "items"
-                  ],
-                  "type": "object"
-                }
+                "schema": {"$ref": "#/components/schemas/ClassifiedListingPage"}
               }
             },
             "description": "Country-scoped published listings"
           }
-        }
+        },
+        "x-planext4u-guest-readable": true
       },
       "post": {
         "operationId": "createClassifiedListing",
@@ -446,6 +715,12 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/CreateClassifiedListingRequest"}}
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -473,13 +748,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ClassifiedListing"
+                  "$ref": "#/components/schemas/PublicClassifiedListing"
                 }
               }
             },
             "description": "Masked-contact listing"
           }
-        }
+        },
+        "x-planext4u-guest-readable": true
       }
     },
     "/v1/classifieds/listings/{listing_id}/contact": {
@@ -490,12 +766,18 @@
             "$ref": "#/components/parameters/ListingID"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/RevealClassifiedContactRequest"}}
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ClassifiedListing"
+                  "$ref": "#/components/schemas/ClassifiedContactDisclosure"
                 }
               }
             },
@@ -516,12 +798,18 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/ReportClassifiedListingRequest"}}
+          },
+          "required": true
+        },
         "responses": {
           "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ClassifiedListing"
+                  "$ref": "#/components/schemas/PublicClassifiedListing"
                 }
               }
             },
@@ -552,7 +840,8 @@
             },
             "description": "Reposted expired listing"
           }
-        }
+        },
+        "x-planext4u-bodyless-command": true
       }
     },
     "/v1/classifieds/listings/{listing_id}/upgrade": {
@@ -566,6 +855,12 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/UpdateListingPlanRequest"}}
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -605,36 +900,34 @@
             "description": "Expired eligible listings"
           }
         },
+        "x-planext4u-bodyless-command": true,
         "x-planext4u-mfa-required": true
       }
     },
     "/v1/homes/listings": {
       "get": {
         "operationId": "searchHomes",
+        "parameters": [
+          {"$ref": "#/components/parameters/Query"},
+          {"$ref": "#/components/parameters/Locality"},
+          {"$ref": "#/components/parameters/PropertyType"},
+          {"$ref": "#/components/parameters/Purpose"},
+          {"$ref": "#/components/parameters/MinPrice"},
+          {"$ref": "#/components/parameters/MaxPrice"},
+          {"$ref": "#/components/parameters/Cursor"},
+          {"$ref": "#/components/parameters/Limit"}
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "items": {
-                      "items": {
-                        "$ref": "#/components/schemas/HomeListing"
-                      },
-                      "type": "array"
-                    }
-                  },
-                  "required": [
-                    "items"
-                  ],
-                  "type": "object"
-                }
+                "schema": {"$ref": "#/components/schemas/HomeListingPage"}
               }
             },
             "description": "Country-scoped active home listings"
           }
-        }
+        },
+        "x-planext4u-guest-readable": true
       },
       "post": {
         "operationId": "createHomeListing",
@@ -643,6 +936,12 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/CreateHomeListingRequest"}}
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -670,13 +969,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HomeListing"
+                  "$ref": "#/components/schemas/PublicHomeListing"
                 }
               }
             },
             "description": "Authorized home listing"
           }
-        }
+        },
+        "x-planext4u-guest-readable": true
       }
     },
     "/v1/homes/listings/{listing_id}/estimate": {
@@ -698,7 +998,8 @@
             },
             "description": "Versioned indicative valuation"
           }
-        }
+        },
+        "x-planext4u-guest-readable": true
       }
     },
     "/v1/homes/listings/{listing_id}/inquiries": {
@@ -712,6 +1013,12 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/CreateHomeInquiryRequest"}}
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -752,6 +1059,7 @@
             "description": "Published listing"
           }
         },
+        "x-planext4u-bodyless-command": true,
         "x-planext4u-kyc-required": true
       }
     },
@@ -766,6 +1074,12 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/UpdateListingPlanRequest"}}
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -791,6 +1105,12 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/ScheduleHomeVisitRequest"}}
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {

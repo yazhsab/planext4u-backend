@@ -189,6 +189,61 @@ func (repository *PostgresRepository) Items(ctx context.Context, tenantID, count
 	return validated.Items(ctx, tenantID, country)
 }
 
+func (repository *PostgresRepository) ServiceCollections(ctx context.Context, tenantID, country, postalCode string) ([]ServiceCollection, error) {
+	if !postgresScope(tenantID, country) || (postalCode != "" && !validPostalCode(postalCode)) {
+		return nil, ErrInvalidRequest
+	}
+	rows, err := repository.pool.Query(ctx, `
+		SELECT id::text, title
+		FROM catalog.items
+		WHERE tenant_id = $1 AND country = $2 AND kind = 'SERVICE_COLLECTION' AND status = 'PUBLISHED'
+		ORDER BY priority, id`, tenantID, country)
+	if err != nil {
+		return nil, fmt.Errorf("load catalog service collections: %w", err)
+	}
+	defer rows.Close()
+	values := []ServiceCollection{}
+	for rows.Next() {
+		var id string
+		var document []byte
+		if err := rows.Scan(&id, &document); err != nil {
+			return nil, fmt.Errorf("scan catalog service collection: %w", err)
+		}
+		var value ServiceCollection
+		var scope struct {
+			DocumentID string `json:"document_id"`
+			Items      []struct {
+				ServiceID          string   `json:"service_id"`
+				ServicePostalCodes []string `json:"service_postal_codes"`
+			} `json:"items"`
+		}
+		// catalog.items.id is the UUID storage identity of the materialized
+		// document, while collection_id is the stable CMS slug named by
+		// SERVICE_RAIL blocks. The document declares its own row identity in
+		// the private document_id scope so drift is still rejected without
+		// forcing the CMS slug to be a UUID.
+		if json.Unmarshal(document, &value) != nil || json.Unmarshal(document, &scope) != nil || scope.DocumentID != id || !validServiceCollection(value) || len(scope.Items) != len(value.Items) {
+			return nil, fmt.Errorf("decode catalog service collection: %w", ErrInvalidRequest)
+		}
+		for index := range value.Items {
+			if scope.Items[index].ServiceID != value.Items[index].ServiceID || len(scope.Items[index].ServicePostalCodes) == 0 {
+				return nil, fmt.Errorf("decode catalog service collection serviceability: %w", ErrInvalidRequest)
+			}
+			for _, candidate := range scope.Items[index].ServicePostalCodes {
+				if !validPostalCode(candidate) {
+					return nil, fmt.Errorf("decode catalog service postal code: %w", ErrInvalidRequest)
+				}
+			}
+			value.Items[index].Serviceable = postalCode != "" && containsString(scope.Items[index].ServicePostalCodes, postalCode)
+		}
+		values = append(values, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate catalog service collections: %w", err)
+	}
+	return values, nil
+}
+
 func (repository *PostgresRepository) AddQuestion(ctx context.Context, tenantID, country, itemID string, question Question) (Question, error) {
 	if !postgresScope(tenantID, country) || !postgresQuestion(itemID, question) {
 		return Question{}, ErrInvalidRequest

@@ -72,8 +72,51 @@ func NewService(repository Repository, providers map[Channel]Provider, clock fun
 	return &Service{repository: repository, providers: providers, clock: clock}, nil
 }
 
+// Preference returns the subject's persisted preference. A first read creates
+// the effective default so clients always receive a version they can use for
+// optimistic concurrency. Transactional and security messages retain their
+// existing opt-out semantics; marketing remains disabled until explicitly
+// enabled and backed by consent.
+func (service *Service) Preference(ctx context.Context, tenantID, subjectID string, purpose Purpose, channel Channel) (Preference, error) {
+	if !uuidPattern.MatchString(tenantID) || !safeID(subjectID) || !validPurpose(purpose) || !validChannel(channel) {
+		return Preference{}, ErrInvalidRequest
+	}
+	preference, exists, err := service.repository.Preference(ctx, tenantID, subjectID, purpose, channel)
+	if err != nil {
+		return Preference{}, err
+	}
+	if exists {
+		return preference, nil
+	}
+	preference = Preference{
+		TenantID:  tenantID,
+		SubjectID: subjectID,
+		Purpose:   purpose,
+		Channel:   channel,
+		Enabled:   purpose != PurposeMarketing,
+		Version:   1,
+		UpdatedAt: service.clock().UTC(),
+	}
+	if err = service.repository.SavePreference(ctx, preference, 0); err == nil {
+		return preference, nil
+	}
+	if !errors.Is(err, ErrConflict) {
+		return Preference{}, err
+	}
+	// A concurrent first read may have initialized the same preference. Return
+	// that winning value rather than leaking an avoidable conflict to callers.
+	preference, exists, err = service.repository.Preference(ctx, tenantID, subjectID, purpose, channel)
+	if err != nil {
+		return Preference{}, err
+	}
+	if !exists {
+		return Preference{}, ErrConflict
+	}
+	return preference, nil
+}
+
 func (service *Service) UpdatePreference(ctx context.Context, tenantID, subjectID string, purpose Purpose, channel Channel, enabled bool, expectedVersion int64) (Preference, error) {
-	if !uuidPattern.MatchString(tenantID) || !safeID(subjectID) || !validPurpose(purpose) || !validChannel(channel) || expectedVersion < 0 {
+	if !uuidPattern.MatchString(tenantID) || !safeID(subjectID) || !validPurpose(purpose) || purpose == PurposeSecurity || !validChannel(channel) || expectedVersion < 0 {
 		return Preference{}, ErrInvalidRequest
 	}
 	preference := Preference{TenantID: tenantID, SubjectID: subjectID, Purpose: purpose, Channel: channel, Enabled: enabled, Version: expectedVersion + 1, UpdatedAt: service.clock().UTC()}

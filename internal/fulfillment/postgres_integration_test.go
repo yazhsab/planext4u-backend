@@ -59,6 +59,7 @@ func TestPostgresFulfillmentConcurrentAcceptanceRestartLifecycleAndControls(t *t
 		"../../migrations/platform/000005_phase4_roles.up.sql",
 		"../../migrations/fulfillment/000001_fulfillment.up.sql",
 		"../../migrations/fulfillment/000002_durable_driver_runtime.up.sql",
+		"../../migrations/fulfillment/000004_offer_declines.up.sql",
 	} {
 		migration, readErr := os.ReadFile(path)
 		if readErr != nil {
@@ -234,6 +235,81 @@ func TestPostgresFulfillmentConcurrentAcceptanceRestartLifecycleAndControls(t *t
 	if tasks != 1 || conversations != 1 || earnings != 1 || claims != 1 || replayRows < 15 {
 		t.Fatalf("rows tasks=%d chats=%d earnings=%d claims=%d replays=%d", tasks, conversations, earnings, claims, replayRows)
 	}
+
+	declineTask, err := restarted.SeedTask(dispatch, postgresFulfillmentTaskSeed("80000000-0000-4000-8000-000000000011", "90000000-0000-4000-8000-000000000011"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	declineTask, _, err = restarted.OfferTask(dispatch, "dispatch-decline-postgres-001", declineTask.ID, declineTask.Revision)
+	if err != nil || !contains(declineTask.AllowedActions, "DECLINE") {
+		t.Fatalf("decline offer=%#v err=%v", declineTask, err)
+	}
+	declineRequest := OfferDeclineRequest{ReasonCode: "TOO_FAR"}
+	declined, replay, err := restarted.DeclineOffer(riders[0], "rider-decline-postgres-0001", declineTask.ID, declineTask.Revision, declineRequest)
+	if err != nil || replay || declined.TaskID != declineTask.ID {
+		t.Fatalf("declined=%#v replay=%t err=%v", declined, replay, err)
+	}
+	afterDeclineRestart, _ := NewPostgresService(pool, func() time.Time { return now })
+	declinedAgain, replay, err := afterDeclineRestart.DeclineOffer(riders[0], "rider-decline-postgres-0001", declineTask.ID, declineTask.Revision, declineRequest)
+	if err != nil || !replay || declinedAgain.TaskID != declined.TaskID {
+		t.Fatalf("durable decline replay=%#v replay=%t err=%v", declinedAgain, replay, err)
+	}
+	if offers, err := afterDeclineRestart.Offers(riders[0]); err != nil || len(offers) != 0 {
+		t.Fatalf("declining rider offers=%#v err=%v", offers, err)
+	}
+	if offers, err := afterDeclineRestart.Offers(riders[1]); err != nil || len(offers) != 1 {
+		t.Fatalf("other rider offers=%#v err=%v", offers, err)
+	}
+	if _, _, err := afterDeclineRestart.AcceptOffer(riders[0], "rider-accept-after-decline-pg", declineTask.ID, declineTask.Revision); !errors.Is(err, ErrConflict) {
+		t.Fatalf("same rider accepted declined offer: %v", err)
+	}
+	acceptedByOther, _, err := afterDeclineRestart.AcceptOffer(riders[1], "rider-other-accept-postgres", declineTask.ID, declineTask.Revision)
+	if err != nil || acceptedByOther.AssignedRiderID != riders[1].Subject {
+		t.Fatalf("other rider acceptance=%#v err=%v", acceptedByOther, err)
+	}
+
+	expiredTask, _ := restarted.SeedTask(dispatch, postgresFulfillmentTaskSeed("80000000-0000-4000-8000-000000000012", "90000000-0000-4000-8000-000000000012"))
+	expiredTask, _, _ = restarted.OfferTask(dispatch, "dispatch-expired-postgres-001", expiredTask.ID, expiredTask.Revision)
+	expiredService, _ := NewPostgresService(pool, func() time.Time { return now.Add(301 * time.Second) })
+	if _, _, err := expiredService.DeclineOffer(riders[0], "rider-expired-postgres-0001", expiredTask.ID, expiredTask.Revision, OfferDeclineRequest{ReasonCode: "ENDING_DUTY"}); !errors.Is(err, ErrOfferExpired) {
+		t.Fatalf("expired postgres decline error=%v", err)
+	}
+
+	raceTask, _ := restarted.SeedTask(dispatch, postgresFulfillmentTaskSeed("80000000-0000-4000-8000-000000000013", "90000000-0000-4000-8000-000000000013"))
+	raceTask, _, _ = restarted.OfferTask(dispatch, "dispatch-race-postgres-0001", raceTask.ID, raceTask.Revision)
+	decisionResults := make(chan error, 2)
+	wait = sync.WaitGroup{}
+	wait.Add(2)
+	go func() {
+		defer wait.Done()
+		_, _, callErr := restarted.AcceptOffer(riders[0], "rider-race-accept-postgres", raceTask.ID, raceTask.Revision)
+		decisionResults <- callErr
+	}()
+	go func() {
+		defer wait.Done()
+		_, _, callErr := restarted.DeclineOffer(riders[0], "rider-race-decline-postgres", raceTask.ID, raceTask.Revision, OfferDeclineRequest{ReasonCode: "VEHICLE_OR_CAPACITY"})
+		decisionResults <- callErr
+	}()
+	wait.Wait()
+	close(decisionResults)
+	decisionSucceeded, decisionConflicted := 0, 0
+	for callErr := range decisionResults {
+		switch {
+		case callErr == nil:
+			decisionSucceeded++
+		case errors.Is(callErr, ErrConflict):
+			decisionConflicted++
+		default:
+			t.Fatalf("postgres decision race error=%v", callErr)
+		}
+	}
+	if decisionSucceeded != 1 || decisionConflicted != 1 {
+		t.Fatalf("postgres decision race succeeded=%d conflicted=%d", decisionSucceeded, decisionConflicted)
+	}
+}
+
+func postgresFulfillmentTaskSeed(id, orderID string) TaskSeed {
+	return TaskSeed{ID: id, OrderID: orderID, OrderType: "PRODUCT", RegionID: "CHENNAI", TerritoryID: fulfillmentTerritory, ZoneID: "600001", Pickup: Stop{Label: "Vendor", AddressToken: "pickup_token", Point: Point{Latitude: 13.0827, Longitude: 80.2707}}, Dropoff: Stop{Label: "Customer", AddressToken: "dropoff_token", Point: Point{Latitude: 13.083, Longitude: 80.271}}, DistanceMeters: 1200, Earning: Money{AmountMinor: 15000, Currency: "INR"}, DeliveryOTP: "123456", CustomerID: fulfillmentCustomer, CounterpartyID: fulfillmentVendor}
 }
 
 func seedPostgresFulfillment(t *testing.T, ctx context.Context, pool *pgxpool.Pool, now time.Time) {

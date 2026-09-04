@@ -47,7 +47,7 @@ func TestBEMigrate001PostgresFromZeroUpgradeIsolationAndRollback(t *testing.T) {
 	if err := runner.Up(ctx, migrations, "all"); err != nil {
 		t.Fatalf("idempotent upgrade: %v", err)
 	}
-	for _, table := range []string{"identity.identities", "configuration.snapshots", "catalog.items", "media.assets", "audit.events", "messaging.outbox", "notification.deliveries"} {
+	for _, table := range []string{"identity.identities", "configuration.snapshots", "customer_web.sessions", "catalog.items", "media.assets", "audit.events", "messaging.outbox", "notification.deliveries", "support.tickets"} {
 		var exists bool
 		if err := connection.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, table).Scan(&exists); err != nil || !exists {
 			t.Fatalf("table %s exists = %v, %v", table, exists, err)

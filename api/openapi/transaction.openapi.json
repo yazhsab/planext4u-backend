@@ -1091,6 +1091,24 @@
         ],
         "type": "object"
       },
+      "RatingRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "comment": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "score": {
+            "maximum": 5,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "score"
+        ],
+        "type": "object"
+      },
       "ReferralProfile": {
         "additionalProperties": false,
         "properties": {
@@ -1239,6 +1257,29 @@
         "required": [
           "quantity",
           "variant_id"
+        ],
+        "type": "object"
+      },
+      "ReturnRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ReturnLine"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "lines",
+          "reason"
         ],
         "type": "object"
       },
@@ -1821,6 +1862,23 @@
             "$ref": "#/components/parameters/IfMatch"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "reason": {
+                    "maxLength": 500,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1880,6 +1938,16 @@
             "$ref": "#/components/parameters/IfMatch"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RatingRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -1908,6 +1976,16 @@
             "$ref": "#/components/parameters/IfMatch"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReturnRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {

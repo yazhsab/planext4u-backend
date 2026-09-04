@@ -155,6 +155,31 @@ type FeedPage struct {
 	RankingVersion string `json:"ranking_version"`
 }
 
+type CommentPage struct {
+	Items      []Comment `json:"items"`
+	NextCursor string    `json:"next_cursor,omitempty"`
+}
+
+type EphemeralPage struct {
+	Items      []EphemeralContent `json:"items"`
+	NextCursor string             `json:"next_cursor,omitempty"`
+}
+
+type ConversationPage struct {
+	Items      []Conversation `json:"items"`
+	NextCursor string         `json:"next_cursor,omitempty"`
+}
+
+type DirectMessagePage struct {
+	Items      []DirectMessage `json:"items"`
+	NextCursor string          `json:"next_cursor,omitempty"`
+}
+
+type ProfileContentPage struct {
+	Items      []any  `json:"items"`
+	NextCursor string `json:"next_cursor,omitempty"`
+}
+
 type Configuration struct {
 	TenantID     string
 	Country      string
@@ -195,6 +220,7 @@ type EphemeralContent struct {
 	Author         Profile   `json:"author"`
 	Kind           string    `json:"kind"`
 	MediaJobID     string    `json:"media_job_id"`
+	MediaAssetID   string    `json:"media_asset_id"`
 	Caption        string    `json:"caption"`
 	Status         string    `json:"status"`
 	Highlighted    bool      `json:"highlighted"`

@@ -64,6 +64,7 @@ func run(root string, check bool) error {
 		"api/openapi/catalog.openapi.json",
 		"api/openapi/commerce.openapi.json",
 		"api/openapi/configuration.openapi.json",
+		"api/openapi/customer_web.openapi.json",
 		"api/openapi/food.openapi.json",
 		"api/openapi/fulfillment.openapi.json",
 		"api/openapi/governance.openapi.json",
@@ -74,6 +75,7 @@ func run(root string, check bool) error {
 		"api/openapi/emergency.openapi.json",
 		"api/openapi/social.openapi.json",
 		"api/openapi/supply.openapi.json",
+		"api/openapi/support.openapi.json",
 		"api/openapi/transaction.openapi.json",
 		"api/asyncapi/common.asyncapi.json",
 	} {

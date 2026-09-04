@@ -122,11 +122,15 @@ func TestPostgresNotificationQueueReceiptsPreferencesAndEncryptedDevices(t *test
 	if err != nil || applied {
 		t.Fatalf("duplicate receipt applied=%v err=%v", applied, err)
 	}
-	preference, err := service.UpdatePreference(ctx, tenantID, "customer-postgres", PurposeMarketing, ChannelPush, true, 0)
-	if err != nil || preference.Version != 1 {
-		t.Fatalf("preference=%#v err=%v", preference, err)
+	preference, err := service.Preference(ctx, tenantID, "customer-postgres", PurposeMarketing, ChannelPush)
+	if err != nil || preference.Version != 1 || preference.Enabled {
+		t.Fatalf("default preference=%#v err=%v", preference, err)
 	}
-	if _, err := service.UpdatePreference(ctx, tenantID, "customer-postgres", PurposeMarketing, ChannelPush, false, 0); err != ErrConflict {
+	preference, err = service.UpdatePreference(ctx, tenantID, "customer-postgres", PurposeMarketing, ChannelPush, true, 1)
+	if err != nil || preference.Version != 2 || !preference.Enabled {
+		t.Fatalf("updated preference=%#v err=%v", preference, err)
+	}
+	if _, err := service.UpdatePreference(ctx, tenantID, "customer-postgres", PurposeMarketing, ChannelPush, false, 1); err != ErrConflict {
 		t.Fatalf("stale preference error=%v", err)
 	}
 	deviceToken := "synthetic-fcm-token-postgres-123456789"

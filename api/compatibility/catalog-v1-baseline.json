@@ -7,10 +7,15 @@
   "required_properties": {
     "Money": ["amount_minor", "currency"], "Category": ["id", "name", "priority"],
     "Variant": ["id", "label", "price", "available", "stock_quantity", "max_per_order"],
+    "ResponsiveMediaVariant": ["url", "width", "height"],
+    "MediaPresentation": ["asset_id", "url", "content_type", "width", "height", "alt_text", "variants", "expires_at"],
+    "ServiceTrustSummary": ["verified_provider", "rating_average", "completed_bookings"],
+    "ServiceCollectionItem": ["service_id", "provider_id", "title", "summary", "media", "price", "price_display", "serviceable", "trust", "navigation_target"],
+    "ServiceCollection": ["collection_id", "title", "items"],
     "Item": ["id", "category_id", "name", "summary", "price", "available"],
     "CategoryPage": ["items", "has_more", "projection_status", "generated_at"],
     "ItemPage": ["items", "has_more", "projection_status", "generated_at"],
-    "Home": ["categories", "featured_items", "projection_status", "generated_at"],
+    "Home": ["categories", "featured_items", "service_collections", "projection_status", "generated_at"],
     "GeoPoint": ["latitude", "longitude", "accuracy_metres", "captured_at", "purpose"],
     "Serviceability": ["serviceable", "reason_code"]
   },

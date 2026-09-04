@@ -42,6 +42,7 @@ type Config struct {
 	PublicPaths      map[string]struct{}
 	AnonymousRoutes  map[string]map[string]struct{}
 	AnonymousLimiter Limiter
+	GuestLimiter     Limiter
 	PrincipalLimiter Limiter
 	Readiness        func(context.Context) error
 }
@@ -62,6 +63,7 @@ func DefaultConfig(upstream *url.URL) Config {
 			"/v1/auth/revoke":   {http.MethodPost: {}},
 		},
 		AnonymousLimiter: UnlimitedLimiter{},
+		GuestLimiter:     UnlimitedLimiter{},
 		PrincipalLimiter: UnlimitedLimiter{},
 	}
 }
@@ -80,7 +82,7 @@ func NewHandler(config Config, verifier Verifier, logger *slog.Logger) (*Handler
 		(config.UpstreamHandler != nil && len(config.UpstreamRoutes) > 0) ||
 		config.RequestTimeout <= 0 || config.RequestTimeout > time.Minute ||
 		config.MaxRequestBytes < 1 || config.MaxRequestBytes > 16<<20 ||
-		config.AnonymousLimiter == nil || config.PrincipalLimiter == nil ||
+		config.AnonymousLimiter == nil || config.GuestLimiter == nil || config.PrincipalLimiter == nil ||
 		verifier == nil || logger == nil {
 		return nil, ErrInvalidConfiguration
 	}
@@ -199,12 +201,44 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		writeProblem(writer, request, http.StatusUnauthorized, code, message, false)
 		return
 	}
-	if !handler.applyLimit(writer, request, handler.config.PrincipalLimiter, principalRateKey(request, principal)) {
-		return
+	if containsString(principal.Roles, "GUEST") {
+		if !handler.applyLimit(writer, request, handler.config.GuestLimiter, principalRateKey(request, principal)) {
+			return
+		}
+		if !guestRequestAllowed(request, principal) {
+			writeProblem(writer, request, http.StatusForbidden, "GUEST_ACCESS_FORBIDDEN", "Guest sessions may only read the public storefront for their selected country.", false)
+			return
+		}
+	} else {
+		if !handler.applyLimit(writer, request, handler.config.PrincipalLimiter, principalRateKey(request, principal)) {
+			return
+		}
 	}
 
 	request = request.WithContext(context.WithValue(request.Context(), principalContextKey, principal))
 	handler.forward(writer, request)
+}
+
+func guestRequestAllowed(request *http.Request, principal Principal) bool {
+	if len(principal.Roles) != 1 || principal.Roles[0] != "GUEST" || request.Method != http.MethodGet {
+		return false
+	}
+	for _, key := range []string{"country", "country_code"} {
+		values, exists := request.URL.Query()[key]
+		if exists && (len(values) != 1 || strings.ToUpper(strings.TrimSpace(values[0])) != principal.Country) {
+			return false
+		}
+	}
+	path := request.URL.Path
+	if path == "/v1/bootstrap" || path == "/v1/home" || path == "/v1/catalog/categories" ||
+		path == "/v1/catalog/items" || path == "/v1/catalog/search" || path == "/v1/catalog/suggestions" ||
+		path == "/v1/serviceability/check" || path == "/v1/geocoding/search" {
+		return true
+	}
+	return routePrefixMatches("/v1/pages", path) ||
+		routePrefixMatches("/v1/catalog/items", path) ||
+		routePrefixMatches("/v1/homes/listings", path) ||
+		routePrefixMatches("/v1/classifieds/listings", path)
 }
 
 func (handler *Handler) isAnonymousRoute(request *http.Request) bool {

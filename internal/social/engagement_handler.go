@@ -76,7 +76,12 @@ func (handler *Handler) ephemeral(writer http.ResponseWriter, request *http.Requ
 		handler.problem(writer, request, err)
 		return
 	}
-	writeSocialJSON(writer, http.StatusOK, map[string]any{"items": values})
+	items, next, err := paginateSocial(values, request.URL.Query().Get("cursor"), socialListLimit(request), "ephemeral")
+	if err != nil {
+		handler.problem(writer, request, err)
+		return
+	}
+	writeSocialJSON(writer, http.StatusOK, EphemeralPage{Items: items, NextCursor: next})
 }
 
 func (handler *Handler) createEphemeral(writer http.ResponseWriter, request *http.Request) {
@@ -170,7 +175,12 @@ func (handler *Handler) conversations(writer http.ResponseWriter, request *http.
 		handler.problem(writer, request, err)
 		return
 	}
-	writeSocialJSON(writer, http.StatusOK, map[string]any{"items": values})
+	items, next, err := paginateSocial(values, request.URL.Query().Get("cursor"), socialListLimit(request), "conversations:"+actor.Subject)
+	if err != nil {
+		handler.problem(writer, request, err)
+		return
+	}
+	writeSocialJSON(writer, http.StatusOK, ConversationPage{Items: items, NextCursor: next})
 }
 
 func (handler *Handler) openConversation(writer http.ResponseWriter, request *http.Request) {
@@ -213,7 +223,12 @@ func (handler *Handler) messages(writer http.ResponseWriter, request *http.Reque
 		handler.problem(writer, request, err)
 		return
 	}
-	writeSocialJSON(writer, http.StatusOK, map[string]any{"items": values})
+	items, next, err := paginateSocial(values, request.URL.Query().Get("cursor"), socialListLimit(request), "messages:"+request.PathValue("conversation_id"))
+	if err != nil {
+		handler.problem(writer, request, err)
+		return
+	}
+	writeSocialJSON(writer, http.StatusOK, DirectMessagePage{Items: items, NextCursor: next})
 }
 
 func (handler *Handler) sendMessage(writer http.ResponseWriter, request *http.Request) {

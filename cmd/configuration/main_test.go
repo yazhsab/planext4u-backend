@@ -10,12 +10,21 @@ import (
 
 func TestConfigurationRuntimeConfigFailsClosed(t *testing.T) {
 	t.Parallel()
-	values := map[string]string{"APP_ENV": "production", "DATABASE_URL_FILE": "/run/secrets/configuration-database-url"}
+	values := map[string]string{"APP_ENV": "production", "DATABASE_URL_FILE": "/run/secrets/configuration-database-url", "WEB_DEPLOYMENT_ID": "web-2026.09.02-001"}
 	lookup := func(key string) (string, bool) { value, ok := values[key]; return value, ok }
 	config, err := loadRuntimeConfig(lookup)
 	if err != nil || config.service.ServiceName != "planext4u-configuration" || config.service.HTTPAddress != ":8084" {
 		t.Fatalf("config=%#v err=%v", config, err)
 	}
+	delete(values, "WEB_DEPLOYMENT_ID")
+	if _, err := loadRuntimeConfig(lookup); err == nil || !strings.Contains(err.Error(), "required configuration") {
+		t.Fatalf("missing web deployment identifier error=%v", err)
+	}
+	values["WEB_DEPLOYMENT_ID"] = "unsafe deployment"
+	if _, err := loadRuntimeConfig(lookup); err == nil {
+		t.Fatal("unsafe web deployment identifier was accepted")
+	}
+	values["WEB_DEPLOYMENT_ID"] = "web-2026.09.02-001"
 	delete(values, "DATABASE_URL_FILE")
 	if _, err := loadRuntimeConfig(lookup); err == nil || !strings.Contains(err.Error(), "required configuration") {
 		t.Fatalf("missing secret error=%v", err)

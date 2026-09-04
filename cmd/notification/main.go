@@ -340,5 +340,9 @@ func notificationRoute(request *http.Request) string {
 	if request.URL.Path == "/v1/notifications/devices/current" {
 		return request.URL.Path
 	}
+	parts := strings.Split(strings.Trim(request.URL.Path, "/"), "/")
+	if len(parts) == 5 && parts[0] == "v1" && parts[1] == "notification" && parts[2] == "preferences" {
+		return "/v1/notification/preferences/{purpose}/{channel}"
+	}
 	return "unmatched"
 }

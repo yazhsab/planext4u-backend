@@ -69,6 +69,13 @@ type HomeSearch struct {
 	Purpose      string
 	MinPrice     int64
 	MaxPrice     int64
+	Cursor       string
+	Limit        int
+}
+
+type HomePage struct {
+	Items      []HomeListing `json:"items"`
+	NextCursor string        `json:"next_cursor,omitempty"`
 }
 
 type HomeListingRequest struct {
@@ -139,6 +146,86 @@ type ClassifiedRequest struct {
 	MediaAssetIDs   []string `json:"media_asset_ids"`
 	Contact         string   `json:"contact"`
 	WhatsAppEnabled bool     `json:"whatsapp_enabled"`
+}
+
+type ClassifiedSearch struct {
+	Query    string
+	Category string
+	Locality string
+	Cursor   string
+	Limit    int
+}
+
+type ClassifiedPage struct {
+	Items      []ClassifiedListing `json:"items"`
+	NextCursor string              `json:"next_cursor,omitempty"`
+}
+
+// MediaPresentation is the only media shape permitted on public local-market
+// projections. Raw media asset identifiers stay confined to owner command
+// responses until the media service has produced a browser-safe presentation.
+type MediaPresentation struct {
+	URL         string     `json:"url"`
+	ContentType string     `json:"content_type"`
+	Width       int        `json:"width"`
+	Height      int        `json:"height"`
+	AltText     string     `json:"alt_text"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+}
+
+type PublicHomeListing struct {
+	ID             string              `json:"id"`
+	Revision       int64               `json:"revision"`
+	Title          string              `json:"title"`
+	PropertyType   string              `json:"property_type"`
+	Purpose        string              `json:"purpose"`
+	Locality       string              `json:"locality"`
+	AreaSqFt       int                 `json:"area_sq_ft"`
+	Bedrooms       int                 `json:"bedrooms"`
+	Price          Money               `json:"price"`
+	Amenities      []string            `json:"amenities"`
+	Media          []MediaPresentation `json:"media"`
+	KYCVerified    bool                `json:"kyc_verified"`
+	Plan           string              `json:"plan"`
+	FeaturedUntil  *time.Time          `json:"featured_until,omitempty"`
+	Estimate       HomeEstimate        `json:"estimate"`
+	AllowedActions []string            `json:"allowed_actions"`
+	CreatedAt      time.Time           `json:"created_at"`
+	UpdatedAt      time.Time           `json:"updated_at"`
+}
+
+type PublicHomePage struct {
+	Items      []PublicHomeListing `json:"items"`
+	NextCursor string              `json:"next_cursor,omitempty"`
+}
+
+type PublicClassifiedListing struct {
+	ID              string              `json:"id"`
+	Revision        int64               `json:"revision"`
+	Category        string              `json:"category"`
+	Title           string              `json:"title"`
+	Description     string              `json:"description"`
+	Price           Money               `json:"price"`
+	Locality        string              `json:"locality"`
+	Media           []MediaPresentation `json:"media"`
+	Plan            string              `json:"plan"`
+	ContactMasked   string              `json:"contact_masked"`
+	WhatsAppEnabled bool                `json:"whatsapp_enabled"`
+	ExpiresAt       time.Time           `json:"expires_at"`
+	FeaturedUntil   *time.Time          `json:"featured_until,omitempty"`
+	AllowedActions  []string            `json:"allowed_actions"`
+	CreatedAt       time.Time           `json:"created_at"`
+	UpdatedAt       time.Time           `json:"updated_at"`
+}
+
+type PublicClassifiedPage struct {
+	Items      []PublicClassifiedListing `json:"items"`
+	NextCursor string                    `json:"next_cursor,omitempty"`
+}
+
+type ClassifiedContactDisclosure struct {
+	ListingID string `json:"listing_id"`
+	Contact   string `json:"contact"`
 }
 
 type ContactRequest struct {

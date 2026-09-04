@@ -44,6 +44,34 @@ func TestBEP4009FulfillmentHTTPChatRejectsRoleForgery(t *testing.T) {
 	}
 }
 
+func TestBE005FulfillmentHTTPDeclinesOfferWithRevisionAndIdempotency(t *testing.T) {
+	service, _ := fulfillmentFixture(t)
+	admin := fulfillmentActor("ops-admin-001", "OPS_ADMIN", true)
+	rider := approvedRiderFixture(t, service, "rider-http-decline")
+	_, _, _ = service.StartDuty(rider, "duty-start-http-decline", "600001")
+	task, _ := service.SeedTask(admin, fulfillmentTaskSeed("delivery-http-decline", "food-order-http-decline"))
+	task, _, _ = service.OfferTask(admin, "dispatch-http-decline", task.ID, task.Revision)
+	handler, _ := NewHandler(service)
+
+	request := fulfillmentRequest(http.MethodPost, "/v1/rider/offers/"+task.ID+"/decline", []byte(`{"reason_code":"TOO_FAR"}`), rider.Subject, "RIDER", false)
+	request.Header.Set("If-Match", `"2"`)
+	request.Header.Set("Idempotency-Key", "rider-http-decline-command")
+	result := httptest.NewRecorder()
+	handler.ServeHTTP(result, request)
+	if result.Code != http.StatusCreated || !bytes.Contains(result.Body.Bytes(), []byte(`"reason_code":"TOO_FAR"`)) {
+		t.Fatalf("decline status=%d body=%s", result.Code, result.Body.String())
+	}
+
+	request = fulfillmentRequest(http.MethodPost, "/v1/rider/offers/"+task.ID+"/decline", []byte(`{"reason_code":"TOO_FAR"}`), rider.Subject, "RIDER", false)
+	request.Header.Set("If-Match", `"2"`)
+	request.Header.Set("Idempotency-Key", "rider-http-decline-command")
+	result = httptest.NewRecorder()
+	handler.ServeHTTP(result, request)
+	if result.Code != http.StatusCreated || result.Header().Get("Idempotency-Replayed") != "true" {
+		t.Fatalf("decline replay status=%d headers=%v body=%s", result.Code, result.Header(), result.Body.String())
+	}
+}
+
 func fulfillmentRequest(method, target string, body []byte, subject, role string, mfa bool) *http.Request {
 	request := httptest.NewRequest(method, target, bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")

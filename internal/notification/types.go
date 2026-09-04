@@ -38,7 +38,7 @@ const (
 )
 
 type Preference struct {
-	TenantID  string    `json:"tenant_id"`
+	TenantID  string    `json:"-"`
 	SubjectID string    `json:"subject_id"`
 	Purpose   Purpose   `json:"purpose"`
 	Channel   Channel   `json:"channel"`

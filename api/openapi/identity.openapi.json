@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Planext4u Identity and Customer API",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "Identity-owned provider exchange, platform session, profile and consent contracts. Security and Privacy review is required for changes."
   },
   "servers": [
@@ -351,6 +351,48 @@
           "422": {"$ref":"#/components/responses/Problem"}
         }
       }
+    },
+    "/internal/v1/customer-guest-sessions": {
+      "post": {
+        "operationId": "identityCreateCustomerGuestSession",
+        "summary": "Issue a short-lived access-only guest storefront session",
+        "description": "Internal BFF-only exchange. The returned JWT has the sole GUEST role, is country scoped, cannot be refreshed and is accepted by the gateway only for GET storefront routes.",
+        "security": [
+          {
+            "guestExchangeSignature": [],
+            "guestExchangeTimestamp": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestSessionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Short-lived guest session issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestSession"
+                }
+              }
+            }
+          },
+          "401": {"$ref":"#/components/responses/Problem"},
+          "422": {"$ref":"#/components/responses/Problem"},
+          "429": {"$ref":"#/components/responses/Problem"},
+          "503": {"$ref":"#/components/responses/Problem"}
+        },
+        "x-planext4u-session-class": "ephemeral-access-only",
+        "x-planext4u-max-ttl-seconds": 900,
+        "x-planext4u-guest-capability": "GET storefront allowlist only"
+      }
     }
   },
   "components": {
@@ -359,6 +401,17 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT"
+      },
+      "guestExchangeSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-P4U-Guest-Signature",
+        "description": "v1 HMAC-SHA256 over version, timestamp and exact request body"
+      },
+      "guestExchangeTimestamp": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-P4U-Guest-Timestamp"
       }
     },
     "parameters": {
@@ -398,10 +451,25 @@
         "maxLength": 128,
         "pattern": "^[!-~]+$"
       },
+      "Locale": {
+        "type": "string",
+        "enum": [
+          "en",
+          "ta",
+          "hi",
+          "te",
+          "kn",
+          "ml",
+          "mr",
+          "bn",
+          "gu"
+        ]
+      },
       "Role": {
         "type": "string",
         "enum": [
           "CUSTOMER",
+          "GUEST",
           "VENDOR",
           "RIDER",
           "ADMIN"
@@ -447,6 +515,30 @@
             "type": "string",
             "pattern": "^[A-Z]{2}$"
           }
+        }
+      },
+      "GuestSessionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["country"],
+        "properties": {
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          }
+        }
+      },
+      "GuestSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["session_id", "tenant_id", "country", "access_token", "access_expires_at", "token_type"],
+        "properties": {
+          "session_id": {"$ref":"#/components/schemas/SafeIdentifier"},
+          "tenant_id": {"$ref":"#/components/schemas/SafeIdentifier"},
+          "country": {"type":"string","pattern":"^[A-Z]{2}$"},
+          "access_token": {"type":"string","minLength":1,"writeOnly":true,"x-planext4u-sensitive":true},
+          "access_expires_at": {"type":"string","format":"date-time"},
+          "token_type": {"type":"string","const":"Bearer"}
         }
       },
       "RefreshTokenRequest": {
@@ -512,12 +604,16 @@
             "type": "string",
             "maxLength": 100
           },
-          "locale": {
+          "email": {
             "type": "string",
-            "enum": [
-              "en",
-              "ta"
-            ]
+            "maxLength": 254
+          },
+          "phone": {
+            "type": "string",
+            "pattern": "^$|^\\+[1-9][0-9]{7,15}$"
+          },
+          "locale": {
+            "$ref": "#/components/schemas/Locale"
           },
           "time_zone": {
             "type": "string",
@@ -548,12 +644,18 @@
             "minLength": 1,
             "maxLength": 100
           },
-          "locale": {
+          "email": {
             "type": "string",
-            "enum": [
-              "en",
-              "ta"
-            ]
+            "maxLength": 254,
+            "description": "Optional profile contact email. Omission preserves the current value; an empty string clears it."
+          },
+          "phone": {
+            "type": "string",
+            "pattern": "^$|^\\+[1-9][0-9]{7,15}$",
+            "description": "Optional E.164 profile contact number. Omission preserves the current value; an empty string clears it."
+          },
+          "locale": {
+            "$ref": "#/components/schemas/Locale"
           },
           "time_zone": {
             "type": "string",

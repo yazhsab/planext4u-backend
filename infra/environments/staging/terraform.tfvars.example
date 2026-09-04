@@ -13,6 +13,7 @@ services = {
   messaging     = { image = "222222222222.dkr.ecr.ap-south-1.amazonaws.com/planext4u/messaging@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8088, cpu = 512, memory = 1024, desired_count = 2, health_path = "/healthz" }
   notification  = { image = "222222222222.dkr.ecr.ap-south-1.amazonaws.com/planext4u/notification@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8089, cpu = 512, memory = 1024, desired_count = 2, health_path = "/healthz" }
   admin         = { image = "222222222222.dkr.ecr.ap-south-1.amazonaws.com/planext4u/admin@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8090, cpu = 1024, memory = 2048, desired_count = 2, health_path = "/healthz" }
+  customer-web  = { image = "222222222222.dkr.ecr.ap-south-1.amazonaws.com/planext4u/customer-web@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8092, cpu = 1024, memory = 2048, desired_count = 2, health_path = "/healthz" }
   audit         = { image = "222222222222.dkr.ecr.ap-south-1.amazonaws.com/planext4u/audit@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", port = 8091, cpu = 512, memory = 1024, desired_count = 2, health_path = "/healthz" }
 }
 
@@ -46,18 +47,21 @@ service_environment = {
     })
   }
   identity    = { TENANT_ID = "00000000-0000-4000-8000-000000000000", ALLOWED_COUNTRIES = "IN", JWT_ISSUER = "https://identity.staging.planext4u.example", JWT_AUDIENCE = "planext4u", JWT_KEY_ID = "replace-with-active-key-id", PROVIDER_BASE_URL = "https://approved-identity-provider.staging.example" }
+  configuration = { WEB_DEPLOYMENT_ID = "replace-with-immutable-web-deployment-id" }
   transaction = { TENANT_ID = "00000000-0000-4000-8000-000000000000", SUPPORTED_COUNTRIES = "IN", RAZORPAY_KEY_ID = "replace-with-key-id", RAZORPAY_BASE_URL = "https://api.razorpay.com", NOTIFICATION_BASE_URL = "http://notification:8089" }
   admin       = { ADMIN_ALLOWED_ORIGINS = "https://admin.staging.planext4u.example", ADMIN_REQUIRE_MFA = "true" }
+  customer-web = { CUSTOMER_WEB_ALLOWED_ORIGINS = "https://staging.planext4u.example", IDENTITY_BASE_URL = "http://identity:8083", PLATFORM_GATEWAY_URL = "http://gateway:8082" }
   media       = { MALWARE_SCANNER_URL = "https://scanner.staging.planext4u.internal" }
   messaging   = { WORKER_ID = "messaging-staging", NATS_STREAM = "P4U_EVENTS", NATS_SUBJECT_PREFIX = "planext4u.events" }
 }
 
 service_secret_arns = {
   gateway      = { JWT_PUBLIC_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:gateway-jwt-public", REDIS_URL_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:gateway-redis" }
-  identity     = { JWT_PRIVATE_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:identity-jwt-private", REFRESH_HMAC_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:identity-refresh-hmac" }
+  identity     = { JWT_PRIVATE_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:identity-jwt-private", REFRESH_HMAC_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:identity-refresh-hmac", GUEST_SESSION_HMAC_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:identity-guest-session-hmac" }
   catalog      = { SERVICEABILITY_ZONES_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:catalog-serviceability-zones" }
   transaction  = { WALLET_PROGRAM_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:wallet-program", BOOKING_OTP_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:booking-otp", EMERGENCY_DATA_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:emergency-data", LOCAL_VERTICALS_CONTACT_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:market-contact", RAZORPAY_API_SECRET_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:razorpay-api", RAZORPAY_WEBHOOK_SECRET_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:razorpay-webhook", ORDER_NOTIFICATION_HMAC_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:order-notification" }
   admin        = { ADMIN_EXCHANGE_SECRET_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:admin-exchange" }
+  customer-web = { GUEST_SESSION_HMAC_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:identity-guest-session-hmac", CUSTOMER_WEB_TOKEN_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:customer-web-token-key" }
   media        = { MALWARE_SCANNER_TOKEN_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:scanner-token" }
   messaging    = { NATS_URL_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:nats-url", NATS_CREDENTIALS_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:nats-creds" }
   notification = { DEVICE_TOKEN_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:device-token-key", FIREBASE_SERVICE_ACCOUNT_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:firebase-service-account", ORDER_NOTIFICATION_HMAC_KEY_FILE_VALUE = "arn:aws:secretsmanager:ap-south-1:222222222222:secret:order-notification" }

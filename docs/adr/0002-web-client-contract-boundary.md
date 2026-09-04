@@ -105,10 +105,11 @@ session and MFA controls.
 
 ## Consequences
 
-- `WEB-001` through `WEB-005` are resolved as architecture decisions, while
-  their additive backend and BFF implementation remains Milestone 2 work.
-- The current in-memory browser token implementation is transitional and must
-  not be considered the final authenticated web session boundary.
+- `WEB-001` through `WEB-005` and the `BE-011` customer BFF implementation are
+  complete. The customer web runtime now uses the same-origin opaque-cookie
+  boundary for guest and authenticated sessions.
+- Platform access and refresh credentials are encrypted in the durable BFF
+  store. Browser code retains only the safe session projection and CSRF token.
 - Complete legacy migration can proceed vertical by vertical against stable
   contracts without waiting for payment, Firebase, TURN, upload or deployment
   credentials.

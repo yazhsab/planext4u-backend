@@ -492,6 +492,19 @@ func main() {
 					if media != nil && media["schema"] != nil {
 						continue
 					}
+					typedNonJSON := false
+					for contentType, contentValue := range content {
+						if contentType == "application/json" {
+							continue
+						}
+						if candidate, ok := contentValue.(map[string]any); ok && candidate["schema"] != nil {
+							typedNonJSON = true
+							break
+						}
+					}
+					if typedNonJSON {
+						continue
+					}
 					if !known {
 						panic(fmt.Sprintf("%s: no response mapping for %s", contractPath, operationID))
 					}

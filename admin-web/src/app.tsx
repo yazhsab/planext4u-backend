@@ -12,6 +12,9 @@ const AuditPage = lazy(() => import("./pages/audit-page").then((module) => ({def
 const CMSPage = lazy(() => import("./pages/cms-page").then((module) => ({default: module.CMSPage})));
 const GovernancePage = lazy(() => import("./pages/governance-page").then((module) => ({default: module.GovernancePage})));
 const OperationsPage = lazy(() => import("./pages/operations-page").then((module) => ({default: module.OperationsPage})));
+const ReportsPage = lazy(() => import("./pages/reports-page").then((module) => ({default: module.ReportsPage})));
+const ReportDetailPage = lazy(() => import("./pages/report-detail-page").then((module) => ({default: module.ReportDetailPage})));
+const SupportPage = lazy(() => import("./pages/support-page").then((module) => ({default: module.SupportPage})));
 
 export function App() {
   const queryClient = useQueryClient();
@@ -41,6 +44,9 @@ export function App() {
           <Route index element={<WorkspacePage />} />
           <Route path="operations" element={<OperationsPage />} />
           <Route path="governance" element={<GovernancePage />} />
+          <Route path="reports" element={<ReportsPage />} />
+          <Route path="reports/:reportId" element={<ReportDetailPage />} />
+          <Route path="support" element={<SupportPage />} />
           <Route path="cms" element={<CMSPage />} />
           <Route path="audit" element={<AuditPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

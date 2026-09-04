@@ -56,6 +56,7 @@ func TestAdminRoutesAreBounded(t *testing.T) {
 		"/admin/api/v1/session":                                "/admin/api/v1/session",
 		"/admin/api/v1/operations/change-1/approve":            "/admin/api/v1/operations/{change_id}/{action}",
 		"/admin/api/v1/operations/change-1/reject":             "/admin/api/v1/operations/{change_id}/{action}",
+		"/admin/api/v1/support/tickets":                        "/admin/api/v1/support/tickets",
 		"/admin/api/v1/cms/pages/customer-home/draft":          "/admin/api/v1/cms/pages/{page_id}/draft",
 		"/admin/api/v1/operations/change-1/arbitrary":          "unmatched",
 		"/admin/api/v1/cms/pages/customer-home/draft/trailing": "unmatched",

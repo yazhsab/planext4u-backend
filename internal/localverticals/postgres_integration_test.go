@@ -88,7 +88,7 @@ func TestPostgresLocalVerticalsHomesClassifiedEncryptionRestartAndIsolation(t *t
 		t.Fatalf("publish=%#v replay=%t err=%v", home, replay, err)
 	}
 	homes, err := restarted.SearchHomes(buyer, HomeSearch{Query: "villa", Locality: "Chennai"})
-	if err != nil || len(homes) != 1 {
+	if err != nil || len(homes.Items) != 1 {
 		t.Fatalf("homes=%#v err=%v", homes, err)
 	}
 	inquiry, replay, err := restarted.Inquire(buyer, "home-inquiry-postgres-0001", home.ID, "Please share ownership details")

@@ -1,11 +1,34 @@
 {
   "categories": [
-    {"id": "daily-needs", "name": "Daily needs", "icon_ref": "media-category-daily", "priority": 10},
+    {"id": "daily-needs", "name": "Daily needs", "icon_ref": "media-category-daily", "icon": {"asset_id": "media-category-daily", "url": "https://media.synthetic.example/categories/daily.webp", "content_type": "image/webp", "width": 256, "height": 256, "alt_text": "Daily needs", "variants": [], "expires_at": null}, "priority": 10},
     {"id": "home-services", "name": "Home services", "icon_ref": "media-category-services", "priority": 20}
   ],
   "featured_items": [
-    {"id": "item-milk", "category_id": "daily-needs", "name": "Fresh milk", "summary": "One litre", "media_ref": "media-item-milk", "price": {"amount_minor": 6500, "currency": "INR"}, "available": true}
+    {"id": "item-milk", "category_id": "daily-needs", "name": "Fresh milk", "summary": "One litre", "media_ref": "media-item-milk", "media": [{"asset_id": "media-item-milk", "url": "https://media.synthetic.example/items/milk.webp", "content_type": "image/webp", "width": 1200, "height": 1200, "alt_text": "Fresh milk bottle", "variants": [{"url": "https://media.synthetic.example/items/milk-600.webp", "width": 600, "height": 600}], "expires_at": null}], "price": {"amount_minor": 6500, "currency": "INR"}, "available": true}
   ],
+  "recommendations": [],
+  "leaderboard": [],
+  "help_shortcuts": [],
+  "service_collections": {
+    "popular-services": {
+      "collection_id": "popular-services",
+      "title": "Popular services",
+      "items": [
+        {
+          "service_id": "service-tv-repair",
+          "provider_id": "provider-tv-synthetic",
+          "title": "TV repair",
+          "summary": "Verified local technician",
+          "media": {"asset_id": "media-service-tv", "url": "https://media.synthetic.example/services/tv-repair.webp", "content_type": "image/webp", "width": 1200, "height": 900, "alt_text": "Technician repairing a television", "variants": [], "expires_at": null},
+          "price": {"amount_minor": 49900, "currency": "INR"},
+          "price_display": "From ₹499.00",
+          "serviceable": true,
+          "trust": {"verified_provider": true, "rating_average": 4.8, "completed_bookings": 241},
+          "navigation_target": "/app/services/service-tv-repair"
+        }
+      ]
+    }
+  },
   "projection_status": "FRESH",
   "generated_at": "2026-08-27T10:00:00Z"
 }

@@ -6,20 +6,22 @@
     "/v1/notification/preferences/{purpose}/{channel}": {
       "get": {
         "operationId": "notificationGetPreference",
+        "description": "Returns the subject-scoped preference. The first read persists the effective default: marketing disabled, transactional and security enabled.",
         "parameters": [
           {"$ref": "#/components/parameters/Purpose"},
           {"$ref": "#/components/parameters/Channel"}
         ],
-        "responses": {"200": {"description": "Current preference", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Preference"}}}}, "403": {"$ref": "#/components/responses/Problem"}}
+        "responses": {"200": {"description": "Current preference", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Preference"}}}}, "403": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
       },
       "put": {
         "operationId": "notificationPutPreference",
+        "description": "Updates a configurable transactional or marketing preference using optimistic concurrency. Security preferences are mandatory and cannot be changed.",
         "parameters": [
           {"$ref": "#/components/parameters/Purpose"},
           {"$ref": "#/components/parameters/Channel"}
         ],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["enabled", "expected_version"], "properties": {"enabled": {"type": "boolean"}, "expected_version": {"type": "integer", "format": "int64", "minimum": 0}}}}}},
-        "responses": {"200": {"description": "Updated preference", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Preference"}}}}, "409": {"$ref": "#/components/responses/Problem"}}
+        "responses": {"200": {"description": "Updated preference", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Preference"}}}}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
       }
     },
     "/v1/notifications": {

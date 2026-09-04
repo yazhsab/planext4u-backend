@@ -33,6 +33,9 @@ type Asset struct {
 	UploadExpiresAt time.Time  `json:"upload_expires_at"`
 	ReadyAt         *time.Time `json:"ready_at,omitempty"`
 	RejectedCode    string     `json:"rejected_code,omitempty"`
+	AltText         string     `json:"alt_text,omitempty"`
+	Width           int        `json:"width,omitempty"`
+	Height          int        `json:"height,omitempty"`
 	Version         int64      `json:"version"`
 
 	TenantID  string `json:"-"`
@@ -46,6 +49,9 @@ type PresignRequest struct {
 	ContentType string  `json:"content_type"`
 	SizeBytes   int64   `json:"size_bytes"`
 	SHA256      string  `json:"sha256"`
+	AltText     string  `json:"alt_text,omitempty"`
+	Width       int     `json:"width,omitempty"`
+	Height      int     `json:"height,omitempty"`
 }
 
 type UploadGrant struct {
@@ -64,4 +70,30 @@ type ObjectMetadata struct {
 type ScanResult struct {
 	Clean      bool   `json:"clean"`
 	ReasonCode string `json:"reason_code"`
+}
+
+type ResponsiveVariant struct {
+	URL    string `json:"url"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+}
+
+type Presentation struct {
+	AssetID     string              `json:"asset_id"`
+	URL         string              `json:"url"`
+	ContentType string              `json:"content_type"`
+	Width       int                 `json:"width"`
+	Height      int                 `json:"height"`
+	AltText     string              `json:"alt_text"`
+	Variants    []ResponsiveVariant `json:"variants"`
+	ExpiresAt   *time.Time          `json:"expires_at"`
+}
+
+type PresentationRequest struct {
+	AssetIDs []string `json:"asset_ids"`
+}
+
+type PresentationResponse struct {
+	Items               []Presentation `json:"items"`
+	UnavailableAssetIDs []string       `json:"unavailable_asset_ids"`
 }

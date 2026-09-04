@@ -25,8 +25,7 @@ func NewHandler(service *Service) (http.Handler, error) {
 	}
 	handler := &Handler{service: service}
 	mux := http.NewServeMux()
-	mux.HandleFunc("PUT /v1/notifications/devices/current", handler.register)
-	mux.HandleFunc("DELETE /v1/notifications/devices/current", handler.unregister)
+	handler.registerRoutes(mux)
 	return mux, nil
 }
 
@@ -40,10 +39,59 @@ func NewHandlerWithInternalOrderNotifications(service *Service, secret []byte, t
 	}
 	handler := &Handler{service: service, internalSecret: append([]byte(nil), secret...), orderNotifier: notifier}
 	mux := http.NewServeMux()
-	mux.HandleFunc("PUT /v1/notifications/devices/current", handler.register)
-	mux.HandleFunc("DELETE /v1/notifications/devices/current", handler.unregister)
+	handler.registerRoutes(mux)
 	mux.HandleFunc("POST /internal/v1/order-notifications", handler.orderNotification)
 	return mux, nil
+}
+
+func (handler *Handler) registerRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/notification/preferences/{purpose}/{channel}", handler.preference)
+	mux.HandleFunc("PUT /v1/notification/preferences/{purpose}/{channel}", handler.updatePreference)
+	mux.HandleFunc("PUT /v1/notifications/devices/current", handler.register)
+	mux.HandleFunc("DELETE /v1/notifications/devices/current", handler.unregister)
+}
+
+func (handler *Handler) preference(writer http.ResponseWriter, request *http.Request) {
+	tenant, subject, ok := notificationActorScope(writer, request, "PREFERENCE_ACCESS_DENIED", "These notification preferences are not available.")
+	if !ok {
+		return
+	}
+	value, err := handler.service.Preference(request.Context(), tenant, subject, Purpose(request.PathValue("purpose")), Channel(request.PathValue("channel")))
+	if errors.Is(err, ErrInvalidRequest) {
+		writeNotificationProblem(writer, http.StatusUnprocessableEntity, "PREFERENCE_INVALID", "The notification preference is invalid.")
+		return
+	}
+	if err != nil {
+		writeNotificationProblem(writer, http.StatusServiceUnavailable, "PREFERENCE_UNAVAILABLE", "Notification preferences are temporarily unavailable.")
+		return
+	}
+	writeNotificationJSON(writer, http.StatusOK, value)
+}
+
+func (handler *Handler) updatePreference(writer http.ResponseWriter, request *http.Request) {
+	tenant, subject, ok := notificationActorScope(writer, request, "PREFERENCE_ACCESS_DENIED", "These notification preferences are not available.")
+	if !ok {
+		return
+	}
+	var input struct {
+		Enabled         *bool  `json:"enabled"`
+		ExpectedVersion *int64 `json:"expected_version"`
+	}
+	if !decodeNotificationJSON(request, &input) || input.Enabled == nil || input.ExpectedVersion == nil {
+		writeNotificationProblem(writer, http.StatusUnprocessableEntity, "PREFERENCE_INVALID", "The notification preference update is invalid.")
+		return
+	}
+	value, err := handler.service.UpdatePreference(request.Context(), tenant, subject, Purpose(request.PathValue("purpose")), Channel(request.PathValue("channel")), *input.Enabled, *input.ExpectedVersion)
+	switch {
+	case errors.Is(err, ErrConflict):
+		writeNotificationProblem(writer, http.StatusConflict, "PREFERENCE_VERSION_CONFLICT", "Refresh notification preferences before trying again.")
+	case errors.Is(err, ErrInvalidRequest):
+		writeNotificationProblem(writer, http.StatusUnprocessableEntity, "PREFERENCE_INVALID", "The notification preference update is invalid.")
+	case err != nil:
+		writeNotificationProblem(writer, http.StatusServiceUnavailable, "PREFERENCE_UNAVAILABLE", "Notification preferences are temporarily unavailable.")
+	default:
+		writeNotificationJSON(writer, http.StatusOK, value)
+	}
 }
 
 func (handler *Handler) orderNotification(writer http.ResponseWriter, request *http.Request) {
@@ -89,8 +137,12 @@ func (handler *Handler) register(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	value, err := handler.service.RegisterDevice(request.Context(), tenant, country, subject, device, input.Platform, input.Locale, input.Token)
-	if err != nil {
+	if errors.Is(err, ErrInvalidRequest) {
 		writeNotificationProblem(writer, http.StatusUnprocessableEntity, "DEVICE_REGISTRATION_INVALID", "Check notification permission and try again.")
+		return
+	}
+	if err != nil {
+		writeNotificationProblem(writer, http.StatusServiceUnavailable, "DEVICE_REGISTRATION_UNAVAILABLE", "Device registration is temporarily unavailable.")
 		return
 	}
 	writeNotificationJSON(writer, http.StatusOK, value)
@@ -102,22 +154,48 @@ func (handler *Handler) unregister(writer http.ResponseWriter, request *http.Req
 		return
 	}
 	_, err := handler.service.UnregisterDevice(request.Context(), tenant, subject, device)
-	if err != nil && !errors.Is(err, ErrNotFound) {
+	if errors.Is(err, ErrInvalidRequest) {
 		writeNotificationProblem(writer, http.StatusUnprocessableEntity, "DEVICE_UNREGISTER_INVALID", "The device could not be unregistered.")
+		return
+	}
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		writeNotificationProblem(writer, http.StatusServiceUnavailable, "DEVICE_UNREGISTER_UNAVAILABLE", "Device registration is temporarily unavailable.")
 		return
 	}
 	writer.WriteHeader(http.StatusNoContent)
 }
 
 func notificationScope(writer http.ResponseWriter, request *http.Request) (string, string, string, string, bool) {
-	tenant, country := strings.TrimSpace(request.Header.Get("X-Planext4u-Tenant")), strings.TrimSpace(request.Header.Get("X-Planext4u-Country"))
-	subject, device := strings.TrimSpace(request.Header.Get("X-Planext4u-Subject")), strings.TrimSpace(request.Header.Get("X-Planext4u-Device"))
-	roles := "," + strings.ReplaceAll(request.Header.Get("X-Planext4u-Roles"), " ", "") + ","
-	if !uuidPattern.MatchString(tenant) || !strings.Contains(roles, ",CUSTOMER,") || !safeID(subject) || !safeID(device) {
+	tenant, subject, ok := notificationActorScope(writer, request, "DEVICE_ACCESS_DENIED", "This device resource is not available.")
+	if !ok {
+		return "", "", "", "", false
+	}
+	country, device := strings.TrimSpace(request.Header.Get("X-Planext4u-Country")), strings.TrimSpace(request.Header.Get("X-Planext4u-Device"))
+	if !safeID(device) {
 		writeNotificationProblem(writer, http.StatusForbidden, "DEVICE_ACCESS_DENIED", "This device resource is not available.")
 		return "", "", "", "", false
 	}
 	return tenant, country, subject, device, true
+}
+
+func notificationActorScope(writer http.ResponseWriter, request *http.Request, code, message string) (string, string, bool) {
+	tenant := strings.TrimSpace(request.Header.Get("X-Planext4u-Tenant"))
+	subject := strings.TrimSpace(request.Header.Get("X-Planext4u-Subject"))
+	if !uuidPattern.MatchString(tenant) || !safeID(subject) || !hasNotificationRole(request.Header.Get("X-Planext4u-Roles")) {
+		writeNotificationProblem(writer, http.StatusForbidden, code, message)
+		return "", "", false
+	}
+	return tenant, subject, true
+}
+
+func hasNotificationRole(value string) bool {
+	for _, role := range strings.Split(value, ",") {
+		switch strings.TrimSpace(role) {
+		case "CUSTOMER", "VENDOR", "RIDER":
+			return true
+		}
+	}
+	return false
 }
 
 func decodeNotificationJSON(request *http.Request, target any) bool {
@@ -135,5 +213,8 @@ func writeNotificationJSON(writer http.ResponseWriter, status int, value any) {
 }
 
 func writeNotificationProblem(writer http.ResponseWriter, status int, code, message string) {
-	writeNotificationJSON(writer, status, map[string]any{"error": map[string]any{"code": code, "message": message, "correlation_id": "unavailable", "retryable": false, "field_errors": []any{}, "details": map[string]any{}}})
+	writer.Header().Set("Content-Type", "application/problem+json")
+	writer.Header().Set("Cache-Control", "no-store")
+	writer.WriteHeader(status)
+	_ = json.NewEncoder(writer).Encode(map[string]any{"error": map[string]any{"code": code, "message": message, "correlation_id": "unavailable", "retryable": status >= http.StatusInternalServerError, "field_errors": []any{}, "details": map[string]any{}}})
 }

@@ -49,6 +49,7 @@ func TestPostgresIdentityLifecycleAndConcurrentReuse(t *testing.T) {
 		"../../migrations/platform/000007_transaction_runtime.up.sql",
 		"../../migrations/identity/000001_identity.up.sql",
 		"../../migrations/identity/000002_profile_contacts.up.sql",
+		"../../migrations/identity/000003_profile_locales.up.sql",
 	} {
 		migration, readErr := os.ReadFile(path)
 		if readErr != nil {
@@ -165,13 +166,16 @@ func TestPostgresIdentityLifecycleAndConcurrentReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	profileTrusted := trustedFor(profileAuth)
+	if _, err := pool.Exec(ctx, `UPDATE identity.profiles SET email=$2, phone=$3 WHERE identity_id=$1`, profileAuth.IdentityID, "customer-postgres@example.test", "+919876543210"); err != nil {
+		t.Fatal(err)
+	}
 	profile, err := service.UpdateProfile(ctx, profileTrusted, ProfileUpdate{
 		DisplayName: "தமிழ் வாடிக்கையாளர்",
-		Locale:      "ta",
+		Locale:      "gu",
 		TimeZone:    "Asia/Kolkata",
 		Version:     1,
 	})
-	if err != nil || profile.Version != 2 {
+	if err != nil || profile.Version != 2 || profile.Locale != "gu" || profile.Email != "customer-postgres@example.test" || profile.Phone != "+919876543210" {
 		t.Fatalf("PostgreSQL profile update = %#v, %v", profile, err)
 	}
 	if _, err := service.UpdateProfile(ctx, profileTrusted, ProfileUpdate{

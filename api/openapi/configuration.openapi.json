@@ -1,6 +1,6 @@
 {
   "openapi": "3.1.0",
-  "info": {"title": "Planext4u Configuration and CMS API", "version": "1.0.0"},
+  "info": {"title": "Planext4u Configuration and CMS API", "version": "1.1.0"},
   "security": [{"bearerAuth": []}],
   "paths": {
     "/v1/bootstrap": {
@@ -9,6 +9,7 @@
         "parameters": [
           {"name": "platform", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Platform"}},
           {"name": "app_version", "in": "query", "required": true, "schema": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}},
+          {"name": "deployment_id", "in": "query", "required": false, "x-planext4u-required-for-platforms": ["WEB"], "description": "Immutable build deployment identifier. Required when platform is WEB.", "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"}},
           {"name": "locale", "in": "query", "required": true, "schema": {"type": "string"}}
         ],
         "responses": {
@@ -37,8 +38,10 @@
     "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
     "responses": {"Problem": {"description": "Safe standard error", "content": {"application/json": {"schema": {"$ref": "./common.openapi.json#/components/schemas/ErrorEnvelope"}}}}},
     "schemas": {
-      "Platform": {"type": "string", "enum": ["ANDROID", "IOS"]},
+      "Platform": {"type": "string", "enum": ["ANDROID", "IOS", "WEB"]},
+      "Locale": {"type": "string", "enum": ["en", "ta", "hi", "te", "kn", "ml", "mr", "bn", "gu"]},
       "UpdateGate": {"type": "string", "enum": ["NONE", "OPTIONAL", "REQUIRED"]},
+      "UpdateAction": {"type": "string", "enum": ["NONE", "STORE_UPDATE", "RELOAD"]},
       "ConsentPolicy": {"type": "object", "additionalProperties": false, "required": ["purpose", "policy_version", "required"], "properties": {"purpose": {"type": "string"}, "policy_version": {"type": "string"}, "required": {"type": "boolean"}}},
       "HomeSection": {"type": "object", "additionalProperties": false, "required": ["id", "kind", "title_key", "enabled", "priority"], "properties": {"id": {"type": "string"}, "kind": {"type": "string"}, "title_key": {"type": "string"}, "enabled": {"type": "boolean"}, "priority": {"type": "integer"}}},
       "MaintenanceWindow": {"type": "object", "additionalProperties": false, "required": ["starts_at", "ends_at", "message"], "properties": {"starts_at": {"type": "string", "format": "date-time"}, "ends_at": {"type": "string", "format": "date-time"}, "message": {"type": "string", "minLength": 1, "maxLength": 240}}},
@@ -46,10 +49,10 @@
         "type": "object", "additionalProperties": false,
         "required": ["minimum_versions", "latest_versions", "supported_locales", "default_locale", "consent_policies", "flags", "home_sections"],
         "properties": {
-          "minimum_versions": {"type": "object", "additionalProperties": false, "required": ["ANDROID", "IOS"], "properties": {"ANDROID": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "IOS": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}}},
-          "latest_versions": {"type": "object", "additionalProperties": false, "required": ["ANDROID", "IOS"], "properties": {"ANDROID": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "IOS": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}}},
-          "supported_locales": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["en", "ta"]}},
-          "default_locale": {"type": "string", "enum": ["en", "ta"]},
+          "minimum_versions": {"type": "object", "additionalProperties": false, "required": ["ANDROID", "IOS", "WEB"], "properties": {"ANDROID": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "IOS": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "WEB": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}}},
+          "latest_versions": {"type": "object", "additionalProperties": false, "required": ["ANDROID", "IOS", "WEB"], "properties": {"ANDROID": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "IOS": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "WEB": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}}},
+          "supported_locales": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/components/schemas/Locale"}},
+          "default_locale": {"$ref": "#/components/schemas/Locale"},
           "consent_policies": {"type": "array", "items": {"$ref": "#/components/schemas/ConsentPolicy"}},
           "flags": {"type": "object", "maxProperties": 256, "additionalProperties": {"type": "boolean"}},
           "home_sections": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/HomeSection"}},
@@ -58,15 +61,18 @@
       },
       "PageBlock": {"type": "object", "additionalProperties": false, "required": ["id", "kind", "enabled", "priority", "content"], "properties": {"id": {"type": "string"}, "kind": {"type": "string"}, "title_key": {"type": "string"}, "enabled": {"type": "boolean"}, "priority": {"type": "integer", "minimum": 0}, "content": {"type": "object", "additionalProperties": true}}},
       "Page": {"type": "object", "additionalProperties": false, "required": ["id", "route", "title_key", "audience", "enabled", "blocks"], "properties": {"id": {"type": "string"}, "route": {"type": "string", "pattern": "^/"}, "title_key": {"type": "string"}, "audience": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["PUBLIC", "CUSTOMER", "VENDOR", "RIDER"]}}, "enabled": {"type": "boolean"}, "blocks": {"type": "array", "items": {"$ref": "#/components/schemas/PageBlock"}}}},
-      "PageDocument": {"type": "object", "additionalProperties": false, "required": ["revision", "published_at", "locale", "page"], "properties": {"revision": {"type": "integer", "minimum": 1}, "published_at": {"type": "string", "format": "date-time"}, "locale": {"type": "string"}, "page": {"$ref": "#/components/schemas/Page"}}},
+      "PageDocument": {"type": "object", "additionalProperties": false, "required": ["revision", "published_at", "locale", "page"], "properties": {"revision": {"type": "integer", "minimum": 1}, "published_at": {"type": "string", "format": "date-time"}, "locale": {"$ref": "#/components/schemas/Locale"}, "page": {"$ref": "#/components/schemas/Page"}}},
       "Bootstrap": {
         "type": "object", "additionalProperties": false,
-        "required": ["revision", "published_at", "update_gate", "latest_version", "maintenance", "locale", "supported_locales", "consent_policies", "flags", "home_sections", "pages"],
+        "required": ["revision", "published_at", "platform", "client_version", "update_gate", "update_action", "latest_version", "maintenance", "locale", "supported_locales", "consent_policies", "flags", "home_sections", "pages"],
         "properties": {
           "revision": {"type": "integer", "minimum": 1}, "published_at": {"type": "string", "format": "date-time"},
-          "update_gate": {"$ref": "#/components/schemas/UpdateGate"}, "latest_version": {"type": "string"},
+          "platform": {"$ref": "#/components/schemas/Platform"}, "client_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+          "update_gate": {"$ref": "#/components/schemas/UpdateGate"}, "update_action": {"$ref": "#/components/schemas/UpdateAction"}, "latest_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+          "client_deployment_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"},
+          "latest_deployment_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"},
           "maintenance": {"type": "boolean"}, "maintenance_until": {"type": "string", "format": "date-time"}, "maintenance_text": {"type": "string"},
-          "locale": {"type": "string"}, "supported_locales": {"type": "array", "items": {"type": "string"}},
+          "locale": {"$ref": "#/components/schemas/Locale"}, "supported_locales": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/components/schemas/Locale"}},
           "consent_policies": {"type": "array", "items": {"$ref": "#/components/schemas/ConsentPolicy"}},
           "flags": {"type": "object", "additionalProperties": {"type": "boolean"}},
           "home_sections": {"type": "array", "items": {"$ref": "#/components/schemas/HomeSection"}},

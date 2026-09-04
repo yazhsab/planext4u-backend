@@ -61,6 +61,10 @@ func (handler *Handler) create(writer http.ResponseWriter, request *http.Request
 	if !ok {
 		return
 	}
+	if !customer(actor) {
+		handler.problem(writer, request, ErrForbidden)
+		return
+	}
 	var input CreateRequest
 	if !decodeEmergency(writer, request, &input) {
 		return
@@ -186,6 +190,7 @@ func (handler *Handler) sla(writer http.ResponseWriter, request *http.Request) {
 
 func (handler *Handler) problem(writer http.ResponseWriter, request *http.Request, err error) {
 	status, code, message := http.StatusInternalServerError, "EMERGENCY_INTERNAL", "The emergency request could not be completed."
+	retryable := false
 	switch {
 	case errors.Is(err, ErrInvalidRequest):
 		status, code, message = http.StatusUnprocessableEntity, "EMERGENCY_REQUEST_INVALID", "The emergency request is invalid."
@@ -195,12 +200,17 @@ func (handler *Handler) problem(writer http.ResponseWriter, request *http.Reques
 		status, code, message = http.StatusForbidden, "EMERGENCY_FORBIDDEN", "This emergency action is not permitted."
 	case errors.Is(err, ErrMFARequired):
 		status, code, message = http.StatusForbidden, "EMERGENCY_MFA_REQUIRED", "A verified MFA session is required."
+	case errors.Is(err, ErrRiderOffDuty):
+		status, code, message = http.StatusForbidden, "RIDER_EMERGENCY_OFF_DUTY", "Start duty before creating a rider emergency incident."
+	case errors.Is(err, ErrDutyUnavailable):
+		status, code, message = http.StatusServiceUnavailable, "RIDER_DUTY_UNAVAILABLE", "Rider duty status could not be verified."
+		retryable = true
 	case errors.Is(err, ErrConflict):
 		status, code, message = http.StatusConflict, "EMERGENCY_ASSIGNMENT_CONFLICT", "Another responder already changed this request."
 	case errors.Is(err, ErrIdempotencyConflict):
 		status, code, message = http.StatusConflict, "EMERGENCY_IDEMPOTENCY_CONFLICT", "The idempotency key was reused for another command."
 	}
-	writeEmergency(writer, status, map[string]any{"error": map[string]any{"code": code, "message": message, "correlation_id": request.Header.Get("X-Correlation-ID"), "retryable": false, "field_errors": []any{}, "details": map[string]any{}}})
+	writeEmergency(writer, status, map[string]any{"error": map[string]any{"code": code, "message": message, "correlation_id": request.Header.Get("X-Correlation-ID"), "retryable": retryable, "field_errors": []any{}, "details": map[string]any{}}})
 }
 func emergencyActor(writer http.ResponseWriter, request *http.Request) (Actor, bool) {
 	actor := Actor{TenantID: strings.TrimSpace(request.Header.Get("X-Planext4u-Tenant")), Country: strings.TrimSpace(request.Header.Get("X-Planext4u-Country")), Subject: strings.TrimSpace(request.Header.Get("X-Planext4u-Subject")), Roles: strings.Split(request.Header.Get("X-Planext4u-Roles"), ","), MFAVerified: strings.EqualFold(request.Header.Get("X-Planext4u-MFA"), "verified")}

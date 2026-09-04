@@ -57,6 +57,104 @@ func TestBEP4008RiderOnboardingDutyAndAtomicConcurrentOffer(t *testing.T) {
 	}
 }
 
+func TestBE005RiderDeclineIsScopedIdempotentAndPreservesOtherRiderAcceptance(t *testing.T) {
+	service, _ := fulfillmentFixture(t)
+	admin := fulfillmentActor("ops-admin-001", "OPS_ADMIN", true)
+	decliningRider := approvedRiderFixture(t, service, "rider-decline-001")
+	acceptingRider := approvedRiderFixture(t, service, "rider-decline-002")
+	for index, rider := range []Actor{decliningRider, acceptingRider} {
+		if _, _, err := service.StartDuty(rider, fmt.Sprintf("duty-start-decline-%03d", index), "600001"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	task, err := service.SeedTask(admin, fulfillmentTaskSeed("delivery-decline-001", "food-order-decline-001"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, _, err = service.OfferTask(admin, "dispatch-offer-decline-001", task.ID, task.Revision)
+	if err != nil || !contains(task.AllowedActions, "DECLINE") {
+		t.Fatalf("offered=%#v err=%v", task, err)
+	}
+	request := OfferDeclineRequest{ReasonCode: "too_far"}
+	decline, replay, err := service.DeclineOffer(decliningRider, "rider-decline-command-001", task.ID, task.Revision, request)
+	if err != nil || replay || decline.ReasonCode != "TOO_FAR" || decline.TaskRevision != task.Revision {
+		t.Fatalf("decline=%#v replay=%v err=%v", decline, replay, err)
+	}
+	again, replay, err := service.DeclineOffer(decliningRider, "rider-decline-command-001", task.ID, task.Revision, request)
+	if err != nil || !replay || again != decline {
+		t.Fatalf("decline replay=%#v replay=%v err=%v", again, replay, err)
+	}
+	if _, _, err := service.DeclineOffer(decliningRider, "rider-decline-command-001", task.ID, task.Revision, OfferDeclineRequest{ReasonCode: "ENDING_DUTY"}); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("decline idempotency conflict=%v", err)
+	}
+	if offers, err := service.Offers(decliningRider); err != nil || len(offers) != 0 {
+		t.Fatalf("declining rider offers=%#v err=%v", offers, err)
+	}
+	if _, _, err := service.AcceptOffer(decliningRider, "rider-accept-after-decline", task.ID, task.Revision); !errors.Is(err, ErrConflict) {
+		t.Fatalf("accept after decline error=%v", err)
+	}
+	if offers, err := service.Offers(acceptingRider); err != nil || len(offers) != 1 {
+		t.Fatalf("other rider offers=%#v err=%v", offers, err)
+	}
+	accepted, _, err := service.AcceptOffer(acceptingRider, "rider-accept-after-other-decline", task.ID, task.Revision)
+	if err != nil || accepted.AssignedRiderID != acceptingRider.Subject {
+		t.Fatalf("other rider accepted=%#v err=%v", accepted, err)
+	}
+}
+
+func TestBE005RiderDeclineHonorsExpiryAndAcceptRace(t *testing.T) {
+	t.Run("expired", func(t *testing.T) {
+		service, now := fulfillmentFixture(t)
+		admin := fulfillmentActor("ops-admin-001", "OPS_ADMIN", true)
+		rider := approvedRiderFixture(t, service, "rider-expired-decline")
+		_, _, _ = service.StartDuty(rider, "duty-start-expired-decline", "600001")
+		task, _ := service.SeedTask(admin, fulfillmentTaskSeed("delivery-expired-decline", "food-order-expired-decline"))
+		task, _, _ = service.OfferTask(admin, "dispatch-expired-decline", task.ID, task.Revision)
+		*now = now.Add(46 * time.Second)
+		if _, _, err := service.DeclineOffer(rider, "rider-expired-decline-command", task.ID, task.Revision, OfferDeclineRequest{ReasonCode: "ENDING_DUTY"}); !errors.Is(err, ErrOfferExpired) {
+			t.Fatalf("expired decline error=%v", err)
+		}
+	})
+
+	t.Run("accept versus decline", func(t *testing.T) {
+		service, _ := fulfillmentFixture(t)
+		admin := fulfillmentActor("ops-admin-001", "OPS_ADMIN", true)
+		rider := approvedRiderFixture(t, service, "rider-decision-race")
+		_, _, _ = service.StartDuty(rider, "duty-start-decision-race", "600001")
+		task, _ := service.SeedTask(admin, fulfillmentTaskSeed("delivery-decision-race", "food-order-decision-race"))
+		task, _, _ = service.OfferTask(admin, "dispatch-decision-race", task.ID, task.Revision)
+		results := make(chan error, 2)
+		var wait sync.WaitGroup
+		wait.Add(2)
+		go func() {
+			defer wait.Done()
+			_, _, err := service.AcceptOffer(rider, "rider-race-accept-command", task.ID, task.Revision)
+			results <- err
+		}()
+		go func() {
+			defer wait.Done()
+			_, _, err := service.DeclineOffer(rider, "rider-race-decline-command", task.ID, task.Revision, OfferDeclineRequest{ReasonCode: "TOO_FAR"})
+			results <- err
+		}()
+		wait.Wait()
+		close(results)
+		succeeded, conflicted := 0, 0
+		for err := range results {
+			switch {
+			case err == nil:
+				succeeded++
+			case errors.Is(err, ErrConflict):
+				conflicted++
+			default:
+				t.Fatalf("decision race error=%v", err)
+			}
+		}
+		if succeeded != 1 || conflicted != 1 {
+			t.Fatalf("decision race succeeded=%d conflicted=%d", succeeded, conflicted)
+		}
+	})
+}
+
 func TestBEP4008LocationOfflineRecoveryPODAndReassignment(t *testing.T) {
 	service, now := fulfillmentFixture(t)
 	admin := fulfillmentActor("ops-admin-001", "OPS_ADMIN", true)

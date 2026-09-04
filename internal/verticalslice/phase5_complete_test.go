@@ -61,7 +61,7 @@ func TestBEP5012CompletePhase5GatewayJourney(t *testing.T) {
 	classified := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/classifieds/listings/classified-listing-synthetic-001", "", customer)
 	assertVerticalResponse(t, classified, http.StatusOK, `"contact_masked":"********3210"`)
 	contact := verticalRequest(t, client, http.MethodPost, server.URL+"/v1/classifieds/listings/classified-listing-synthetic-001/contact", `{"channel":"WHATSAPP","consent":true}`, customer)
-	assertVerticalResponse(t, contact, http.StatusOK, `"contact_revealed":"919876543210"`)
+	assertVerticalResponse(t, contact, http.StatusOK, `"contact":"919876543210"`)
 
 	emergencyResponse := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/emergency/requests", `{"category":"MEDICAL","description":"Neighbour needs urgent assistance","priority":"CRITICAL","location_consent":true,"location":{"latitude":13.03,"longitude":80.27,"accuracy_m":12,"captured_at":"2026-08-29T10:00:00Z"}}`, customer, map[string]string{"Idempotency-Key": "phase5-emergency-create-001"})
 	assertVerticalResponse(t, emergencyResponse, http.StatusCreated, `"status":"OPEN"`, `"location_consent":true`)

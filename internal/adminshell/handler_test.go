@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/yazhsab/planext4u-backend/internal/audit"
 	"github.com/yazhsab/planext4u-backend/internal/configcms"
 	"github.com/yazhsab/planext4u-backend/internal/governance"
+	"github.com/yazhsab/planext4u-backend/internal/support"
 )
 
 var testNow = time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
@@ -70,6 +72,51 @@ func TestBEP5010GovernanceDashboardIsMFAProtectedCountryScopedAndMasked(t *testi
 	}
 }
 
+func TestReportDetailsAndAuditedSignedExportAreCountryScoped(t *testing.T) {
+	handler, store := testHandler(t, true)
+	principal := testPrincipal(RoleCountryAdmin)
+	token := issue(t, store, principal)
+	csrf := resolveCSRF(t, store, token)
+
+	listed := serve(handler, http.MethodGet, "/admin/api/v1/reports?domain=social&limit=20", nil, token, "", "")
+	if listed.Code != http.StatusOK || !bytes.Contains(listed.Body.Bytes(), []byte(`"id":"social-active"`)) || !bytes.Contains(listed.Body.Bytes(), []byte(`"export_policy":"MFA_AND_AUDIT_REQUIRED"`)) {
+		t.Fatalf("listed=%d %s", listed.Code, listed.Body.String())
+	}
+	detail := serve(handler, http.MethodGet, "/admin/api/v1/reports/social-active?limit=20", nil, token, "", "")
+	if detail.Code != http.StatusOK || !bytes.Contains(detail.Body.Bytes(), []byte(`"source_projection":"governance.report_cards"`)) || !bytes.Contains(detail.Body.Bytes(), []byte(`"country":"IN"`)) {
+		t.Fatalf("detail=%d %s", detail.Code, detail.Body.String())
+	}
+
+	exported := serve(handler, http.MethodPost, "/admin/api/v1/reports/social-active/exports", []byte(`{"format":"CSV","reason":"Quarterly reporting review"}`), token, csrf, "https://admin.planext4u.net")
+	if exported.Code != http.StatusAccepted {
+		t.Fatalf("export=%d %s", exported.Code, exported.Body.String())
+	}
+	if exported.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("export response must not be cached: %v", exported.Header())
+	}
+	var export ReportExport
+	if err := json.Unmarshal(exported.Body.Bytes(), &export); err != nil || export.Status != "READY" || export.DownloadURL == "" || export.ChecksumSHA256 == "" {
+		t.Fatalf("export=%#v err=%v", export, err)
+	}
+	status := serve(handler, http.MethodGet, "/admin/api/v1/report-exports/"+export.ID, nil, token, "", "")
+	if status.Code != http.StatusOK || status.Header().Get("Cache-Control") != "no-store" || !bytes.Contains(status.Body.Bytes(), []byte(`"status":"READY"`)) {
+		t.Fatalf("status=%d %s", status.Code, status.Body.String())
+	}
+	download := serve(handler, http.MethodGet, export.DownloadURL, nil, token, "", "")
+	if download.Code != http.StatusOK || download.Header().Get("Cache-Control") != "no-store" || download.Header().Get("Content-Type") != "text/csv; charset=utf-8" || !bytes.Contains(download.Body.Bytes(), []byte("social-active")) {
+		t.Fatalf("download=%d headers=%v body=%s", download.Code, download.Header(), download.Body.String())
+	}
+	invalid := serve(handler, http.MethodGet, "/admin/api/v1/report-exports/"+export.ID+"/download?token=invalid", nil, token, "", "")
+	assertStatusAndCode(t, invalid, http.StatusForbidden, "ADMIN_REPORT_EXPORT_TOKEN_INVALID")
+
+	stale := testPrincipal(RoleCountryAdmin)
+	stale.SessionID = "session-stale-report"
+	stale.AuthenticatedAt = testNow.Add(-10 * time.Minute)
+	staleToken := issue(t, store, stale)
+	staleExport := serve(handler, http.MethodPost, "/admin/api/v1/reports/social-active/exports", []byte(`{"format":"CSV","reason":"Quarterly reporting review"}`), staleToken, resolveCSRF(t, store, staleToken), "https://admin.planext4u.net")
+	assertStatusAndCode(t, staleExport, http.StatusForbidden, "ADMIN_FRESH_MFA_REQUIRED")
+}
+
 func TestSupportAndContentRolesCannotReadAudit(t *testing.T) {
 	handler, store := testHandler(t, true)
 	for _, role := range []Role{RoleSupportAdmin, RoleContentAdmin} {
@@ -78,6 +125,27 @@ func TestSupportAndContentRolesCannotReadAudit(t *testing.T) {
 			response := serve(handler, http.MethodGet, "/admin/api/v1/audit/events", nil, token, "", "")
 			assertStatusAndCode(t, response, http.StatusForbidden, "ADMIN_ROLE_FORBIDDEN")
 		})
+	}
+}
+
+func TestBE004SupportProjectionIsSessionAuthorizedAndCountryScoped(t *testing.T) {
+	handler, store := testHandler(t, true)
+	supportToken := issue(t, store, testPrincipal(RoleSupportAdmin))
+	response := serve(handler, http.MethodGet, "/admin/api/v1/support/tickets?owner_role=CUSTOMER", nil, supportToken, "", "")
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"subject":"Synthetic customer support request"`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"owner_reference":"customer-001"`)) {
+		t.Fatalf("support projection=%d %s", response.Code, response.Body.String())
+	}
+	contentToken := issue(t, store, testPrincipal(RoleContentAdmin))
+	forbidden := serve(handler, http.MethodGet, "/admin/api/v1/support/tickets", nil, contentToken, "", "")
+	assertStatusAndCode(t, forbidden, http.StatusForbidden, "ADMIN_ROLE_FORBIDDEN")
+
+	principal := testPrincipal(RoleSupportAdmin)
+	principal.SelectedCountry = "US"
+	principal.AllowedCountries = []string{"IN", "US"}
+	usToken := issue(t, store, principal)
+	empty := serve(handler, http.MethodGet, "/admin/api/v1/support/tickets", nil, usToken, "", "")
+	if empty.Code != http.StatusOK || !bytes.Contains(empty.Body.Bytes(), []byte(`"items":[]`)) {
+		t.Fatalf("country-scoped projection=%d %s", empty.Code, empty.Body.String())
 	}
 }
 
@@ -226,7 +294,7 @@ func TestCMSWorkspaceDraftControlsGlobalMobileConfiguration(t *testing.T) {
 	csrf := resolveCSRF(t, store, token)
 	missing := serve(handler, http.MethodGet, "/admin/api/v1/cms/workspace", nil, token, "", "")
 	assertStatusAndCode(t, missing, http.StatusNotFound, "CMS_PAGE_NOT_FOUND")
-	body := []byte(`{"expected_revision":0,"workspace":{"minimum_versions":{"ANDROID":"1.0.0","IOS":"1.0.0"},"latest_versions":{"ANDROID":"1.2.0","IOS":"1.2.0"},"supported_locales":["en","ta"],"default_locale":"en","consent_policies":[{"purpose":"ANALYTICS","policy_version":"privacy-2026-01","required":false}],"flags":{"customer_home":true,"vendor_home":true,"rider_home":true},"home_sections":[{"id":"hero","kind":"HERO","title_key":"home.hero","enabled":true,"priority":10}]}}`)
+	body := []byte(`{"expected_revision":0,"workspace":{"minimum_versions":{"ANDROID":"1.0.0","IOS":"1.0.0","WEB":"1.0.0"},"latest_versions":{"ANDROID":"1.2.0","IOS":"1.2.0","WEB":"1.2.0"},"supported_locales":["en","ta"],"default_locale":"en","consent_policies":[{"purpose":"ANALYTICS","policy_version":"privacy-2026-01","required":false}],"flags":{"customer_home":true,"vendor_home":true,"rider_home":true},"home_sections":[{"id":"hero","kind":"HERO","title_key":"home.hero","enabled":true,"priority":10}]}}`)
 	withoutCSRF := serve(handler, http.MethodPut, "/admin/api/v1/cms/workspace/draft", body, token, "", "https://admin.planext4u.net")
 	assertStatusAndCode(t, withoutCSRF, http.StatusForbidden, "ADMIN_CSRF_INVALID")
 	saved := serve(handler, http.MethodPut, "/admin/api/v1/cms/workspace/draft", body, token, csrf, "https://admin.planext4u.net")
@@ -280,14 +348,50 @@ func testHandler(t *testing.T, requireMFA bool) (http.Handler, *MemorySessionSto
 	if err != nil {
 		t.Fatalf("create governance: %v", err)
 	}
+	supportService, err := support.NewService(support.NewMemoryRepository(), func() time.Time { return testNow })
+	if err != nil {
+		t.Fatalf("create support service: %v", err)
+	}
+	if _, _, err = supportService.Create(context.Background(), support.Actor{TenantID: "tenant-1", Country: "IN", Subject: "customer-001", Roles: []support.Role{support.RoleCustomer}}, support.CreateTicketRequest{OwnerRole: support.RoleCustomer, Category: support.CategoryOrder, Subject: "Synthetic customer support request", Description: "The synthetic order needs assistance."}, "admin-projection-ticket-0001"); err != nil {
+		t.Fatalf("seed support service: %v", err)
+	}
 	handler, err := NewHandler(Config{
-		Sessions: store, Audit: auditService, Operations: operations, CMS: cms, CMSWorkspace: workspace, Governance: governanceService, Clock: func() time.Time { return testNow },
+		Sessions: store, Audit: auditService, Operations: operations, CMS: cms, CMSWorkspace: workspace, Governance: governanceService, Support: supportService, Reports: &testReportService{}, Clock: func() time.Time { return testNow },
 		AllowedOrigins: []string{"https://admin.planext4u.net"}, RequireMFA: requireMFA,
 	})
 	if err != nil {
 		t.Fatalf("create handler: %v", err)
 	}
 	return handler, store
+}
+
+type testReportService struct{}
+
+func (service *testReportService) List(_ context.Context, principal Principal, _ ReportQuery) (ReportPage, error) {
+	return ReportPage{Items: []ReportSummary{{ID: "social-active", Title: "Socio active", Domain: "social", Metric: "active", Value: 5600, Unit: "count", Freshness: testNow, Masked: true, ExportPolicy: "MFA_AND_AUDIT_REQUIRED"}}}, nil
+}
+
+func (service *testReportService) Detail(_ context.Context, principal Principal, reportID string, _ ReportQuery) (ReportDetail, error) {
+	if reportID != "social-active" || principal.SelectedCountry != "IN" {
+		return ReportDetail{}, ErrReportNotFound
+	}
+	report := ReportSummary{ID: reportID, Title: "Socio active", Domain: "social", Metric: "active", Value: 5600, Unit: "count", Freshness: testNow, Masked: true, ExportPolicy: "MFA_AND_AUDIT_REQUIRED"}
+	return ReportDetail{Report: report, Country: principal.SelectedCountry, Items: []ReportRow{{Label: report.Title, Dimensions: map[string]string{"country": principal.SelectedCountry}, Value: 5600, Unit: "count"}}, Lineage: ReportLineage{SourceProjection: "governance.report_cards", Aggregation: "country_aggregate", Freshness: testNow, GeneratedAt: testNow}}, nil
+}
+
+func (service *testReportService) CreateExport(_ context.Context, _ Principal, reportID string, _ ReportQuery, _ string) (ReportExport, error) {
+	return ReportExport{ID: "report-export-0123456789abcdef0123456789abcdef", ReportID: reportID, Format: "CSV", Status: "READY", ContentType: "text/csv; charset=utf-8", FileName: "social-active-in.csv", ChecksumSHA256: strings.Repeat("a", 64), SizeBytes: 32, DownloadURL: "/admin/api/v1/report-exports/report-export-0123456789abcdef0123456789abcdef/download?token=valid", ExpiresAt: testNow.Add(10 * time.Minute), CreatedAt: testNow}, nil
+}
+
+func (service *testReportService) Export(ctx context.Context, principal Principal, exportID string) (ReportExport, error) {
+	return service.CreateExport(ctx, principal, "social-active", ReportQuery{}, exportID)
+}
+
+func (service *testReportService) Download(_ context.Context, _ Principal, _ string, token string) (ReportArtifact, error) {
+	if token != "valid" {
+		return ReportArtifact{}, ErrExportToken
+	}
+	return ReportArtifact{Bytes: []byte("report_id,value\nsocial-active,5600\n"), ContentType: "text/csv; charset=utf-8", FileName: "social-active-in.csv"}, nil
 }
 
 func testPrincipal(role Role) Principal {

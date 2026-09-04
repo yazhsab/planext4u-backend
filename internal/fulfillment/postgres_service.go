@@ -47,7 +47,7 @@ func (service *PostgresService) Now() time.Time { return service.clock().UTC() }
 
 func (service *PostgresService) Ready(ctx context.Context) error {
 	var ready bool
-	err := service.pool.QueryRow(ctx, `SELECT to_regclass('fulfillment.rider_profiles') IS NOT NULL AND to_regclass('fulfillment.delivery_tasks') IS NOT NULL AND to_regclass('fulfillment.policies') IS NOT NULL AND to_regclass('fulfillment.payout_entry_claims') IS NOT NULL`).Scan(&ready)
+	err := service.pool.QueryRow(ctx, `SELECT to_regclass('fulfillment.rider_profiles') IS NOT NULL AND to_regclass('fulfillment.delivery_tasks') IS NOT NULL AND to_regclass('fulfillment.offer_declines') IS NOT NULL AND to_regclass('fulfillment.policies') IS NOT NULL AND to_regclass('fulfillment.payout_entry_claims') IS NOT NULL`).Scan(&ready)
 	if err != nil {
 		return fmt.Errorf("check fulfillment schema readiness: %w", err)
 	}
@@ -367,7 +367,7 @@ func (service *PostgresService) Offers(actor Actor) ([]DeliveryTask, error) {
 	if err != nil || duty.Status != "ACTIVE" {
 		return nil, ErrForbidden
 	}
-	rows, err := service.pool.Query(ctx, taskSelect+` WHERE tenant_id=$1 AND country=$2 AND zone_id=$3 AND status='OFFERED' AND offer_expires_at>$4 ORDER BY offer_expires_at`, actor.TenantID, actor.Country, duty.ZoneID, service.Now())
+	rows, err := service.pool.Query(ctx, taskSelect+` AS task WHERE tenant_id=$1 AND country=$2 AND zone_id=$3 AND status='OFFERED' AND offer_expires_at>$4 AND NOT EXISTS (SELECT 1 FROM fulfillment.offer_declines AS declined WHERE declined.task_id=task.id AND declined.rider_identity_id=$5) ORDER BY offer_expires_at`, actor.TenantID, actor.Country, duty.ZoneID, service.Now(), actor.Subject)
 	if err != nil {
 		return nil, err
 	}
@@ -387,7 +387,7 @@ func (service *PostgresService) AcceptOffer(actor Actor, key, taskID string, rev
 	defer func() { _ = tx.Rollback(ctx) }()
 	operation := "accept:" + taskID
 	if err := fulfillmentCommandLock(ctx, tx, actor, operation, key); err != nil {
-		return DeliveryTask{}, false, err
+		return DeliveryTask{}, false, mapFulfillmentError(err)
 	}
 	fingerprint := digest(revision)
 	var replay DeliveryTask
@@ -404,12 +404,18 @@ func (service *PostgresService) AcceptOffer(actor Actor, key, taskID string, rev
 		return DeliveryTask{}, false, mapFulfillmentError(err)
 	}
 	profile, err := loadPostgresRider(ctx, tx, actor.TenantID, actor.Country, actor.Subject, true)
-	if err != nil || profile.Status != RiderApproved {
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && profile.Status != RiderApproved) {
 		return DeliveryTask{}, false, ErrForbidden
 	}
+	if err != nil {
+		return DeliveryTask{}, false, mapFulfillmentError(err)
+	}
 	duty, err := loadPostgresDuty(ctx, tx, actor, true)
-	if err != nil || duty.Status != "ACTIVE" || duty.ZoneID != value.ZoneID {
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (duty.Status != "ACTIVE" || duty.ZoneID != value.ZoneID)) {
 		return DeliveryTask{}, false, ErrForbidden
+	}
+	if err != nil {
+		return DeliveryTask{}, false, mapFulfillmentError(err)
 	}
 	if value.OfferExpiresAt == nil || !value.OfferExpiresAt.After(service.Now()) {
 		return DeliveryTask{}, false, ErrOfferExpired
@@ -417,9 +423,16 @@ func (service *PostgresService) AcceptOffer(actor Actor, key, taskID string, rev
 	if value.Revision != revision || value.Status != "OFFERED" || value.AssignedRiderID != "" {
 		return DeliveryTask{}, false, ErrConflict
 	}
+	var declined bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM fulfillment.offer_declines WHERE task_id=$1 AND rider_identity_id=$2)`, taskID, actor.Subject).Scan(&declined); err != nil {
+		return DeliveryTask{}, false, mapFulfillmentError(err)
+	}
+	if declined {
+		return DeliveryTask{}, false, ErrConflict
+	}
 	var active int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM fulfillment.delivery_tasks WHERE tenant_id=$1 AND country=$2 AND assigned_rider_identity_id=$3 AND status IN ('ASSIGNED','PICKED_UP')`, actor.TenantID, actor.Country, actor.Subject).Scan(&active); err != nil {
-		return DeliveryTask{}, false, err
+		return DeliveryTask{}, false, mapFulfillmentError(err)
 	}
 	if active >= profile.MaxConcurrent {
 		return DeliveryTask{}, false, ErrConflict
@@ -428,15 +441,15 @@ func (service *PostgresService) AcceptOffer(actor Actor, key, taskID string, rev
 	value.Status, value.Revision, value.AssignedRiderID, value.AcceptedAt, value.UpdatedAt = "ASSIGNED", value.Revision+1, actor.Subject, &now, now
 	_, err = tx.Exec(ctx, `UPDATE fulfillment.delivery_tasks SET status='ASSIGNED',revision=$2,assigned_rider_identity_id=$3,accepted_at=$4,updated_at=$4 WHERE id=$1`, value.ID, value.Revision, actor.Subject, now)
 	if err != nil {
-		return DeliveryTask{}, false, err
+		return DeliveryTask{}, false, mapFulfillmentError(err)
 	}
 	_, err = tx.Exec(ctx, `UPDATE fulfillment.duty_sessions SET last_seen_at=$2 WHERE id=$1`, duty.ID, now)
 	if err != nil {
-		return DeliveryTask{}, false, err
+		return DeliveryTask{}, false, mapFulfillmentError(err)
 	}
 	_, err = tx.Exec(ctx, `UPDATE fulfillment.conversations SET participant_identity_ids=array_append(participant_identity_ids,$2::uuid) WHERE order_id=$1 AND NOT ($2::uuid=ANY(participant_identity_ids))`, value.OrderID, actor.Subject)
 	if err != nil {
-		return DeliveryTask{}, false, err
+		return DeliveryTask{}, false, mapFulfillmentError(err)
 	}
 	value.AllowedActions = taskAllowedActions(value.Status)
 	if err := storeFulfillmentReplay(ctx, tx, actor, operation, key, fingerprint, value, now); err != nil {
@@ -446,6 +459,77 @@ func (service *PostgresService) AcceptOffer(actor Actor, key, taskID string, rev
 		return DeliveryTask{}, false, mapFulfillmentError(err)
 	}
 	return value, false, nil
+}
+
+func (service *PostgresService) DeclineOffer(actor Actor, key, taskID string, revision int64, request OfferDeclineRequest) (OfferDecline, bool, error) {
+	if !postgresFulfillmentActor(actor) || !hasRole(actor, "RIDER") || !validKey(key) || !fulfillmentIsUUID(taskID) || !validOfferDecline(request) {
+		return OfferDecline{}, false, ErrInvalidRequest
+	}
+	request = normalizedOfferDecline(request)
+	ctx, cancel := context.WithTimeout(context.Background(), fulfillmentOperationTimeout)
+	defer cancel()
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return OfferDecline{}, false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	operation := "decline:" + taskID
+	if err := fulfillmentCommandLock(ctx, tx, actor, operation, key); err != nil {
+		return OfferDecline{}, false, mapFulfillmentError(err)
+	}
+	fingerprint := digest(struct {
+		Revision int64
+		Request  OfferDeclineRequest
+	}{revision, request})
+	var replay OfferDecline
+	if found, err := loadFulfillmentReplay(ctx, tx, actor, operation, key, fingerprint, &replay); err != nil {
+		return OfferDecline{}, false, err
+	} else if found {
+		return replay, true, nil
+	}
+	value, err := loadPostgresTask(ctx, tx, actor.TenantID, actor.Country, taskID, true)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return OfferDecline{}, false, ErrNotFound
+	}
+	if err != nil {
+		return OfferDecline{}, false, mapFulfillmentError(err)
+	}
+	profile, err := loadPostgresRider(ctx, tx, actor.TenantID, actor.Country, actor.Subject, true)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && profile.Status != RiderApproved) {
+		return OfferDecline{}, false, ErrForbidden
+	}
+	if err != nil {
+		return OfferDecline{}, false, mapFulfillmentError(err)
+	}
+	duty, err := loadPostgresDuty(ctx, tx, actor, true)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (duty.Status != "ACTIVE" || duty.ZoneID != value.ZoneID)) {
+		return OfferDecline{}, false, ErrForbidden
+	}
+	if err != nil {
+		return OfferDecline{}, false, mapFulfillmentError(err)
+	}
+	if value.OfferExpiresAt == nil || !value.OfferExpiresAt.After(service.Now()) {
+		return OfferDecline{}, false, ErrOfferExpired
+	}
+	if value.Revision != revision || value.Status != "OFFERED" || value.AssignedRiderID != "" {
+		return OfferDecline{}, false, ErrConflict
+	}
+	now := service.Now()
+	decline := OfferDecline{TaskID: taskID, TaskRevision: revision, ReasonCode: request.ReasonCode, Note: request.Note, DeclinedAt: now, tenantID: actor.TenantID, country: actor.Country, riderID: actor.Subject}
+	_, err = tx.Exec(ctx, `INSERT INTO fulfillment.offer_declines (tenant_id,country,task_id,rider_identity_id,task_revision,reason_code,note,declined_at) VALUES ($1,$2,$3,$4,$5,$6,nullif($7,''),$8)`, actor.TenantID, actor.Country, taskID, actor.Subject, revision, request.ReasonCode, request.Note, now)
+	if err != nil {
+		return OfferDecline{}, false, mapFulfillmentError(err)
+	}
+	if err := insertFulfillmentAudit(ctx, tx, actor, "OFFER_DECLINED", "DELIVERY_TASK", taskID, "Rider declined offer: "+request.ReasonCode, now); err != nil {
+		return OfferDecline{}, false, err
+	}
+	if err := storeFulfillmentReplay(ctx, tx, actor, operation, key, fingerprint, decline, now); err != nil {
+		return OfferDecline{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return OfferDecline{}, false, mapFulfillmentError(err)
+	}
+	return decline, false, nil
 }
 
 func (service *PostgresService) UpdateLocation(actor Actor, key string, input LocationUpdate) (RiderLocation, bool, error) {
@@ -993,7 +1077,7 @@ func taskAllowedActions(status string) []string {
 	case "READY_FOR_DISPATCH":
 		return []string{"OFFER"}
 	case "OFFERED":
-		return []string{"ACCEPT"}
+		return []string{"ACCEPT", "DECLINE"}
 	case "ASSIGNED":
 		return []string{"NAVIGATE_PICKUP", "MARK_PICKED_UP"}
 	case "PICKED_UP":

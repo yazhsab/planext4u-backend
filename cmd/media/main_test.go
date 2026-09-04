@@ -50,6 +50,7 @@ func TestMediaRoutesAreBounded(t *testing.T) {
 	t.Parallel()
 	tests := map[string]string{
 		"/v1/media/uploads":                "/v1/media/uploads",
+		"/v1/media/presentations:resolve":  "/v1/media/presentations:resolve",
 		"/v1/media/asset-1":                "/v1/media/{asset_id}",
 		"/v1/media/asset-1/complete":       "/v1/media/{asset_id}/complete",
 		"/v1/media/asset-1/complete/extra": "unmatched",

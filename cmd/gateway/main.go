@@ -37,6 +37,7 @@ type runtimeConfig struct {
 	shutdownTimeout    time.Duration
 	maxRequestBytes    int64
 	IPRateLimit        int64
+	guestRateLimit     int64
 	principalRateLimit int64
 	rateWindow         time.Duration
 	logLevel           string
@@ -121,6 +122,16 @@ func run() int {
 		logger.Error("configure principal limiter", "error", err)
 		return 2
 	}
+	guestLimiter, err := gateway.NewRedisLimiter(
+		redisClient,
+		"planext4u:"+config.environment+":gateway:guest",
+		config.guestRateLimit,
+		config.rateWindow,
+	)
+	if err != nil {
+		logger.Error("configure guest limiter", "error", err)
+		return 2
+	}
 
 	handlerConfig := gateway.DefaultConfig(config.upstreamURL)
 	handlerConfig.UpstreamRoutes = config.upstreamRoutes
@@ -130,6 +141,7 @@ func run() int {
 	handlerConfig.RequestTimeout = config.requestTimeout
 	handlerConfig.MaxRequestBytes = config.maxRequestBytes
 	handlerConfig.AnonymousLimiter = anonymousLimiter
+	handlerConfig.GuestLimiter = guestLimiter
 	handlerConfig.PrincipalLimiter = principalLimiter
 	handlerConfig.Readiness = func(ctx context.Context) error {
 		return redisClient.Ping(ctx).Err()
@@ -193,6 +205,7 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 		shutdownTimeout:    10 * time.Second,
 		maxRequestBytes:    1 << 20,
 		IPRateLimit:        600,
+		guestRateLimit:     120,
 		principalRateLimit: 300,
 		rateWindow:         time.Minute,
 		logLevel:           valueOrDefault(lookup, "LOG_LEVEL", "info"),
@@ -242,6 +255,12 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 			return runtimeConfig{}, fmt.Errorf("PRINCIPAL_RATE_LIMIT must be an integer")
 		}
 	}
+	if value, exists := lookup("GUEST_RATE_LIMIT"); exists {
+		config.guestRateLimit, err = strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+		if err != nil {
+			return runtimeConfig{}, fmt.Errorf("GUEST_RATE_LIMIT must be an integer")
+		}
+	}
 	if value, exists := lookup("RATE_WINDOW"); exists {
 		config.rateWindow, err = time.ParseDuration(strings.TrimSpace(value))
 		if err != nil {
@@ -266,6 +285,7 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 		config.shutdownTimeout <= 0 || config.shutdownTimeout > 2*time.Minute ||
 		config.maxRequestBytes < 1 || config.maxRequestBytes > 16<<20 ||
 		config.IPRateLimit < 1 || config.IPRateLimit > 1_000_000 ||
+		config.guestRateLimit < 1 || config.guestRateLimit > 1_000_000 ||
 		config.principalRateLimit < 1 || config.principalRateLimit > 1_000_000 ||
 		config.rateWindow < time.Second || config.rateWindow > 24*time.Hour {
 		return runtimeConfig{}, fmt.Errorf("required gateway configuration is missing or outside its safe range")

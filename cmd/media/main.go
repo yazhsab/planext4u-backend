@@ -334,6 +334,9 @@ func mediaRoute(request *http.Request) string {
 	if request.URL.Path == "/v1/media/uploads" {
 		return request.URL.Path
 	}
+	if request.URL.Path == "/v1/media/presentations:resolve" {
+		return request.URL.Path
+	}
 	if strings.HasPrefix(request.URL.Path, "/v1/media/") {
 		parts := strings.Split(strings.Trim(request.URL.Path, "/"), "/")
 		if len(parts) == 4 && parts[3] == "complete" {

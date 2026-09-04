@@ -3,7 +3,7 @@
   "required_properties": {
     "ConsentPolicy": ["purpose", "policy_version", "required"],
     "HomeSection": ["id", "kind", "title_key", "enabled", "priority"],
-    "Bootstrap": ["revision", "published_at", "update_gate", "latest_version", "maintenance", "locale", "supported_locales", "consent_policies", "flags", "home_sections"]
+    "Bootstrap": ["revision", "published_at", "platform", "client_version", "update_gate", "update_action", "latest_version", "maintenance", "locale", "supported_locales", "consent_policies", "flags", "home_sections"]
   },
-  "enum_values": {"Platform": ["ANDROID", "IOS"], "UpdateGate": ["NONE", "OPTIONAL", "REQUIRED"]}
+  "enum_values": {"Platform": ["ANDROID", "IOS", "WEB"], "UpdateGate": ["NONE", "OPTIONAL", "REQUIRED"], "UpdateAction": ["NONE", "STORE_UPDATE", "RELOAD"]}
 }

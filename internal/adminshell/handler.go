@@ -16,6 +16,7 @@ import (
 	"github.com/yazhsab/planext4u-backend/internal/audit"
 	"github.com/yazhsab/planext4u-backend/internal/configcms"
 	"github.com/yazhsab/planext4u-backend/internal/governance"
+	"github.com/yazhsab/planext4u-backend/internal/support"
 )
 
 type AuditReader interface {
@@ -44,6 +45,10 @@ type GovernanceService interface {
 	Dashboard(governance.Actor) (governance.Dashboard, error)
 }
 
+type SupportReader interface {
+	AdminList(context.Context, support.AdminPrincipal, support.AdminListFilter) (support.AdminTicketPage, error)
+}
+
 type Config struct {
 	Sessions       SessionResolver
 	Audit          AuditReader
@@ -51,6 +56,8 @@ type Config struct {
 	CMS            CMSAuthoringService
 	CMSWorkspace   CMSWorkspaceAuthoringService
 	Governance     GovernanceService
+	Support        SupportReader
+	Reports        ReportService
 	Clock          func() time.Time
 	AllowedOrigins []string
 	RequireMFA     bool
@@ -63,6 +70,8 @@ type Handler struct {
 	cms               CMSAuthoringService
 	cmsWorkspace      CMSWorkspaceAuthoringService
 	governanceService GovernanceService
+	supportReader     SupportReader
+	reports           ReportService
 	clock             func() time.Time
 	allowedOrigins    map[string]bool
 	requireMFA        bool
@@ -80,7 +89,7 @@ func NewHandler(config Config) (http.Handler, error) {
 		}
 		origins[origin] = true
 	}
-	handler := &Handler{sessions: config.Sessions, audit: config.Audit, operations: config.Operations, cms: config.CMS, cmsWorkspace: config.CMSWorkspace, governanceService: config.Governance, clock: config.Clock, allowedOrigins: origins, requireMFA: config.RequireMFA}
+	handler := &Handler{sessions: config.Sessions, audit: config.Audit, operations: config.Operations, cms: config.CMS, cmsWorkspace: config.CMSWorkspace, governanceService: config.Governance, supportReader: config.Support, reports: config.Reports, clock: config.Clock, allowedOrigins: origins, requireMFA: config.RequireMFA}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /admin/api/v1/session", handler.session)
 	mux.HandleFunc("DELETE /admin/api/v1/session", handler.logout)
@@ -99,6 +108,16 @@ func NewHandler(config Config) (http.Handler, error) {
 	if handler.cmsWorkspace != nil {
 		mux.HandleFunc("GET /admin/api/v1/cms/workspace", handler.getCMSWorkspace)
 		mux.HandleFunc("PUT /admin/api/v1/cms/workspace/draft", handler.saveCMSWorkspaceDraft)
+	}
+	if handler.supportReader != nil {
+		mux.HandleFunc("GET /admin/api/v1/support/tickets", handler.supportTickets)
+	}
+	if handler.reports != nil {
+		mux.HandleFunc("GET /admin/api/v1/reports", handler.listReports)
+		mux.HandleFunc("GET /admin/api/v1/reports/{report_id}", handler.reportDetail)
+		mux.HandleFunc("POST /admin/api/v1/reports/{report_id}/exports", handler.createReportExport)
+		mux.HandleFunc("GET /admin/api/v1/report-exports/{export_id}", handler.reportExport)
+		mux.HandleFunc("GET /admin/api/v1/report-exports/{export_id}/download", handler.downloadReportExport)
 	}
 	return securityHeaders(mux), nil
 }
@@ -278,6 +297,9 @@ func navigation(capabilities map[string]bool) []NavigationItem {
 	if capabilities[CapabilityGovernanceRead] {
 		items = append(items, NavigationItem{ID: "governance", Label: "Governance", Path: "/governance", Capability: CapabilityGovernanceRead})
 	}
+	if capabilities[CapabilitySupportManage] {
+		items = append(items, NavigationItem{ID: "support", Label: "Support", Path: "/support", Capability: CapabilitySupportManage})
+	}
 	if capabilities[CapabilityConfigManage] {
 		items = append(items, NavigationItem{ID: "cms", Label: "Page builder", Path: "/cms", Capability: CapabilityConfigManage})
 	}
@@ -285,6 +307,42 @@ func navigation(capabilities map[string]bool) []NavigationItem {
 		items = append(items, NavigationItem{ID: "audit", Label: "Audit trail", Path: "/audit", Capability: CapabilityAuditRead})
 	}
 	return items
+}
+
+func (handler *Handler) supportTickets(writer http.ResponseWriter, request *http.Request) {
+	session, _, ok := handler.authorize(writer, request, CapabilitySupportManage)
+	if !ok {
+		return
+	}
+	limit, err := strconv.Atoi(defaultString(request.URL.Query().Get("limit"), "50"))
+	if err != nil {
+		writeProblem(writer, request, http.StatusUnprocessableEntity, "ADMIN_SUPPORT_FILTER_INVALID", "Check the support filters and try again.")
+		return
+	}
+	page, err := handler.supportReader.AdminList(request.Context(), support.AdminPrincipal{
+		TenantID: session.Principal.TenantID, Country: session.Principal.SelectedCountry,
+		Subject: session.Principal.SubjectID, Capabilities: map[string]bool{support.CapabilitySupportManage: true},
+	}, support.AdminListFilter{OwnerRole: support.Role(request.URL.Query().Get("owner_role")), Status: support.Status(request.URL.Query().Get("status")), Limit: limit, Cursor: request.URL.Query().Get("cursor")})
+	if err != nil {
+		if errors.Is(err, support.ErrForbidden) {
+			writeProblem(writer, request, http.StatusForbidden, "ADMIN_SUPPORT_FORBIDDEN", "Support tickets are not available for this role.")
+			return
+		}
+		if errors.Is(err, support.ErrInvalidRequest) {
+			writeProblem(writer, request, http.StatusUnprocessableEntity, "ADMIN_SUPPORT_FILTER_INVALID", "Check the support filters and try again.")
+			return
+		}
+		writeProblem(writer, request, http.StatusServiceUnavailable, "ADMIN_SUPPORT_UNAVAILABLE", "Support tickets are temporarily unavailable.")
+		return
+	}
+	writeJSON(writer, http.StatusOK, page)
+}
+
+func defaultString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func auditFilter(request *http.Request, selectedCountry string) (audit.SearchFilter, error) {

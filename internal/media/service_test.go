@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -88,9 +89,63 @@ func TestBEMedia001ValidationDeletionAndRetryableScan(t *testing.T) {
 	}
 }
 
+func TestBrowserPresentationsExposeOnlyReadyPublicMedia(t *testing.T) {
+	t.Parallel()
+	service, objects, _, now := mediaFixture(t)
+	publicGrant, err := service.Presign(context.Background(), "tenant-synthetic", "IN", "vendor-a", validRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects.metadata[publicGrant.Asset.ObjectKey] = ObjectMetadata{ContentType: publicGrant.Asset.ContentType, SizeBytes: publicGrant.Asset.SizeBytes, SHA256: publicGrant.Asset.SHA256}
+	if _, err := service.Complete(context.Background(), "tenant-synthetic", "vendor-a", publicGrant.Asset.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	privateRequest := validRequest()
+	privateRequest.Purpose, privateRequest.AltText, privateRequest.Width, privateRequest.Height = PurposeAvatar, "", 0, 0
+	privateGrant, err := service.Presign(context.Background(), "tenant-synthetic", "IN", "customer-a", privateRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects.metadata[privateGrant.Asset.ObjectKey] = ObjectMetadata{ContentType: privateGrant.Asset.ContentType, SizeBytes: privateGrant.Asset.SizeBytes, SHA256: privateGrant.Asset.SHA256}
+	if _, err := service.Complete(context.Background(), "tenant-synthetic", "customer-a", privateGrant.Asset.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := service.ResolvePresentations(context.Background(), "tenant-synthetic", "IN", []string{publicGrant.Asset.ID, privateGrant.Asset.ID})
+	if err != nil || len(response.Items) != 1 || response.Items[0].AssetID != publicGrant.Asset.ID || response.Items[0].AltText != "Fresh milk bottle" ||
+		response.Items[0].Width != 1200 || response.Items[0].Height != 1200 || response.Items[0].ExpiresAt == nil ||
+		!response.Items[0].ExpiresAt.Equal(now.Add(5*time.Minute)) || len(response.UnavailableAssetIDs) != 1 || response.UnavailableAssetIDs[0] != privateGrant.Asset.ID {
+		t.Fatalf("presentations=%#v err=%v", response, err)
+	}
+	if !strings.HasPrefix(response.Items[0].URL, "https://media.example/") || response.Items[0].Variants == nil {
+		t.Fatalf("unsafe or incomplete presentation=%#v", response.Items[0])
+	}
+	crossCountry, err := service.ResolvePresentations(context.Background(), "tenant-synthetic", "NG", []string{publicGrant.Asset.ID})
+	if err != nil || len(crossCountry.Items) != 0 || len(crossCountry.UnavailableAssetIDs) != 1 {
+		t.Fatalf("cross-country presentations=%#v err=%v", crossCountry, err)
+	}
+}
+
+func TestCatalogImageUploadRequiresAccessibleIntrinsicMetadata(t *testing.T) {
+	t.Parallel()
+	service, _, _, _ := mediaFixture(t)
+	for _, mutate := range []func(*PresignRequest){
+		func(value *PresignRequest) { value.AltText = "" },
+		func(value *PresignRequest) { value.Width = 0 },
+		func(value *PresignRequest) { value.Height = 20000 },
+	} {
+		request := validRequest()
+		mutate(&request)
+		if _, err := service.Presign(context.Background(), "tenant-synthetic", "IN", "vendor-a", request); !errors.Is(err, ErrInvalidRequest) {
+			t.Fatalf("invalid presentation metadata error=%v", err)
+		}
+	}
+}
+
 func validRequest() PresignRequest {
 	return PresignRequest{Purpose: PurposeCatalogImage, ContentType: "image/jpeg", SizeBytes: 4096,
-		SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+		SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", AltText: "Fresh milk bottle", Width: 1200, Height: 1200}
 }
 
 func mediaFixture(t *testing.T) (*Service, *fakeObjects, *fakeScanner, *time.Time) {
@@ -111,6 +166,10 @@ func mediaFixture(t *testing.T) (*Service, *fakeObjects, *fakeScanner, *time.Tim
 }
 
 type fakeSigner struct{}
+
+func (fakeSigner) Present(_ context.Context, key, _ string, expiresAt time.Time) (string, error) {
+	return fmt.Sprintf("https://media.example/%s?expires=%d", key, expiresAt.Unix()), nil
+}
 
 func (fakeSigner) PresignPut(_ context.Context, key string, metadata ObjectMetadata, _ time.Time) (string, map[string]string, error) {
 	return "https://uploads.example.test/" + key, map[string]string{"content-type": metadata.ContentType, "x-amz-checksum-sha256": metadata.SHA256}, nil

@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./app";
-import { adminSession, auditPage, cmsPageDraftPage, cmsWorkspaceDraft, governanceView, operationPage, problem } from "./test/fixtures";
+import { adminSession, auditPage, cmsPageDraftPage, cmsWorkspaceDraft, governanceView, operationPage, problem, reportDetail, reportExport, reportPage, supportTicketPage } from "./test/fixtures";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -67,6 +67,177 @@ describe("administrator application", () => {
     expect(screen.getAllByText(/PII masked/)).not.toHaveLength(0);
   });
 
+  it("renders country-scoped reports and submits an authorized audited export", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = requestURL(input);
+      if (path.endsWith("/governance")) return Promise.resolve(Response.json(governanceView));
+      if (path.includes("/reports?") && init?.method !== "POST") return Promise.resolve(Response.json(reportPage));
+      if (path.endsWith("/reports/social-active/exports") && init?.method === "POST") {
+        expect(new Headers(init.headers).get("X-CSRF-Token")).toBe(adminSession.csrf_token);
+        expect(new Headers(init.headers).get("X-Correlation-ID")).toMatch(/^admin-report-/);
+        expect(init.body).toContain('"format":"CSV"');
+        return Promise.resolve(Response.json(reportExport, {status: 202}));
+      }
+      return Promise.resolve(Response.json(adminSession));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/reports");
+
+    expect(await screen.findByRole("heading", {name: "Country reports"})).toBeVisible();
+    expect(screen.getByText("Socio active")).toBeVisible();
+    expect(screen.getAllByText("PII masked")).not.toHaveLength(0);
+    await user.click(screen.getByRole("button", {name: "Request CSV export for Socio active"}));
+    await user.type(screen.getByLabelText("Verified export reason"), "Quarterly operations reconciliation");
+    await user.click(screen.getByRole("button", {name: "Submit request"}));
+
+    expect(await screen.findByRole("link", {name: "Download CSV"})).toHaveAttribute("href", reportExport.download_url);
+  });
+
+  it("keeps report reads available while denying export without server authorization", async () => {
+    const restricted = {...adminSession, capabilities: adminSession.capabilities.filter((capability) => capability !== "admin.reporting.export")};
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = requestURL(input);
+      return Promise.resolve(Response.json(path.endsWith("/governance") ? governanceView : path.includes("/reports?") ? reportPage : restricted));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/reports");
+
+    expect(await screen.findByRole("heading", {name: "Country reports"})).toBeVisible();
+    expect(screen.getAllByText("Export not authorized")).toHaveLength(governanceView.metrics.length);
+    expect(screen.queryByRole("button", {name: /Request CSV export/})).not.toBeInTheDocument();
+  });
+
+  it("requires fresh authentication before requesting a report export", async () => {
+    const staleSession = {...adminSession, assurance: {...adminSession.assurance, fresh_auth: false}};
+    stubFetch((input) => input.endsWith("/governance") ? Response.json(governanceView) : input.includes("/reports?") ? Response.json(reportPage) : Response.json(staleSession));
+    renderApp("/reports");
+
+    const exportButtons = await screen.findAllByRole("button", {name: /Request CSV export/});
+    expect(exportButtons[0]).toBeDisabled();
+    expect(screen.getAllByRole("link", {name: "Re-authenticate to export"})[0]).toHaveAttribute("href", "/login?reauth=mfa");
+  });
+
+  it("does not request reports without the governance read capability", async () => {
+    const restricted = {...adminSession, capabilities: ["admin.shell.read"]};
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json(restricted)));
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/reports");
+
+    expect(await screen.findByRole("heading", {name: "Reports access unavailable"})).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders explicit empty and contract failure states for reports", async () => {
+    stubFetch((input) => input.endsWith("/governance") ? Response.json({...governanceView, metrics: []}) : input.includes("/reports?") ? Response.json({items: []}) : Response.json(adminSession));
+    const emptyView = renderApp("/reports");
+    expect(await screen.findByRole("heading", {name: "No published report metrics"})).toBeVisible();
+    emptyView.unmount();
+    vi.unstubAllGlobals();
+
+    stubFetch((input) => input.endsWith("/governance") ? problem(403, "ADMIN_GOVERNANCE_FORBIDDEN", "Reports are unavailable.") : input.includes("/reports?") ? Response.json(reportPage) : Response.json(adminSession));
+    renderApp("/reports");
+    expect(await screen.findByRole("heading", {name: "Reports could not be loaded"})).toBeVisible();
+    expect(screen.getByText(/Reference: corr-synthetic-problem/)).toBeVisible();
+  });
+
+  it("surfaces export failures and permits a safe retry", async () => {
+    const user = userEvent.setup();
+    let rejectExport = true;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = requestURL(input);
+      if (path.endsWith("/governance")) return Promise.resolve(Response.json(governanceView));
+      if (path.includes("/reports?") && init?.method !== "POST") return Promise.resolve(Response.json(reportPage));
+      if (path.endsWith("/reports/social-active/exports") && init?.method === "POST") {
+        if (rejectExport) return Promise.resolve(problem(403, "ADMIN_OPERATION_FORBIDDEN", "Export is not available."));
+        return Promise.resolve(Response.json(reportExport, {status: 202}));
+      }
+      return Promise.resolve(Response.json(adminSession));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/reports");
+
+    await screen.findByRole("heading", {name: "Country reports"});
+    await user.click(screen.getByRole("button", {name: "Request CSV export for Socio active"}));
+    await user.type(screen.getByLabelText("Verified export reason"), "Verified reporting request");
+    await user.click(screen.getByRole("button", {name: "Submit request"}));
+    expect(await screen.findByText(/Export is not available.*corr-synthetic-problem/)).toBeVisible();
+
+    rejectExport = false;
+    await user.click(screen.getByRole("button", {name: "Submit request"}));
+    expect(await screen.findByRole("link", {name: "Download CSV"})).toBeVisible();
+  });
+
+  it("renders lineage and applies report detail date filters", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => Promise.resolve(Response.json(requestURL(input).includes("/reports/social-active?") ? reportDetail : adminSession)));
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/reports/social-active");
+
+    expect(await screen.findByRole("heading", {name: "Socio active"})).toBeVisible();
+    expect(screen.getByText("governance.report_cards")).toBeVisible();
+    await user.type(screen.getByLabelText("From"), "2026-08-01");
+    await user.type(screen.getByLabelText("To"), "2026-08-31");
+    await user.click(screen.getByRole("button", {name: "Apply filters"}));
+    await waitFor(() => { expect(fetchMock.mock.calls.some(([input]) => requestURL(input).includes("from=2026-08-01"))).toBe(true); });
+  });
+
+  it("renders the country-scoped support queue without contact PII", async () => {
+    stubFetch((input) => input.includes("/support/tickets") ? Response.json(supportTicketPage) : Response.json(adminSession));
+    renderApp("/support");
+
+    expect(await screen.findByRole("heading", {name: "Support queue"})).toBeVisible();
+    expect(screen.getByText("Catalogue review needs assistance")).toBeVisible();
+    expect(screen.getByText("vendor-synthetic-001")).toBeVisible();
+    expect(screen.queryByText(/@/)).not.toBeInTheDocument();
+  });
+
+  it("filters and paginates the support queue through bounded query parameters", async () => {
+    const user = userEvent.setup();
+    const supportRequests: string[] = [];
+    stubFetch((input) => {
+      if (!input.includes("/support/tickets")) return Response.json(adminSession);
+      supportRequests.push(input);
+      return Response.json({...supportTicketPage, next_cursor: "support-cursor-2"});
+    });
+    renderApp("/support");
+
+    await screen.findByText("Catalogue review needs assistance");
+    await user.selectOptions(screen.getByLabelText("Owner role"), "VENDOR");
+    await waitFor(() => { expect(supportRequests.some((request) => request.includes("owner_role=VENDOR"))).toBe(true); });
+    await user.selectOptions(screen.getByLabelText("Status"), "WAITING_FOR_SUPPORT");
+    await waitFor(() => { expect(supportRequests.some((request) => request.includes("status=WAITING_FOR_SUPPORT"))).toBe(true); });
+    await user.click(screen.getByRole("button", {name: "Next page"}));
+    await waitFor(() => { expect(supportRequests.some((request) => request.includes("cursor=support-cursor-2"))).toBe(true); });
+  });
+
+  it("does not request support data without the server capability", async () => {
+    const restricted = {
+      ...adminSession,
+      capabilities: ["admin.shell.read"],
+      navigation: [{id: "workspace", label: "Workspace", path: "/", capability: "admin.shell.read"}],
+    };
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json(restricted)));
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/support");
+
+    expect(await screen.findByRole("heading", {name: "Support access unavailable"})).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders safe empty and failure states for the support queue", async () => {
+    stubFetch((input) => input.includes("/support/tickets") ? Response.json({items: []}) : Response.json(adminSession));
+    const first = renderApp("/support");
+    expect(await screen.findByRole("heading", {name: "No matching support tickets"})).toBeVisible();
+    first.unmount();
+    vi.unstubAllGlobals();
+
+    stubFetch((input) => input.includes("/support/tickets") ? problem(422, "ADMIN_SUPPORT_FILTER_INVALID", "Check the support filters and try again.") : Response.json(adminSession));
+    renderApp("/support");
+    expect(await screen.findByRole("heading", {name: "Support queue could not be loaded"})).toBeVisible();
+    expect(screen.getByText(/corr-synthetic-problem/)).toBeVisible();
+  });
+
   it("renders and saves the server-authorized CMS page builder", async () => {
     const user = userEvent.setup();
     const existingDraft = cmsPageDraftPage.items[0];
@@ -107,6 +278,8 @@ describe("administrator application", () => {
     await screen.findByRole("heading", {name: "CMS page builder"});
     await user.click(screen.getByRole("tab", {name: "App workspace"}));
     expect(await screen.findByRole("heading", {name: "Global app workspace"})).toBeVisible();
+    expect(screen.getByLabelText("Web minimum")).toHaveValue("1.0.0");
+    expect(screen.getByLabelText("Web latest")).toHaveValue("1.2.0");
     expect(screen.getByText("services")).toBeVisible();
     const publish = screen.getByRole("button", {name: "Request publication"});
     expect(publish).toBeEnabled();

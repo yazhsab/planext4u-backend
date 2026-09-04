@@ -345,7 +345,7 @@ func (repository *PostgresRepository) UpdateProfile(ctx context.Context, identit
 	var profile Profile
 	err = transaction.QueryRow(ctx, `
 		UPDATE identity.profiles
-		SET display_name = $3, email = $4, phone = $5, locale = $6, time_zone = $7, version = version + 1, updated_at = $8
+		SET display_name = $3, email = COALESCE($4, email), phone = COALESCE($5, phone), locale = $6, time_zone = $7, version = version + 1, updated_at = $8
 		WHERE identity_id = $1 AND version = $2
 		RETURNING display_name, email, phone, locale, time_zone, version, updated_at`,
 		identityID, update.Version, update.DisplayName, update.Email, update.Phone, update.Locale, update.TimeZone, now).Scan(

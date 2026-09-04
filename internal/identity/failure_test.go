@@ -50,6 +50,8 @@ func TestServiceValidationAndDependencyFailuresAreTyped(t *testing.T) {
 		{DisplayName: "", Locale: "en", TimeZone: "Asia/Kolkata", Version: 1},
 		{DisplayName: "Name", Locale: "fr", TimeZone: "Asia/Kolkata", Version: 1},
 		{DisplayName: "Name", Locale: "en", TimeZone: "Invalid/Zone", Version: 1},
+		{DisplayName: "Name", Email: profileString("invalid-email"), Locale: "en", TimeZone: "Asia/Kolkata", Version: 1},
+		{DisplayName: "Name", Phone: profileString("9876543210"), Locale: "en", TimeZone: "Asia/Kolkata", Version: 1},
 	} {
 		if _, err := fixture.service.UpdateProfile(context.Background(), trusted, update); !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("invalid profile %#v error = %v", update, err)
@@ -69,6 +71,8 @@ func TestServiceValidationAndDependencyFailuresAreTyped(t *testing.T) {
 		t.Fatalf("invalid session ID error = %v", err)
 	}
 }
+
+func profileString(value string) *string { return &value }
 
 func TestHandlerMapsEveryPublicFailureClassToSafeProblem(t *testing.T) {
 	t.Parallel()

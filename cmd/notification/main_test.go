@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,14 @@ import (
 
 	platformconfig "github.com/yazhsab/planext4u-backend/internal/platform/config"
 )
+
+func TestNotificationRouteNamesPreferenceDimensions(t *testing.T) {
+	t.Parallel()
+	request := httptest.NewRequest("GET", "/v1/notification/preferences/MARKETING/PUSH", nil)
+	if route := notificationRoute(request); route != "/v1/notification/preferences/{purpose}/{channel}" {
+		t.Fatalf("route = %q", route)
+	}
+}
 
 func TestNotificationRuntimeConfigurationFailsClosed(t *testing.T) {
 	t.Parallel()

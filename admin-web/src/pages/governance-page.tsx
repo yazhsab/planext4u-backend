@@ -31,6 +31,6 @@ export function GovernancePage() {
       <div><p className="eyebrow">Policy</p><h2>{view.policy_version}</h2><p>Active configuration for {view.country}. Publishing or rollback is handled as a governed operation.</p></div>
       <div><p className="eyebrow">Feature rollout</p><h2>Country flags</h2><ul className="flag-list">{Object.entries(view.feature_flags).map(([name, enabled]) => <li key={name}><Flag aria-hidden="true" size={15} /><span>{name}</span><Badge tone={enabled ? "success" : "neutral"}>{enabled ? "Enabled" : "Disabled"}</Badge></li>)}</ul></div>
     </section>
-    <div className="governance-action"><Button onClick={() => { globalThis.location.assign("/operations"); }}>Open controlled operations</Button><small>Exports require MFA and are recorded in the audit trail.</small></div>
+    <div className="governance-action"><Button asChild><a href="/reports">Open governed reports</a></Button><Button variant="secondary" onClick={() => { globalThis.location.assign("/operations"); }}>Open controlled operations</Button><small>Exports require fresh MFA and are recorded in the audit trail.</small></div>
   </div>;
 }

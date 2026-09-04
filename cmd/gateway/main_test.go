@@ -14,6 +14,7 @@ func TestLoadRuntimeConfigAcceptsSafeDevelopmentValues(t *testing.T) {
 	values["SHUTDOWN_TIMEOUT"] = "8s"
 	values["MAX_REQUEST_BYTES"] = "2048"
 	values["IP_RATE_LIMIT"] = "40"
+	values["GUEST_RATE_LIMIT"] = "12"
 	values["PRINCIPAL_RATE_LIMIT"] = "20"
 	values["RATE_WINDOW"] = "30s"
 	values["UPSTREAM_ROUTES"] = `{"/v1/auth":"http://127.0.0.1:8083","/v1/catalog":"http://127.0.0.1:8085"}`
@@ -29,6 +30,7 @@ func TestLoadRuntimeConfigAcceptsSafeDevelopmentValues(t *testing.T) {
 		config.shutdownTimeout != 8*time.Second ||
 		config.maxRequestBytes != 2048 ||
 		config.IPRateLimit != 40 ||
+		config.guestRateLimit != 12 ||
 		config.principalRateLimit != 20 ||
 		config.rateWindow != 30*time.Second {
 		t.Fatalf("config = %#v", config)
@@ -117,6 +119,13 @@ func TestLoadRuntimeConfigRejectsUnsafeValues(t *testing.T) {
 			name: "oversized request policy",
 			mutate: func(values map[string]string) {
 				values["MAX_REQUEST_BYTES"] = "999999999"
+			},
+			wantErr: "safe range",
+		},
+		{
+			name: "invalid guest rate policy",
+			mutate: func(values map[string]string) {
+				values["GUEST_RATE_LIMIT"] = "0"
 			},
 			wantErr: "safe range",
 		},

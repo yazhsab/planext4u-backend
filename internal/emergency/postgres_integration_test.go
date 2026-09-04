@@ -6,7 +6,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +24,7 @@ const (
 	emergencyResponderOne = "31000000-0000-4000-8000-000000000001"
 	emergencyResponderTwo = "31000000-0000-4000-8000-000000000002"
 	emergencyAdmin        = "41000000-0000-4000-8000-000000000001"
+	emergencyRider        = "51000000-0000-4000-8000-000000000001"
 )
 
 func TestPostgresEmergencyEncryptionAssignmentRestartLifecycleAndIsolation(t *testing.T) {
@@ -171,11 +175,28 @@ func TestPostgresEmergencyEncryptionAssignmentRestartLifecycleAndIsolation(t *te
 	if _, err := restarted.Get(wrongTenant, created.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("cross-tenant get error=%v", err)
 	}
+	riderHandler, err := NewRiderHandler(restarted, RiderDutyVerifierFunc(func(actor Actor) (bool, error) {
+		return actor.Subject == emergencyRider, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	riderRequest := httptest.NewRequest(http.MethodPost, "/v1/rider/emergency-incidents", strings.NewReader(`{"category":"ACCIDENT","description":"Rider requires urgent assistance after an accident","priority":"CRITICAL","location_consent":true,"location":{"latitude":13.08,"longitude":80.27,"accuracy_m":9}}`))
+	riderRequest.Header.Set("X-Planext4u-Tenant", emergencyTenantOne)
+	riderRequest.Header.Set("X-Planext4u-Country", "IN")
+	riderRequest.Header.Set("X-Planext4u-Subject", emergencyRider)
+	riderRequest.Header.Set("X-Planext4u-Roles", "RIDER")
+	riderRequest.Header.Set("Idempotency-Key", "rider-emergency-postgres-0001")
+	riderResponse := httptest.NewRecorder()
+	riderHandler.ServeHTTP(riderResponse, riderRequest)
+	if riderResponse.Code != http.StatusCreated || !strings.Contains(riderResponse.Body.String(), `"status":"OPEN"`) {
+		t.Fatalf("rider emergency status=%d body=%s", riderResponse.Code, riderResponse.Body.String())
+	}
 	var requests, timeline, communications, replays int
 	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM emergency.requests),(SELECT count(*) FROM emergency.timeline),(SELECT count(*) FROM emergency.communications),(SELECT count(*) FROM emergency.idempotency_records)`).Scan(&requests, &timeline, &communications, &replays); err != nil {
 		t.Fatal(err)
 	}
-	if requests != 1 || timeline != 6 || communications != 1 || replays != 6 {
+	if requests != 2 || timeline != 7 || communications != 1 || replays != 7 {
 		t.Fatalf("rows requests=%d timeline=%d messages=%d replays=%d", requests, timeline, communications, replays)
 	}
 }

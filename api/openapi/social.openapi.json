@@ -46,6 +46,17 @@
           "type": "string"
         }
       },
+      "Handle": {
+        "in": "path",
+        "name": "handle",
+        "required": true,
+        "schema": {
+          "maxLength": 30,
+          "minLength": 3,
+          "pattern": "^@?[A-Za-z0-9_]{3,30}$",
+          "type": "string"
+        }
+      },
       "IdempotencyKey": {
         "in": "header",
         "name": "Idempotency-Key",
@@ -62,6 +73,23 @@
         "required": true,
         "schema": {
           "type": "string"
+        }
+      },
+      "ListCursor": {
+        "in": "query",
+        "name": "cursor",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "ListLimit": {
+        "in": "query",
+        "name": "limit",
+        "schema": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
         }
       },
       "MediaID": {
@@ -88,6 +116,20 @@
         "required": true,
         "schema": {
           "maxLength": 128,
+          "type": "string"
+        }
+      },
+      "ProfileContentKind": {
+        "in": "query",
+        "name": "kind",
+        "required": true,
+        "schema": {
+          "enum": [
+            "POSTS",
+            "REELS",
+            "TAGGED",
+            "SAVED"
+          ],
           "type": "string"
         }
       },
@@ -177,6 +219,112 @@
         ],
         "type": "object"
       },
+      "AppealSocialMediaRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "approve": {
+            "type": "boolean"
+          },
+          "note": {
+            "maxLength": 500,
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "approve",
+          "note"
+        ],
+        "type": "object"
+      },
+      "CreateSocialCallRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "AUDIO",
+              "VIDEO"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "CreateSocialCollectionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 80,
+            "minLength": 2,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "CreateSocialCommentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "parent_id": {
+            "maxLength": 128,
+            "type": "string"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      },
+      "CreateSocialConversationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "profile_id": {
+            "maxLength": 128,
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_id"
+        ],
+        "type": "object"
+      },
+      "CreateSocialEphemeralRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "caption": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "STORY",
+              "REEL"
+            ],
+            "type": "string"
+          },
+          "media_job_id": {
+            "maxLength": 128,
+            "type": "string",
+            "x-planext4u-sensitive": true
+          }
+        },
+        "required": [
+          "caption",
+          "kind",
+          "media_job_id"
+        ],
+        "type": "object"
+      },
       "CreateSocialMediaRequest": {
         "additionalProperties": false,
         "properties": {
@@ -221,6 +369,192 @@
         "required": [
           "body",
           "media_asset_ids"
+        ],
+        "type": "object"
+      },
+      "EngageSocialPostRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "active"
+        ],
+        "type": "object"
+      },
+      "ModerateSocialReportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "REMOVE",
+              "DISMISS"
+            ],
+            "type": "string"
+          },
+          "note": {
+            "maxLength": 1000,
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision",
+          "note"
+        ],
+        "type": "object"
+      },
+      "ProcessSocialMediaRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "clean": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "clean"
+        ],
+        "type": "object"
+      },
+      "ReportSocialPostRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "details": {
+            "maxLength": 1000,
+            "minLength": 8,
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "SPAM",
+              "HARASSMENT",
+              "HATE",
+              "VIOLENCE",
+              "NUDITY",
+              "MISINFORMATION",
+              "OTHER"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "details",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "SendSocialMessageRequest": {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "body"
+            ]
+          },
+          {
+            "required": [
+              "voice_media_id"
+            ]
+          }
+        ],
+        "properties": {
+          "body": {
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "voice_media_id": {
+            "maxLength": 128,
+            "type": "string",
+            "x-planext4u-sensitive": true
+          }
+        },
+        "type": "object"
+      },
+      "SetSocialCollectionPostRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "post_id": {
+            "maxLength": 128,
+            "type": "string"
+          }
+        },
+        "required": [
+          "active",
+          "post_id"
+        ],
+        "type": "object"
+      },
+      "SetSocialHighlightRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "active"
+        ],
+        "type": "object"
+      },
+      "SetSocialPresenceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "enum": [
+              "ONLINE",
+              "AWAY",
+              "OFFLINE"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "SetSocialRelationshipRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "BLOCK",
+              "MUTE",
+              "NONE"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "SignalSocialCallRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "payload": {
+            "maxLength": 16384,
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "OFFER",
+              "ANSWER",
+              "ICE",
+              "END"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "payload",
+          "type"
         ],
         "type": "object"
       },
@@ -501,6 +835,9 @@
             "type": "string",
             "x-planext4u-sensitive": true
           },
+          "media_asset_id": {
+            "type": "string"
+          },
           "status": {
             "type": "string"
           }
@@ -510,6 +847,7 @@
           "author",
           "kind",
           "media_job_id",
+          "media_asset_id",
           "caption",
           "status",
           "highlighted",
@@ -805,6 +1143,108 @@
           "details"
         ],
         "type": "object"
+      },
+      "SocialCommentPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SocialComment"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "next_cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "SocialConversationPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SocialConversation"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "next_cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "SocialDirectMessagePage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SocialDirectMessage"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "next_cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "SocialEphemeralPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SocialEphemeral"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "next_cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "SocialProfileContentPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SocialPost"
+                },
+                {
+                  "$ref": "#/components/schemas/SocialEphemeral"
+                }
+              ]
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "next_cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -832,6 +1272,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppealSocialMediaRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -859,6 +1309,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProcessSocialMediaRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -915,6 +1375,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModerateSocialReportRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -933,6 +1403,7 @@
     "/v1/moderation/retention/purge": {
       "post": {
         "operationId": "purgeSocialRetention",
+        "x-planext4u-bodyless-command": true,
         "responses": {
           "200": {
             "content": {
@@ -966,6 +1437,16 @@
             "$ref": "#/components/parameters/CallID"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignalSocialCallRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -988,6 +1469,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSocialCollectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -1013,6 +1504,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSocialCollectionPostRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1030,24 +1531,20 @@
     "/v1/social/conversations": {
       "get": {
         "operationId": "listSocialConversations",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ListCursor"
+          },
+          {
+            "$ref": "#/components/parameters/ListLimit"
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "items": {
-                      "items": {
-                        "$ref": "#/components/schemas/SocialConversation"
-                      },
-                      "type": "array"
-                    }
-                  },
-                  "required": [
-                    "items"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/SocialConversationPage"
                 }
               }
             },
@@ -1062,6 +1559,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSocialConversationRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -1079,6 +1586,7 @@
     "/v1/social/conversations/{conversation_id}/accept": {
       "post": {
         "operationId": "acceptSocialConversation",
+        "x-planext4u-bodyless-command": true,
         "parameters": [
           {
             "$ref": "#/components/parameters/ConversationID"
@@ -1112,6 +1620,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSocialCallRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -1132,6 +1650,12 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/ConversationID"
+          },
+          {
+            "$ref": "#/components/parameters/ListCursor"
+          },
+          {
+            "$ref": "#/components/parameters/ListLimit"
           }
         ],
         "responses": {
@@ -1139,19 +1663,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "items": {
-                      "items": {
-                        "$ref": "#/components/schemas/SocialDirectMessage"
-                      },
-                      "type": "array"
-                    }
-                  },
-                  "required": [
-                    "items"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/SocialDirectMessagePage"
                 }
               }
             },
@@ -1169,6 +1681,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendSocialMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -1186,24 +1708,20 @@
     "/v1/social/ephemeral": {
       "get": {
         "operationId": "listSocialEphemeral",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ListCursor"
+          },
+          {
+            "$ref": "#/components/parameters/ListLimit"
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "items": {
-                      "items": {
-                        "$ref": "#/components/schemas/SocialEphemeral"
-                      },
-                      "type": "array"
-                    }
-                  },
-                  "required": [
-                    "items"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/SocialEphemeralPage"
                 }
               }
             },
@@ -1218,6 +1736,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSocialEphemeralRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -1243,6 +1771,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSocialHighlightRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1296,6 +1834,7 @@
     "/v1/social/follow-requests/{follower_id}/accept": {
       "post": {
         "operationId": "acceptSocialFollow",
+        "x-planext4u-bodyless-command": true,
         "parameters": [
           {
             "$ref": "#/components/parameters/FollowerID"
@@ -1353,6 +1892,7 @@
     "/v1/social/media/{media_id}/appeals": {
       "post": {
         "operationId": "appealSocialMedia",
+        "x-planext4u-bodyless-command": true,
         "parameters": [
           {
             "$ref": "#/components/parameters/MediaID"
@@ -1383,6 +1923,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSocialPostRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -1403,6 +1953,12 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/PostID"
+          },
+          {
+            "$ref": "#/components/parameters/ListCursor"
+          },
+          {
+            "$ref": "#/components/parameters/ListLimit"
           }
         ],
         "responses": {
@@ -1425,6 +1981,12 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/PostID"
+          },
+          {
+            "$ref": "#/components/parameters/ListCursor"
+          },
+          {
+            "$ref": "#/components/parameters/ListLimit"
           }
         ],
         "responses": {
@@ -1432,19 +1994,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "items": {
-                      "items": {
-                        "$ref": "#/components/schemas/SocialComment"
-                      },
-                      "type": "array"
-                    }
-                  },
-                  "required": [
-                    "items"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/SocialCommentPage"
                 }
               }
             },
@@ -1462,6 +2012,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSocialCommentRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -1490,6 +2050,16 @@
             "$ref": "#/components/parameters/IfMatch"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EngageSocialPostRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1515,6 +2085,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportSocialPostRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -1543,6 +2123,16 @@
             "$ref": "#/components/parameters/IfMatch"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EngageSocialPostRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1592,9 +2182,41 @@
         }
       }
     },
+    "/v1/social/profile-handles/{handle}": {
+      "get": {
+        "operationId": "getSocialProfileByHandle",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Handle"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialProfile"
+                }
+              }
+            },
+            "description": "Tenant and country scoped profile resolved case-insensitively by handle"
+          }
+        }
+      }
+    },
     "/v1/social/presence": {
       "put": {
         "operationId": "setSocialPresence",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSocialPresenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1653,9 +2275,41 @@
         }
       }
     },
+    "/v1/social/profiles/{profile_id}/content": {
+      "get": {
+        "operationId": "listSocialProfileContent",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProfileID"
+          },
+          {
+            "$ref": "#/components/parameters/ProfileContentKind"
+          },
+          {
+            "$ref": "#/components/parameters/ListCursor"
+          },
+          {
+            "$ref": "#/components/parameters/ListLimit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialProfileContentPage"
+                }
+              }
+            },
+            "description": "Privacy-filtered profile posts, reels, tagged content, or owner-only saved posts"
+          }
+        }
+      }
+    },
     "/v1/social/profiles/{profile_id}/follow": {
       "post": {
         "operationId": "followSocialProfile",
+        "x-planext4u-bodyless-command": true,
         "parameters": [
           {
             "$ref": "#/components/parameters/ProfileID"
@@ -1689,6 +2343,16 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSocialRelationshipRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

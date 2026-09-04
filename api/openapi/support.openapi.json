@@ -1,0 +1,305 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Planext4u Support API",
+    "version": "1.0.0"
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/v1/support/tickets": {
+      "post": {
+        "operationId": "supportCreateTicket",
+        "description": "Creates a tenant-, country-, subject-, and role-owned support ticket. The selected owner role must be present in the authenticated principal.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTicketRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Idempotent replay of the existing ticket",
+            "headers": {
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "const": "true"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ticket"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Ticket created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ticket"
+                }
+              }
+            }
+          },
+          "403": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "get": {
+        "operationId": "supportListTickets",
+        "description": "Lists tickets owned by the authenticated subject in one selected role.",
+        "parameters": [
+          {"$ref": "#/components/parameters/OwnerRole"},
+          {"$ref": "#/components/parameters/Limit"},
+          {"$ref": "#/components/parameters/Cursor"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Role-owned tickets",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/TicketPage"}
+              }
+            }
+          },
+          "403": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/v1/support/tickets/{ticket_id}": {
+      "get": {
+        "operationId": "supportGetTicket",
+        "description": "Returns a ticket only when the authenticated subject owns it in one of its authenticated roles.",
+        "parameters": [{"$ref": "#/components/parameters/TicketID"}],
+        "responses": {
+          "200": {
+            "description": "Owned ticket and chronological messages",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Ticket"}
+              }
+            }
+          },
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/v1/support/tickets/{ticket_id}/messages": {
+      "post": {
+        "operationId": "supportAddTicketMessage",
+        "description": "Adds one requester message to an owned ticket with durable idempotency.",
+        "parameters": [
+          {"$ref": "#/components/parameters/TicketID"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/AddMessageRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Idempotent replay of the updated ticket",
+            "headers": {
+              "Idempotency-Replayed": {
+                "schema": {"type": "string", "const": "true"}
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Ticket"}
+              }
+            }
+          },
+          "201": {
+            "description": "Message created and ticket returned",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Ticket"}
+              }
+            }
+          },
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/internal/v1/support/tickets": {
+      "get": {
+        "operationId": "supportAdminListTickets",
+        "description": "Returns a country-scoped support queue to principals with admin.support.manage. The admin BFF derives the same projection from its server-side session.",
+        "security": [{"internalCapability": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/OptionalOwnerRole"},
+          {"$ref": "#/components/parameters/Status"},
+          {"$ref": "#/components/parameters/AdminLimit"},
+          {"$ref": "#/components/parameters/Cursor"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Country-scoped support administration queue",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AdminTicketPage"}
+              }
+            }
+          },
+          "403": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"},
+      "internalCapability": {"type": "apiKey", "in": "header", "name": "X-Planext4u-Capabilities", "description": "Gateway-derived internal capability; callers cannot supply this header directly."}
+    },
+    "responses": {
+      "Problem": {
+        "description": "Safe standard error",
+        "content": {
+          "application/problem+json": {
+            "schema": {"$ref": "./common.openapi.json#/components/schemas/ErrorEnvelope"}
+          }
+        }
+      }
+    },
+    "parameters": {
+      "TicketID": {"name": "ticket_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+      "IdempotencyKey": {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 8, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"}},
+      "OwnerRole": {"name": "owner_role", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Role"}},
+      "OptionalOwnerRole": {"name": "owner_role", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/Role"}},
+      "Status": {"name": "status", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/TicketStatus"}},
+      "Limit": {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20}},
+      "AdminLimit": {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+      "Cursor": {"name": "cursor", "in": "query", "required": false, "schema": {"type": "string", "maxLength": 256}}
+    },
+    "schemas": {
+      "Role": {"type": "string", "enum": ["CUSTOMER", "VENDOR", "RIDER"]},
+      "TicketCategory": {"type": "string", "enum": ["ACCOUNT", "ORDER", "PAYMENT", "VENDOR_OPERATIONS", "RIDER_OPERATIONS", "OTHER"]},
+      "TicketPriority": {"type": "string", "enum": ["LOW", "NORMAL", "HIGH", "URGENT"]},
+      "TicketStatus": {"type": "string", "enum": ["OPEN", "WAITING_FOR_SUPPORT", "WAITING_FOR_REQUESTER", "RESOLVED", "CLOSED"]},
+      "MessageAuthorType": {"type": "string", "enum": ["REQUESTER", "SUPPORT"]},
+      "CreateTicketRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["owner_role", "category", "subject", "description"],
+        "properties": {
+          "owner_role": {"$ref": "#/components/schemas/Role"},
+          "category": {"$ref": "#/components/schemas/TicketCategory"},
+          "subject": {"type": "string", "minLength": 4, "maxLength": 160},
+          "description": {"type": "string", "minLength": 2, "maxLength": 8000},
+          "related_reference": {"type": "string", "maxLength": 128},
+          "priority": {"$ref": "#/components/schemas/TicketPriority"}
+        }
+      },
+      "AddMessageRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["body"],
+        "properties": {"body": {"type": "string", "minLength": 1, "maxLength": 8000}}
+      },
+      "TicketMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "author_type", "body", "created_at"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "author_type": {"$ref": "#/components/schemas/MessageAuthorType"},
+          "body": {"type": "string"},
+          "created_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "Ticket": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "owner_role", "category", "subject", "priority", "status", "messages", "created_at", "updated_at"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "owner_role": {"$ref": "#/components/schemas/Role"},
+          "category": {"$ref": "#/components/schemas/TicketCategory"},
+          "subject": {"type": "string"},
+          "related_reference": {"type": "string"},
+          "priority": {"$ref": "#/components/schemas/TicketPriority"},
+          "status": {"$ref": "#/components/schemas/TicketStatus"},
+          "messages": {"type": "array", "items": {"$ref": "#/components/schemas/TicketMessage"}},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "TicketPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/Ticket"}},
+          "next_cursor": {"type": "string"}
+        }
+      },
+      "AdminTicket": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "owner_role", "owner_reference", "category", "subject", "priority", "status", "message_count", "last_message_at", "created_at", "updated_at"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "owner_role": {"$ref": "#/components/schemas/Role"},
+          "owner_reference": {"type": "string", "description": "Opaque identity reference; no contact PII is exposed."},
+          "category": {"$ref": "#/components/schemas/TicketCategory"},
+          "subject": {"type": "string"},
+          "related_reference": {"type": "string"},
+          "priority": {"$ref": "#/components/schemas/TicketPriority"},
+          "status": {"$ref": "#/components/schemas/TicketStatus"},
+          "message_count": {"type": "integer", "minimum": 0},
+          "last_message_at": {"type": "string", "format": "date-time"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "AdminTicketPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/AdminTicket"}},
+          "next_cursor": {"type": "string"}
+        }
+      }
+    }
+  },
+  "x-planext4u-owner": "support",
+  "x-planext4u-reviewers": ["security", "privacy", "product"],
+  "x-planext4u-classification": "confidential",
+  "x-planext4u-slo-class": "standard"
+}

@@ -281,13 +281,15 @@ function WorkspaceEditor({session}: {session: AdminSession}) {
 
   return (
     <section className="cms-editor cms-workspace-editor">
-      <div className="cms-panel-heading"><div><h2>Global app workspace</h2><p>Revision {String(revision)} · {dirty ? "Unsaved changes" : "Draft saved"}</p></div><span className="badge"><Settings2 aria-hidden="true" size={14} /> Mobile configuration</span></div>
-      <div className="cms-section-heading"><div><h3>Release versions</h3><p>Minimum and latest versions used by Android and iOS bootstrap.</p></div></div>
-      <div className="cms-form-grid cms-four-columns">
+      <div className="cms-panel-heading"><div><h2>Global app workspace</h2><p>Revision {String(revision)} · {dirty ? "Unsaved changes" : "Draft saved"}</p></div><span className="badge"><Settings2 aria-hidden="true" size={14} /> Client configuration</span></div>
+      <div className="cms-section-heading"><div><h3>Release versions</h3><p>Minimum and latest versions used by Android, iOS and WEB bootstrap.</p></div></div>
+      <div className="cms-form-grid">
         <label>Android minimum<input value={workspace.minimum_versions.ANDROID} onChange={(event) => { update({...workspace, minimum_versions: {...workspace.minimum_versions, ANDROID: event.target.value}}); }} /></label>
         <label>Android latest<input value={workspace.latest_versions.ANDROID} onChange={(event) => { update({...workspace, latest_versions: {...workspace.latest_versions, ANDROID: event.target.value}}); }} /></label>
         <label>iOS minimum<input value={workspace.minimum_versions.IOS} onChange={(event) => { update({...workspace, minimum_versions: {...workspace.minimum_versions, IOS: event.target.value}}); }} /></label>
         <label>iOS latest<input value={workspace.latest_versions.IOS} onChange={(event) => { update({...workspace, latest_versions: {...workspace.latest_versions, IOS: event.target.value}}); }} /></label>
+        <label>Web minimum<input value={workspace.minimum_versions.WEB} onChange={(event) => { update({...workspace, minimum_versions: {...workspace.minimum_versions, WEB: event.target.value}}); }} /></label>
+        <label>Web latest<input value={workspace.latest_versions.WEB} onChange={(event) => { update({...workspace, latest_versions: {...workspace.latest_versions, WEB: event.target.value}}); }} /></label>
       </div>
 
       <div className="cms-section-heading"><div><h3>Feature flags</h3><p>Server-published module and capability switches.</p></div></div>

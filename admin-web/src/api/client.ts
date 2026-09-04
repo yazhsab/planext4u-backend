@@ -14,12 +14,19 @@ export type CMSPageDraft = components["schemas"]["CMSPageDraft"];
 export type CMSPageDraftPage = components["schemas"]["CMSPageDraftPage"];
 export type CMSWorkspace = components["schemas"]["Workspace"];
 export type CMSWorkspaceDraft = components["schemas"]["CMSWorkspaceDraft"];
+export type AdminSupportTicket = components["schemas"]["AdminTicket"];
+export type AdminSupportTicketPage = components["schemas"]["AdminTicketPage"];
+export type ReportSummary = components["schemas"]["ReportSummary"];
+export type ReportPage = components["schemas"]["ReportPage"];
+export type ReportDetail = components["schemas"]["ReportDetail"];
+export type ReportExport = components["schemas"]["ReportExport"];
+export type CreateReportExportRequest = components["schemas"]["CreateReportExportRequest"];
 
 const roleSchema = z.enum(["SUPER_ADMIN", "COUNTRY_ADMIN", "CONTENT_ADMIN", "SUPPORT_ADMIN", "AUDITOR"]);
 const navigationSchema = z.object({
   id: z.string().min(1).max(64),
   label: z.string().min(1).max(80),
-  path: z.enum(["/", "/operations", "/governance", "/cms", "/audit"]),
+  path: z.enum(["/", "/operations", "/governance", "/support", "/cms", "/audit"]),
   capability: z.string().min(1).max(128),
 });
 const sessionSchema = z.object({
@@ -87,6 +94,70 @@ const governanceSchema = z.object({
   privacy_mode: z.literal("aggregate_and_masked"),
   generated_at: z.iso.datetime({offset: true}),
 });
+const reportSummarySchema = z.object({
+  id: z.string().min(1).max(128),
+  title: z.string().min(1).max(240),
+  domain: z.string().min(1).max(128),
+  metric: z.string().min(1).max(128),
+  value: z.number().int(),
+  unit: z.string().min(1).max(128),
+  freshness: z.iso.datetime({offset: true}),
+  masked: z.boolean(),
+  export_policy: z.literal("MFA_AND_AUDIT_REQUIRED"),
+});
+const reportPageSchema = z.object({items: z.array(reportSummarySchema).max(50), next_cursor: z.string().max(512).optional()});
+const reportDetailSchema = z.object({
+  report: reportSummarySchema,
+  country: z.string().regex(/^[A-Z]{2}$/),
+  from: z.iso.datetime({offset: true}).optional(),
+  to: z.iso.datetime({offset: true}).optional(),
+  items: z.array(z.object({
+    label: z.string(),
+    dimensions: z.record(z.string(), z.string()),
+    value: z.number().int(),
+    unit: z.string(),
+  })).max(50),
+  next_cursor: z.string().max(512).optional(),
+  lineage: z.object({
+    source_projection: z.string(),
+    aggregation: z.string(),
+    freshness: z.iso.datetime({offset: true}),
+    generated_at: z.iso.datetime({offset: true}),
+  }),
+});
+const reportExportSchema = z.object({
+  id: z.string().regex(/^report-export-[a-f0-9]{32}$/),
+  report_id: z.string().min(1).max(128),
+  format: z.literal("CSV"),
+  status: z.enum(["PROCESSING", "READY", "FAILED"]),
+  content_type: z.literal("text/csv; charset=utf-8").optional(),
+  file_name: z.string().regex(/^[A-Za-z0-9._:-]+\.csv$/).optional(),
+  checksum_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  size_bytes: z.number().int().positive().optional(),
+  download_url: z.string().regex(/^\/admin\/api\/v1\/report-exports\//).optional(),
+  expires_at: z.iso.datetime({offset: true}),
+  created_at: z.iso.datetime({offset: true}),
+});
+const supportRoleSchema = z.enum(["CUSTOMER", "VENDOR", "RIDER"]);
+const supportStatusSchema = z.enum(["OPEN", "WAITING_FOR_SUPPORT", "WAITING_FOR_REQUESTER", "RESOLVED", "CLOSED"]);
+const supportTicketSchema = z.object({
+  id: z.uuid(),
+  owner_role: supportRoleSchema,
+  owner_reference: z.string().min(1).max(128),
+  category: z.enum(["ACCOUNT", "ORDER", "PAYMENT", "VENDOR_OPERATIONS", "RIDER_OPERATIONS", "OTHER"]),
+  subject: z.string().min(4).max(160),
+  related_reference: z.string().min(1).max(128).optional(),
+  priority: z.enum(["LOW", "NORMAL", "HIGH", "URGENT"]),
+  status: supportStatusSchema,
+  message_count: z.number().int().positive(),
+  last_message_at: z.iso.datetime({offset: true}),
+  created_at: z.iso.datetime({offset: true}),
+  updated_at: z.iso.datetime({offset: true}),
+});
+const supportTicketPageSchema = z.object({
+  items: z.array(supportTicketSchema).max(100),
+  next_cursor: z.string().max(512).optional(),
+});
 const pageBlockSchema = z.object({
   id: z.string().min(1).max(128),
   kind: z.string().min(1).max(64),
@@ -114,10 +185,10 @@ const cmsPageDraftSchema = z.object({
 const cmsPageDraftPageSchema = z.object({items: z.array(cmsPageDraftSchema)});
 const semanticVersionSchema = z.string().regex(/^\d+\.\d+\.\d+$/);
 const workspaceSchema = z.object({
-  minimum_versions: z.object({ANDROID: semanticVersionSchema, IOS: semanticVersionSchema}),
-  latest_versions: z.object({ANDROID: semanticVersionSchema, IOS: semanticVersionSchema}),
-  supported_locales: z.array(z.enum(["en", "ta"])).min(1).max(2),
-  default_locale: z.enum(["en", "ta"]),
+  minimum_versions: z.object({ANDROID: semanticVersionSchema, IOS: semanticVersionSchema, WEB: semanticVersionSchema}),
+  latest_versions: z.object({ANDROID: semanticVersionSchema, IOS: semanticVersionSchema, WEB: semanticVersionSchema}),
+  supported_locales: z.array(z.enum(["en", "ta", "hi", "te", "kn", "ml", "mr", "bn", "gu"])).min(1).max(9),
+  default_locale: z.enum(["en", "ta", "hi", "te", "kn", "ml", "mr", "bn", "gu"]),
   consent_policies: z.array(z.object({
     purpose: z.string().min(1).max(128),
     policy_version: z.string().min(1).max(128),
@@ -229,6 +300,53 @@ export function listOperations(signal?: AbortSignal): Promise<AdminOperationPage
 
 export function getGovernance(signal?: AbortSignal): Promise<GovernanceView> {
   return requestJSON("/admin/api/v1/governance", governanceSchema, {signal});
+}
+
+export type ReportFilters = {domain?: string; from?: string; to?: string; cursor?: string; limit?: number};
+
+export function listReports(filters: Pick<ReportFilters, "domain" | "cursor" | "limit"> = {}, signal?: AbortSignal): Promise<ReportPage> {
+  const query = new URLSearchParams();
+  if (filters.domain) query.set("domain", filters.domain);
+  if (filters.cursor) query.set("cursor", filters.cursor);
+  query.set("limit", String(filters.limit ?? 20));
+  return requestJSON(`/admin/api/v1/reports?${query.toString()}`, reportPageSchema, {signal});
+}
+
+export function getReportDetail(reportID: string, filters: Pick<ReportFilters, "from" | "to" | "cursor" | "limit"> = {}, signal?: AbortSignal): Promise<ReportDetail> {
+  const query = new URLSearchParams();
+  if (filters.from) query.set("from", filters.from);
+  if (filters.to) query.set("to", filters.to);
+  if (filters.cursor) query.set("cursor", filters.cursor);
+  query.set("limit", String(filters.limit ?? 20));
+  return requestJSON(`/admin/api/v1/reports/${encodeURIComponent(reportID)}?${query.toString()}`, reportDetailSchema, {signal});
+}
+
+export function createReportExport(reportID: string, input: CreateReportExportRequest, csrfToken: string): Promise<ReportExport> {
+  return requestJSON(`/admin/api/v1/reports/${encodeURIComponent(reportID)}/exports`, reportExportSchema, {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken, "X-Correlation-ID": `admin-report-${globalThis.crypto.randomUUID()}`},
+    body: JSON.stringify(input),
+  });
+}
+
+export function getReportExport(exportID: string, signal?: AbortSignal): Promise<ReportExport> {
+  return requestJSON(`/admin/api/v1/report-exports/${encodeURIComponent(exportID)}`, reportExportSchema, {signal});
+}
+
+export type SupportTicketFilters = {
+  ownerRole?: "CUSTOMER" | "VENDOR" | "RIDER";
+  status?: "OPEN" | "WAITING_FOR_SUPPORT" | "WAITING_FOR_REQUESTER" | "RESOLVED" | "CLOSED";
+  cursor?: string;
+  limit?: number;
+};
+
+export function listSupportTickets(filters: SupportTicketFilters = {}, signal?: AbortSignal): Promise<AdminSupportTicketPage> {
+  const query = new URLSearchParams();
+  if (filters.ownerRole) query.set("owner_role", filters.ownerRole);
+  if (filters.status) query.set("status", filters.status);
+  if (filters.cursor) query.set("cursor", filters.cursor);
+  query.set("limit", String(filters.limit ?? 50));
+  return requestJSON(`/admin/api/v1/support/tickets?${query.toString()}`, supportTicketPageSchema, {signal});
 }
 
 export function listCMSPageDrafts(signal?: AbortSignal): Promise<CMSPageDraftPage> {

@@ -1,6 +1,32 @@
 {
   "components": {
     "parameters": {
+      "Cuisine": {
+        "in": "query",
+        "name": "cuisine",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "IdempotencyKey": {
+        "in": "header",
+        "name": "Idempotency-Key",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "minLength": 16,
+          "type": "string"
+        }
+      },
+      "IfMatch": {
+        "in": "header",
+        "name": "If-Match",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
       "OrderID": {
         "in": "path",
         "name": "order_id",
@@ -14,6 +40,16 @@
         "name": "restaurant_id",
         "required": true,
         "schema": {
+          "type": "string"
+        }
+      },
+      "PostalCode": {
+        "in": "query",
+        "name": "postal_code",
+        "required": false,
+        "schema": {
+          "maxLength": 12,
+          "minLength": 3,
           "type": "string"
         }
       }
@@ -278,6 +314,27 @@
           "postal_code",
           "subtotal",
           "tax"
+        ],
+        "type": "object"
+      },
+      "FoodOrderRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "cart_id": {
+            "type": "string"
+          },
+          "payment_method": {
+            "enum": [
+              "WALLET",
+              "RAZORPAY",
+              "PAYSTACK"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "cart_id",
+          "payment_method"
         ],
         "type": "object"
       },
@@ -555,6 +612,45 @@
           "verified"
         ],
         "type": "object"
+      },
+      "RestaurantTransitionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ACCEPTED",
+              "REJECTED",
+              "PREPARING",
+              "READY"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "DispatchTransitionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "RIDER_ASSIGNED",
+              "PICKED_UP",
+              "DELIVERED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -574,6 +670,21 @@
     "/v1/food-carts": {
       "post": {
         "operationId": "priceFoodCart",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FoodCartRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -618,6 +729,21 @@
       },
       "post": {
         "operationId": "createFoodOrder",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FoodOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -660,8 +786,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/OrderID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DispatchTransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -682,8 +824,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/OrderID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestaurantTransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -701,6 +859,14 @@
     "/v1/restaurants": {
       "get": {
         "operationId": "listRestaurants",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PostalCode"
+          },
+          {
+            "$ref": "#/components/parameters/Cuisine"
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -733,6 +899,9 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/RestaurantID"
+          },
+          {
+            "$ref": "#/components/parameters/PostalCode"
           }
         ],
         "responses": {

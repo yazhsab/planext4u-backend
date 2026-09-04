@@ -38,6 +38,20 @@ func TestIdentityMigrationStoresOnlyRefreshDigestsAndRequiredConstraints(t *test
 	}
 }
 
+func TestIdentityLocaleMigrationAllowsTheApprovedNine(t *testing.T) {
+	t.Parallel()
+	contents, err := os.ReadFile("../../migrations/identity/000003_profile_locales.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := string(contents)
+	for _, locale := range []string{"'en'", "'ta'", "'hi'", "'te'", "'kn'", "'ml'", "'mr'", "'bn'", "'gu'"} {
+		if !strings.Contains(schema, locale) {
+			t.Errorf("identity locale migration is missing %s", locale)
+		}
+	}
+}
+
 func TestPersistenceAndHandlerRejectMissingDependencies(t *testing.T) {
 	t.Parallel()
 	if _, err := NewPostgresRepository(nil); !errors.Is(err, ErrInvalidConfiguration) {

@@ -20,3 +20,17 @@ ports; their credentials remain outside this service and repository.
 metadata mismatch, malware rejection, retryable scanner failure, deletion and
 IDOR denial. The OpenAPI compatibility baseline protects all four v1
 operations and terminal states.
+
+BE-009 adds the public presentation boundary without weakening the owner-only
+lifecycle above. `POST /v1/media/presentations:resolve` returns only READY,
+PUBLIC `CATALOG_IMAGE` assets for the trusted tenant and country. Each response
+contains an HTTPS or same-origin URL, content type, intrinsic dimensions,
+required alt text, typed responsive variants and a five-minute expiry; missing,
+private, rejected and cross-country asset IDs are returned only as unavailable.
+The service never exposes or asks a client to derive an object key.
+
+Catalog-image upload grants now require bounded width, height and alt text.
+PostgreSQL stores that metadata through migration
+`media/000003_browser_presentations`, and the S3 adapter signs GET requests
+through the same bounded presentation port. Production storage endpoints and
+signing credentials remain environment-specific release configuration.

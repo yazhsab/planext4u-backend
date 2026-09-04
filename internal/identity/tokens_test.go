@@ -88,6 +88,42 @@ func TestJWTIssuerProducesGatewayCompatibleRS256Claims(t *testing.T) {
 		strings.Join(principal.Roles, ",") != "CUSTOMER,VENDOR" {
 		t.Fatalf("verified principal = %#v", principal)
 	}
+
+	guestToken, _, err := issuer.Issue(Principal{
+		Subject: "guest_synthetic_001", Session: "guest_session_synthetic_001",
+		TenantID: "tenant_synthetic_001", Country: "IN", Roles: []Role{RoleGuest}, AuthTime: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	guestSegments := strings.Split(guestToken, ".")
+	guestClaimsBytes, err := base64.RawURLEncoding.DecodeString(guestSegments[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var guestClaims map[string]any
+	if err := json.Unmarshal(guestClaimsBytes, &guestClaims); err != nil {
+		t.Fatal(err)
+	}
+	if guestClaims["acr"] != "urn:planext4u:loa:guest" ||
+		strings.Join(interfaceStrings(guestClaims["amr"]), ",") != "guest_session" {
+		t.Fatalf("guest claims = %#v", guestClaims)
+	}
+	verifiedGuest, err := verifier.Verify(context.Background(), guestToken)
+	if err != nil || strings.Join(verifiedGuest.Roles, ",") != "GUEST" || verifiedGuest.Country != "IN" {
+		t.Fatalf("verified guest = %#v err=%v", verifiedGuest, err)
+	}
+}
+
+func interfaceStrings(value any) []string {
+	values, _ := value.([]any)
+	result := make([]string, 0, len(values))
+	for _, item := range values {
+		if text, ok := item.(string); ok {
+			result = append(result, text)
+		}
+	}
+	return result
 }
 
 func TestRefreshTokensAreOpaqueHashedAndDomainSeparated(t *testing.T) {

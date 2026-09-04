@@ -26,6 +26,7 @@ import (
 	"github.com/yazhsab/planext4u-backend/internal/platform/logging"
 	"github.com/yazhsab/planext4u-backend/internal/platform/server"
 	"github.com/yazhsab/planext4u-backend/internal/platform/telemetry"
+	"github.com/yazhsab/planext4u-backend/internal/support"
 )
 
 var version = "dev"
@@ -176,8 +177,23 @@ func run() int {
 		logger.Error("configure durable governance dashboard", "error", err)
 		return 2
 	}
+	reportService, err := adminshell.NewPostgresReportService(pool, time.Now, exchangeSecret)
+	if err != nil {
+		logger.Error("configure governed report service", "error", err)
+		return 2
+	}
+	supportRepository, err := support.NewPostgresRepository(pool)
+	if err != nil {
+		logger.Error("configure administrator support repository", "error", err)
+		return 2
+	}
+	supportService, err := support.NewService(supportRepository, time.Now)
+	if err != nil {
+		logger.Error("configure administrator support service", "error", err)
+		return 2
+	}
 	adminHandler, err := adminshell.NewHandler(adminshell.Config{
-		Sessions: sessions, Audit: auditService, Operations: operations, CMS: authoring, CMSWorkspace: workspaceAuthoring, Governance: governanceService, Clock: time.Now,
+		Sessions: sessions, Audit: auditService, Operations: operations, CMS: authoring, CMSWorkspace: workspaceAuthoring, Governance: governanceService, Support: supportService, Reports: reportService, Clock: time.Now,
 		AllowedOrigins: runtime.allowedOrigins, RequireMFA: runtime.requireMFA,
 	})
 	if err != nil {
@@ -205,7 +221,7 @@ func run() int {
 	dependenciesReady := func(ctx context.Context) error {
 		for _, check := range []func(context.Context) error{
 			pool.Ping, sessions.Ready, operations.Ready, domainExecutor.Ready, controlExecutor.Ready,
-			configurationRepository.Ready, auditRepository.Ready, governanceService.Ready,
+			configurationRepository.Ready, auditRepository.Ready, governanceService.Ready, supportRepository.Ready, reportService.Ready,
 		} {
 			if err := check(ctx); err != nil {
 				return err
@@ -400,8 +416,8 @@ func adminRoute(request *http.Request) string {
 	case path == "/internal/v1/admin-sessions":
 		return path
 	case path == "/admin/api/v1/session", path == "/admin/api/v1/session/country", path == "/admin/api/v1/audit/events",
-		path == "/admin/api/v1/operations", path == "/admin/api/v1/operations/audit", path == "/admin/api/v1/governance", path == "/admin/api/v1/cms/pages",
-		path == "/admin/api/v1/cms/workspace", path == "/admin/api/v1/cms/workspace/draft":
+		path == "/admin/api/v1/operations", path == "/admin/api/v1/operations/audit", path == "/admin/api/v1/governance", path == "/admin/api/v1/support/tickets", path == "/admin/api/v1/cms/pages",
+		path == "/admin/api/v1/cms/workspace", path == "/admin/api/v1/cms/workspace/draft", path == "/admin/api/v1/reports":
 		return path
 	default:
 		parts := strings.Split(strings.Trim(path, "/"), "/")
@@ -410,6 +426,18 @@ func adminRoute(request *http.Request) string {
 		}
 		if len(parts) == 7 && strings.Join(parts[:5], "/") == "admin/api/v1/cms/pages" && parts[5] != "" && parts[6] == "draft" {
 			return "/admin/api/v1/cms/pages/{page_id}/draft"
+		}
+		if len(parts) == 5 && strings.Join(parts[:4], "/") == "admin/api/v1/reports" && parts[4] != "" {
+			return "/admin/api/v1/reports/{report_id}"
+		}
+		if len(parts) == 6 && strings.Join(parts[:4], "/") == "admin/api/v1/reports" && parts[4] != "" && parts[5] == "exports" {
+			return "/admin/api/v1/reports/{report_id}/exports"
+		}
+		if len(parts) == 5 && strings.Join(parts[:4], "/") == "admin/api/v1/report-exports" && parts[4] != "" {
+			return "/admin/api/v1/report-exports/{export_id}"
+		}
+		if len(parts) == 6 && strings.Join(parts[:4], "/") == "admin/api/v1/report-exports" && parts[4] != "" && parts[5] == "download" {
+			return "/admin/api/v1/report-exports/{export_id}/download"
 		}
 		return "unmatched"
 	}

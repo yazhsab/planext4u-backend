@@ -1,6 +1,7 @@
 {
   "operations": [
     {"method": "POST", "path": "/v1/media/uploads"},
+    {"method": "POST", "path": "/v1/media/presentations:resolve"},
     {"method": "POST", "path": "/v1/media/{asset_id}/complete"},
     {"method": "GET", "path": "/v1/media/{asset_id}"},
     {"method": "DELETE", "path": "/v1/media/{asset_id}"}
@@ -8,7 +9,11 @@
   "required_properties": {
     "PresignRequest": ["purpose", "content_type", "size_bytes", "sha256"],
     "UploadGrant": ["asset", "upload_url", "headers", "expires_at"],
-    "Asset": ["id", "purpose", "content_type", "size_bytes", "sha256", "state", "created_at", "upload_expires_at", "version"]
+    "Asset": ["id", "purpose", "content_type", "size_bytes", "sha256", "state", "created_at", "upload_expires_at", "version"],
+    "ResponsiveVariant": ["url", "width", "height"],
+    "MediaPresentation": ["asset_id", "url", "content_type", "width", "height", "alt_text", "variants", "expires_at"],
+    "PresentationRequest": ["asset_ids"],
+    "PresentationResponse": ["items", "unavailable_asset_ids"]
   },
   "enum_values": {
     "MediaPurpose": ["AVATAR", "CATALOG_IMAGE", "COMPLETION_PROOF", "IDENTITY_DOCUMENT"],

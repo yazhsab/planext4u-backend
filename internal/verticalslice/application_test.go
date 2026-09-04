@@ -80,8 +80,8 @@ func TestBEVSlice001LoginLocationHomeAndCatalog(t *testing.T) {
 	page := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/pages/customer-home?locale=en", "", authPayload.Tokens.AccessToken)
 	assertVerticalResponse(t, page, http.StatusOK, `"id":"customer-home"`, `"kind":"HERO"`, `"kind":"PRODUCT_RAIL"`, `"kind":"SERVICE_RAIL"`)
 
-	home := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/home", "", authPayload.Tokens.AccessToken)
-	assertVerticalResponse(t, home, http.StatusOK, `"name":"Daily needs"`, `"name":"Fresh milk"`)
+	home := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/home?postal_code=600001", "", authPayload.Tokens.AccessToken)
+	assertVerticalResponse(t, home, http.StatusOK, `"name":"Daily needs"`, `"name":"Fresh milk"`, `"popular-services"`, `"price_display":"From ₹200.00"`, `"serviceable":true`)
 
 	catalog := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/catalog/items?category_id=daily-needs", "", authPayload.Tokens.AccessToken)
 	assertVerticalResponse(t, catalog, http.StatusOK, `"currency":"INR"`, `"name":"Weekly groceries"`)
@@ -177,6 +177,53 @@ func TestVerticalSliceCustomerConsentJourney(t *testing.T) {
 	assertVerticalResponse(t, recorded, http.StatusOK, `"purpose":"LOCATION_SERVICEABILITY"`, `"granted":true`, `"version":1`)
 	listed := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/me/consents", "", authPayload.Tokens.AccessToken)
 	assertVerticalResponse(t, listed, http.StatusOK, `"policy_version":"location-2026-01"`, `"version":1`)
+}
+
+func TestVerticalSliceNotificationPreferencesAndDevicesForAllMobileRoles(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 1, 8, 30, 0, 0, time.UTC)
+	application, err := New(Config{
+		SigningKey: []byte("synthetic-staging-key-32-bytes-minimum-value"),
+		Clock:      func() time.Time { return now },
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(application)
+	t.Cleanup(server.Close)
+
+	for _, role := range []struct {
+		name          string
+		providerToken string
+	}{
+		{name: "customer", providerToken: "synthetic-customer"},
+		{name: "vendor", providerToken: "synthetic-vendor"},
+		{name: "rider", providerToken: "synthetic-rider"},
+	} {
+		role := role
+		t.Run(role.name, func(t *testing.T) {
+			deviceID := "device-notification-" + role.name + "-001"
+			authentication := verticalRequest(t, server.Client(), http.MethodPost, server.URL+"/v1/auth/exchange", `{"provider":"local","provider_token":"`+role.providerToken+`","device_id":"`+deviceID+`","country":"IN"}`, "")
+			var authPayload struct {
+				Tokens struct {
+					AccessToken string `json:"access_token"`
+				} `json:"tokens"`
+			}
+			decodeVerticalJSON(t, authentication, &authPayload)
+
+			current := verticalRequest(t, server.Client(), http.MethodGet, server.URL+"/v1/notification/preferences/MARKETING/PUSH", "", authPayload.Tokens.AccessToken)
+			assertVerticalResponse(t, current, http.StatusOK, `"purpose":"MARKETING"`, `"channel":"PUSH"`, `"enabled":false`, `"version":1`)
+			updated := verticalRequest(t, server.Client(), http.MethodPut, server.URL+"/v1/notification/preferences/MARKETING/PUSH", `{"enabled":true,"expected_version":1}`, authPayload.Tokens.AccessToken)
+			assertVerticalResponse(t, updated, http.StatusOK, `"enabled":true`, `"version":2`)
+
+			token := "fcm_registration_token_synthetic_" + role.name + "_0001"
+			registered := verticalRequest(t, server.Client(), http.MethodPut, server.URL+"/v1/notifications/devices/current", `{"platform":"ANDROID","locale":"en","token":"`+token+`"}`, authPayload.Tokens.AccessToken)
+			assertVerticalResponse(t, registered, http.StatusOK, `"enabled":true`, `"device_reference"`)
+			unregistered := verticalRequest(t, server.Client(), http.MethodDelete, server.URL+"/v1/notifications/devices/current", "", authPayload.Tokens.AccessToken)
+			assertVerticalResponse(t, unregistered, http.StatusNoContent)
+		})
+	}
 }
 
 func TestBEVSlicePhase3CheckoutCODOrderAndWallet(t *testing.T) {

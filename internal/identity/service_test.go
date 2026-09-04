@@ -147,6 +147,7 @@ func TestProfileConsentAndSessionOwnership(t *testing.T) {
 	if first.IdentityID != second.IdentityID || first.Session.ID == second.Session.ID {
 		t.Fatalf("provider identity/session mapping is incorrect: first=%#v second=%#v", first, second)
 	}
+	fixture.setProfileContacts(first.IdentityID, "customer@example.test", "+919876543210")
 	trusted := trustedFor(first)
 	profile, err := fixture.service.UpdateProfile(context.Background(), trusted, ProfileUpdate{
 		DisplayName: "தமிழ் வாடிக்கையாளர்",
@@ -154,14 +155,26 @@ func TestProfileConsentAndSessionOwnership(t *testing.T) {
 		TimeZone:    "Asia/Kolkata",
 		Version:     1,
 	})
-	if err != nil || profile.Version != 2 || profile.Locale != "ta" {
+	if err != nil || profile.Version != 2 || profile.Locale != "ta" || profile.Email != "customer@example.test" || profile.Phone != "+919876543210" {
 		t.Fatalf("UpdateProfile() = %#v, %v", profile, err)
+	}
+	updatedEmail, updatedPhone := "  UPDATED@EXAMPLE.TEST ", " +441234567890 "
+	profile, err = fixture.service.UpdateProfile(context.Background(), trusted, ProfileUpdate{
+		DisplayName: "தமிழ் வாடிக்கையாளர்",
+		Email:       &updatedEmail,
+		Phone:       &updatedPhone,
+		Locale:      "ta",
+		TimeZone:    "Asia/Kolkata",
+		Version:     2,
+	})
+	if err != nil || profile.Version != 3 || profile.Email != "updated@example.test" || profile.Phone != "+441234567890" {
+		t.Fatalf("explicit contact update = %#v, %v", profile, err)
 	}
 	if _, err := fixture.service.UpdateProfile(context.Background(), trusted, ProfileUpdate{
 		DisplayName: "Stale update",
 		Locale:      "en",
 		TimeZone:    "Asia/Kolkata",
-		Version:     1,
+		Version:     2,
 	}); !errors.Is(err, ErrVersionConflict) {
 		t.Fatalf("stale profile update error = %v", err)
 	}
@@ -200,6 +213,26 @@ func TestProfileConsentAndSessionOwnership(t *testing.T) {
 	}
 }
 
+func TestProfileAcceptsEveryApprovedLocale(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	authentication := fixture.exchange(t, "provider-profile-locales", "device-profile-locales")
+	trusted := trustedFor(authentication)
+	version := int64(1)
+	for _, locale := range []string{"en", "ta", "hi", "te", "kn", "ml", "mr", "bn", "gu"} {
+		profile, err := fixture.service.UpdateProfile(context.Background(), trusted, ProfileUpdate{
+			DisplayName: "Locale profile",
+			Locale:      locale,
+			TimeZone:    "Asia/Kolkata",
+			Version:     version,
+		})
+		if err != nil || profile.Locale != locale || profile.Version != version+1 {
+			t.Fatalf("UpdateProfile(locale=%q) = %#v, %v", locale, profile, err)
+		}
+		version = profile.Version
+	}
+}
+
 func TestIssuerFailureRevokesCreatedSession(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
@@ -221,6 +254,34 @@ func TestIssuerFailureRevokesCreatedSession(t *testing.T) {
 		if session.RevokedAt == nil {
 			t.Fatalf("session remained active after signing failure: %#v", session)
 		}
+	}
+}
+
+func TestCreateGuestSessionIsCountryScopedAndAccessOnly(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+
+	guest, err := fixture.service.CreateGuestSession(" gb ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if guest.AccessToken == "" || guest.SessionID == "" || guest.Country != "GB" ||
+		guest.TokenType != "Bearer" || guest.AccessExpiresAt.IsZero() {
+		t.Fatalf("guest session = %#v", guest)
+	}
+	if len(fixture.repository.sessions) != 0 || len(fixture.repository.identities) != 0 {
+		t.Fatalf("guest session was persisted as a customer: sessions=%d identities=%d", len(fixture.repository.sessions), len(fixture.repository.identities))
+	}
+	fixture.issuer.mu.Lock()
+	issued := fixture.issuer.last
+	fixture.issuer.mu.Unlock()
+	if issued.Subject == "" || issued.Session != guest.SessionID || issued.Country != "GB" ||
+		len(issued.Roles) != 1 || issued.Roles[0] != RoleGuest || issued.DeviceID != "" {
+		t.Fatalf("issued principal = %#v", issued)
+	}
+
+	if _, err := fixture.service.CreateGuestSession("US"); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("unsupported country error = %v", err)
 	}
 }
 
@@ -276,6 +337,15 @@ func (fixture *serviceFixture) exchange(t *testing.T, providerToken, deviceID st
 	return result
 }
 
+func (fixture *serviceFixture) setProfileContacts(identityID, email, phone string) {
+	fixture.repository.mu.Lock()
+	defer fixture.repository.mu.Unlock()
+	account := fixture.repository.identities[identityID]
+	account.Profile.Email = email
+	account.Profile.Phone = phone
+	fixture.repository.identities[identityID] = account
+}
+
 func trustedFor(authentication Authentication) TrustedIdentity {
 	return TrustedIdentity{
 		Subject:  authentication.IdentityID,
@@ -300,15 +370,17 @@ type fakeTokenIssuer struct {
 	mu    sync.Mutex
 	calls int
 	err   error
+	last  Principal
 }
 
-func (issuer *fakeTokenIssuer) Issue(Principal) (string, time.Time, error) {
+func (issuer *fakeTokenIssuer) Issue(principal Principal) (string, time.Time, error) {
 	issuer.mu.Lock()
 	defer issuer.mu.Unlock()
 	if issuer.err != nil {
 		return "", time.Time{}, issuer.err
 	}
 	issuer.calls++
+	issuer.last = principal
 	return fmt.Sprintf("access-synthetic-%d", issuer.calls), time.Date(2026, 8, 27, 10, 10, 0, 0, time.UTC), nil
 }
 

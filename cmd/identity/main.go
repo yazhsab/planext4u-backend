@@ -35,8 +35,12 @@ type runtimeConfig struct {
 	keyID               string
 	privateKeyFile      string
 	refreshHMACKeyFile  string
+	guestHMACKeyFile    string
 	accessTTL           time.Duration
 	sessionTTL          time.Duration
+	guestMaxSkew        time.Duration
+	guestRateWindow     time.Duration
+	guestRateLimit      int
 	shutdownTimeout     time.Duration
 	logLevel            string
 	databaseMaxConns    int32
@@ -77,6 +81,11 @@ func run() int {
 	refreshHasher, err := identity.NewHMACRefreshHasher(refreshHMACKey)
 	if err != nil {
 		logger.Error("configure refresh hashing", "error", err)
+		return 2
+	}
+	guestHMACKey, err := readSecretFile(config.guestHMACKeyFile, 1024)
+	if err != nil {
+		logger.Error("load guest-session exchange key", "error", "guest-session exchange key file is unavailable or invalid")
 		return 2
 	}
 	databaseURL, err := readSecretFile(config.databaseURLFile, 4096)
@@ -145,10 +154,13 @@ func run() int {
 		logger.Error("configure identity service", "error", err)
 		return 2
 	}
-	handler, err := identity.NewHandler(service, func() bool {
+	handler, err := identity.NewHandlerWithGuestSessions(service, func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		return repository.Ready(ctx) == nil
+	}, identity.GuestSessionHTTPConfig{
+		Secret: guestHMACKey, MaxSkew: config.guestMaxSkew,
+		RateLimit: config.guestRateLimit, RateWindow: config.guestRateWindow,
 	})
 	if err != nil {
 		logger.Error("configure identity HTTP handler", "error", err)
@@ -203,8 +215,12 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 		keyID:               requiredValue(lookup, "JWT_KEY_ID"),
 		privateKeyFile:      requiredValue(lookup, "JWT_PRIVATE_KEY_FILE"),
 		refreshHMACKeyFile:  requiredValue(lookup, "REFRESH_HMAC_KEY_FILE"),
+		guestHMACKeyFile:    requiredValue(lookup, "GUEST_SESSION_HMAC_KEY_FILE"),
 		accessTTL:           10 * time.Minute,
 		sessionTTL:          30 * 24 * time.Hour,
+		guestMaxSkew:        time.Minute,
+		guestRateWindow:     time.Minute,
+		guestRateLimit:      120,
 		shutdownTimeout:     10 * time.Second,
 		logLevel:            valueOrDefault(lookup, "LOG_LEVEL", "info"),
 		databaseMaxConns:    50,
@@ -219,11 +235,13 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 	}
 	config.providerBaseURL = providerURL
 	durationValues := map[string]*time.Duration{
-		"PROVIDER_TIMEOUT":      &config.providerTimeout,
-		"ACCESS_TTL":            &config.accessTTL,
-		"SESSION_TTL":           &config.sessionTTL,
-		"SHUTDOWN_TIMEOUT":      &config.shutdownTimeout,
-		"DATABASE_MAX_LIFETIME": &config.databaseMaxLifetime,
+		"PROVIDER_TIMEOUT":          &config.providerTimeout,
+		"ACCESS_TTL":                &config.accessTTL,
+		"SESSION_TTL":               &config.sessionTTL,
+		"GUEST_SESSION_MAX_SKEW":    &config.guestMaxSkew,
+		"GUEST_SESSION_RATE_WINDOW": &config.guestRateWindow,
+		"SHUTDOWN_TIMEOUT":          &config.shutdownTimeout,
+		"DATABASE_MAX_LIFETIME":     &config.databaseMaxLifetime,
 	}
 	for key, destination := range durationValues {
 		if value, exists := lookup(key); exists && strings.TrimSpace(value) != "" {
@@ -246,6 +264,13 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 			*destination = int32(parsed)
 		}
 	}
+	if value, exists := lookup("GUEST_SESSION_RATE_LIMIT"); exists && strings.TrimSpace(value) != "" {
+		parsed, parseErr := strconv.Atoi(strings.TrimSpace(value))
+		if parseErr != nil {
+			return runtimeConfig{}, fmt.Errorf("GUEST_SESSION_RATE_LIMIT must be an integer")
+		}
+		config.guestRateLimit = parsed
+	}
 	if config.environment != "development" && config.environment != "staging" && config.environment != "production" {
 		return runtimeConfig{}, fmt.Errorf("APP_ENV must be development, staging, or production")
 	}
@@ -263,11 +288,15 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 	if config.databaseURLFile == "" || config.tenantID == "" || config.issuer == "" ||
 		config.audience == "" || config.keyID == "" || config.privateKeyFile == "" ||
 		config.refreshHMACKeyFile == "" || len(config.allowedCountries) == 0 ||
+		config.guestHMACKeyFile == "" ||
 		uuid.Validate(config.tenantID) != nil ||
 		strings.ContainsAny(config.keyID, " \t\r\n") || len(config.keyID) > 128 ||
 		config.providerTimeout <= 0 || config.providerTimeout > 15*time.Second ||
 		config.accessTTL < time.Minute || config.accessTTL > 15*time.Minute ||
 		config.sessionTTL < time.Hour || config.sessionTTL > 90*24*time.Hour ||
+		config.guestMaxSkew < time.Second || config.guestMaxSkew > 5*time.Minute ||
+		config.guestRateWindow < time.Second || config.guestRateWindow > time.Hour ||
+		config.guestRateLimit < 1 || config.guestRateLimit > 100_000 ||
 		config.shutdownTimeout <= 0 || config.shutdownTimeout > 2*time.Minute ||
 		config.databaseMaxConns < 1 || config.databaseMaxConns > 500 ||
 		config.databaseMinConns < 0 || config.databaseMinConns > config.databaseMaxConns ||

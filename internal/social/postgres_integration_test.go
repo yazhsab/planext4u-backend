@@ -223,6 +223,15 @@ func TestPostgresSocialDurabilityPrivacyConcurrencyRewardsAndRetention(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The ephemeral projection joins social.media_jobs.media_asset_id; assert the
+	// owning asset is resolved on both the write-back and the listing paths.
+	if story.MediaAssetID != socialAssetOne || story.MediaJobID != approved.ID {
+		t.Fatalf("story=%#v", story)
+	}
+	stories, err := restarted.Ephemeral(one)
+	if err != nil || len(stories) != 1 || stories[0].ID != story.ID || stories[0].MediaAssetID != socialAssetOne {
+		t.Fatalf("stories=%#v err=%v", stories, err)
+	}
 	collection, _, err := restarted.CreateCollection(one, "social-collection-create-01", "Local favourites")
 	if err != nil {
 		t.Fatal(err)

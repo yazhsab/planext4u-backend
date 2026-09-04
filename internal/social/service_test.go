@@ -116,6 +116,60 @@ func TestBEP5004NestedCommentsReportAndMFAModeration(t *testing.T) {
 	}
 }
 
+func TestSocialHandleAndPrivateProfileContentBoundaries(t *testing.T) {
+	service := testService(t)
+	viewer := socialActorFor("customer-synthetic-001", "CUSTOMER", false)
+	private := socialActorFor("customer-private-001", "CUSTOMER", false)
+
+	profile, err := service.ProfileByHandle(viewer, "@PUBLIC_USER")
+	if err != nil || profile.ID != "customer-public-001" {
+		t.Fatalf("resolved profile=%#v err=%v", profile, err)
+	}
+	if _, err := service.ProfileContent(viewer, private.Subject, "POSTS"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("private content error=%v", err)
+	}
+	if _, _, err := service.Follow(viewer, "profile-content-follow-0001", private.Subject); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.AcceptFollow(private, "profile-content-accept-0001", viewer.Subject); err != nil {
+		t.Fatal(err)
+	}
+	items, err := service.ProfileContent(viewer, private.Subject, "POSTS")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("private content=%#v err=%v", items, err)
+	}
+	post, err := service.Post(viewer, "social-post-public-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.SetSave(viewer, "profile-content-save-0001", post.ID, post.Revision, true); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := service.ProfileContent(viewer, viewer.Subject, "SAVED")
+	if err != nil || len(saved) != 1 {
+		t.Fatalf("saved content=%#v err=%v", saved, err)
+	}
+	if _, _, err := service.SetRelationship(private, "profile-content-block-0001", viewer.Subject, "BLOCK"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ProfileByHandle(viewer, "private_user"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("blocked handle error=%v", err)
+	}
+}
+
+func TestSocialListCursorScopeAndLimits(t *testing.T) {
+	first, cursor, err := paginateSocial([]int{1, 2, 3}, "", 1, "comments:post-1")
+	if err != nil || len(first) != 1 || cursor == "" {
+		t.Fatalf("first=%v cursor=%q err=%v", first, cursor, err)
+	}
+	if _, _, err := paginateSocial([]int{1, 2, 3}, cursor, 1, "messages:conversation-1"); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("cross-scope cursor error=%v", err)
+	}
+	if _, _, err := paginateSocial([]int{1}, "", maximumSocialPageLimit+1, "comments:post-1"); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("maximum limit error=%v", err)
+	}
+}
+
 func testService(t *testing.T) *Service {
 	t.Helper()
 	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)

@@ -1,0 +1,18 @@
+{
+  "operations": [
+    {"method": "GET", "path": "/web/v1/customer/session"},
+    {"method": "POST", "path": "/web/v1/customer/session"},
+    {"method": "DELETE", "path": "/web/v1/customer/session"},
+    {"method": "POST", "path": "/web/v1/customer/session/refresh"}
+  ],
+  "required_properties": {
+    "CustomerWebSessionInput": ["mode", "country"],
+    "CustomerWebSession": ["session_id", "tenant_id", "country", "display_name", "roles", "guest", "csrf_token", "access_expires_at", "session_expires_at"],
+    "Problem": ["error"],
+    "ProblemDetail": ["code", "message", "correlation_id", "retryable"]
+  },
+  "enum_values": {
+    "CustomerWebSessionMode": ["GUEST", "AUTHENTICATED"],
+    "CustomerRole": ["GUEST", "CUSTOMER", "VENDOR", "RIDER"]
+  }
+}

@@ -87,13 +87,18 @@ func NewService(config Configuration, clock func() time.Time) (*Service, error) 
 	return service, nil
 }
 
-func (service *Service) SearchHomes(actor Actor, filter HomeSearch) ([]HomeListing, error) {
-	if !customer(actor) {
-		return nil, ErrForbidden
+func (service *Service) SearchHomes(actor Actor, filter HomeSearch) (HomePage, error) {
+	limit, cursor, err := listingPageBounds(filter.Limit, filter.Cursor)
+	if !browserReader(actor) {
+		return HomePage{}, ErrForbidden
+	}
+	if err != nil || filter.MinPrice < 0 || filter.MaxPrice < 0 || filter.MaxPrice > 0 && filter.MinPrice > filter.MaxPrice {
+		return HomePage{}, ErrInvalidRequest
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	query, locality := strings.ToLower(strings.TrimSpace(filter.Query)), strings.ToLower(strings.TrimSpace(filter.Locality))
+	now := service.clock().UTC()
 	values := []HomeListing{}
 	for _, item := range service.homes {
 		if item.tenantID != actor.TenantID || item.country != actor.Country || item.Status != "ACTIVE" {
@@ -120,16 +125,32 @@ func (service *Service) SearchHomes(actor Actor, filter HomeSearch) ([]HomeListi
 		values = append(values, presentHome(actor, *item))
 	}
 	sort.Slice(values, func(i, j int) bool {
-		if (values[i].FeaturedUntil != nil) != (values[j].FeaturedUntil != nil) {
-			return values[i].FeaturedUntil != nil
+		leftFeatured, rightFeatured := homeFeatured(values[i], now), homeFeatured(values[j], now)
+		if leftFeatured != rightFeatured {
+			return leftFeatured
 		}
-		return values[i].UpdatedAt.After(values[j].UpdatedAt)
+		if !values[i].UpdatedAt.Equal(values[j].UpdatedAt) {
+			return values[i].UpdatedAt.After(values[j].UpdatedAt)
+		}
+		return values[i].ID > values[j].ID
 	})
-	return values, nil
+	page := HomePage{Items: []HomeListing{}}
+	for _, value := range values {
+		if !listingIsAfterCursor(homeFeatured(value, now), value.UpdatedAt, value.ID, cursor) {
+			continue
+		}
+		if len(page.Items) == limit {
+			last := page.Items[len(page.Items)-1]
+			page.NextCursor = encodeListingCursor(homeFeatured(last, now), last.UpdatedAt, last.ID)
+			break
+		}
+		page.Items = append(page.Items, value)
+	}
+	return page, nil
 }
 
 func (service *Service) Home(actor Actor, id string) (HomeListing, error) {
-	if !customer(actor) || !safeID(id) {
+	if !browserReader(actor) || !safeID(id) {
 		return HomeListing{}, ErrForbidden
 	}
 	service.mu.Lock()
@@ -268,9 +289,13 @@ func (service *Service) UpgradeHome(actor Actor, key, id, plan string) (HomeList
 	return presentHome(actor, *value), false, nil
 }
 
-func (service *Service) BrowseClassifieds(actor Actor, query, category, locality string) ([]ClassifiedListing, error) {
-	if !customer(actor) {
-		return nil, ErrForbidden
+func (service *Service) BrowseClassifieds(actor Actor, filter ClassifiedSearch) (ClassifiedPage, error) {
+	limit, cursor, err := listingPageBounds(filter.Limit, filter.Cursor)
+	if !browserReader(actor) {
+		return ClassifiedPage{}, ErrForbidden
+	}
+	if err != nil {
+		return ClassifiedPage{}, ErrInvalidRequest
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -282,23 +307,44 @@ func (service *Service) BrowseClassifieds(actor Actor, query, category, locality
 		if item.tenantID != actor.TenantID || item.country != actor.Country || item.Status != "PUBLISHED" {
 			continue
 		}
-		if query != "" && !strings.Contains(strings.ToLower(item.Title+" "+item.Description), strings.ToLower(query)) {
+		if filter.Query != "" && !strings.Contains(strings.ToLower(item.Title+" "+item.Description), strings.ToLower(filter.Query)) {
 			continue
 		}
-		if category != "" && !strings.EqualFold(item.Category, category) {
+		if filter.Category != "" && !strings.EqualFold(item.Category, filter.Category) {
 			continue
 		}
-		if locality != "" && !strings.Contains(strings.ToLower(item.Locality), strings.ToLower(locality)) {
+		if filter.Locality != "" && !strings.Contains(strings.ToLower(item.Locality), strings.ToLower(filter.Locality)) {
 			continue
 		}
 		values = append(values, presentClassified(actor, *item))
 	}
-	sort.Slice(values, func(i, j int) bool { return values[i].UpdatedAt.After(values[j].UpdatedAt) })
-	return values, nil
+	sort.Slice(values, func(i, j int) bool {
+		leftFeatured, rightFeatured := classifiedFeatured(values[i], now), classifiedFeatured(values[j], now)
+		if leftFeatured != rightFeatured {
+			return leftFeatured
+		}
+		if !values[i].UpdatedAt.Equal(values[j].UpdatedAt) {
+			return values[i].UpdatedAt.After(values[j].UpdatedAt)
+		}
+		return values[i].ID > values[j].ID
+	})
+	page := ClassifiedPage{Items: []ClassifiedListing{}}
+	for _, value := range values {
+		if !listingIsAfterCursor(classifiedFeatured(value, now), value.UpdatedAt, value.ID, cursor) {
+			continue
+		}
+		if len(page.Items) == limit {
+			last := page.Items[len(page.Items)-1]
+			page.NextCursor = encodeListingCursor(classifiedFeatured(last, now), last.UpdatedAt, last.ID)
+			break
+		}
+		page.Items = append(page.Items, value)
+	}
+	return page, nil
 }
 
 func (service *Service) Classified(actor Actor, id string) (ClassifiedListing, error) {
-	if !customer(actor) || !safeID(id) {
+	if !browserReader(actor) || !safeID(id) {
 		return ClassifiedListing{}, ErrForbidden
 	}
 	service.mu.Lock()
@@ -456,7 +502,10 @@ func (service *Service) estimate(value HomeListing) HomeEstimate {
 func presentHome(actor Actor, value HomeListing) HomeListing {
 	value.Amenities, value.MediaAssetIDs = append([]string(nil), value.Amenities...), append([]string(nil), value.MediaAssetIDs...)
 	value.Estimate.Factors = cloneMap(value.Estimate.Factors)
-	value.AllowedActions = []string{"INQUIRE", "SCHEDULE_VISIT", "VIEW_ESTIMATE"}
+	value.AllowedActions = []string{}
+	if customer(actor) {
+		value.AllowedActions = []string{"INQUIRE", "SCHEDULE_VISIT", "VIEW_ESTIMATE"}
+	}
 	if value.OwnerID == actor.Subject {
 		value.AllowedActions = []string{"EDIT", "UPGRADE"}
 		if value.Status == "DRAFT" && value.KYCVerified {
@@ -470,7 +519,10 @@ func presentClassified(actor Actor, value ClassifiedListing) ClassifiedListing {
 	value.MediaAssetIDs = append([]string(nil), value.MediaAssetIDs...)
 	value.contact = ""
 	value.ContactRevealed = ""
-	value.AllowedActions = []string{"CONTACT", "REPORT"}
+	value.AllowedActions = []string{}
+	if customer(actor) {
+		value.AllowedActions = []string{"CONTACT", "REPORT"}
+	}
 	if value.OwnerID == actor.Subject {
 		value.AllowedActions = []string{"EDIT", "UPGRADE"}
 		if value.Status == "EXPIRED" {
@@ -489,6 +541,9 @@ func validClassified(value ClassifiedRequest) bool {
 }
 
 func customer(actor Actor) bool { return validActor(actor) && hasRole(actor, "CUSTOMER") }
+func browserReader(actor Actor) bool {
+	return customer(actor) || validActor(actor) && len(actor.Roles) == 1 && hasRole(actor, "GUEST")
+}
 func admin(actor Actor) bool {
 	return validActor(actor) && actor.MFAVerified && (hasRole(actor, "CONTENT_ADMIN") || hasRole(actor, "SUPER_ADMIN") || hasRole(actor, "MODERATOR"))
 }

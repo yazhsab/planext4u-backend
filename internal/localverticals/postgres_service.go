@@ -65,21 +65,43 @@ func (service *PostgresService) Ready(ctx context.Context) error {
 	return nil
 }
 
-func (service *PostgresService) SearchHomes(actor Actor, filter HomeSearch) ([]HomeListing, error) {
-	if !postgresLocalActor(actor) || !customer(actor) || filter.MinPrice < 0 || filter.MaxPrice < 0 || filter.MaxPrice > 0 && filter.MinPrice > filter.MaxPrice {
-		return nil, ErrForbidden
+func (service *PostgresService) SearchHomes(actor Actor, filter HomeSearch) (HomePage, error) {
+	limit, cursor, cursorErr := listingPageBounds(filter.Limit, filter.Cursor)
+	if !postgresLocalActor(actor) || !browserReader(actor) {
+		return HomePage{}, ErrForbidden
+	}
+	if cursorErr != nil || filter.MinPrice < 0 || filter.MaxPrice < 0 || filter.MaxPrice > 0 && filter.MinPrice > filter.MaxPrice {
+		return HomePage{}, ErrInvalidRequest
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), localVerticalOperationTimeout)
 	defer cancel()
-	rows, err := service.pool.Query(ctx, homeSelect+` WHERE tenant_id=$1 AND country=$2 AND status='ACTIVE' AND ($3='' OR title ILIKE '%'||$3||'%' OR locality ILIKE '%'||$3||'%' OR array_to_string(amenities,' ') ILIKE '%'||$3||'%') AND ($4='' OR locality ILIKE '%'||$4||'%') AND ($5='' OR property_type=upper($5)) AND ($6='' OR purpose=upper($6)) AND ($7=0 OR price_amount_minor>=$7) AND ($8=0 OR price_amount_minor<=$8) ORDER BY (featured_until>$9) DESC,updated_at DESC`, actor.TenantID, actor.Country, strings.TrimSpace(filter.Query), strings.TrimSpace(filter.Locality), strings.TrimSpace(filter.PropertyType), strings.TrimSpace(filter.Purpose), filter.MinPrice, filter.MaxPrice, service.Now())
-	if err != nil {
-		return nil, err
+	now := service.Now()
+	cursorPresent, cursorFeatured, cursorUpdated, cursorID := cursor != nil, 0, time.Unix(0, 0).UTC(), ""
+	if cursor != nil {
+		if cursor.Featured {
+			cursorFeatured = 1
+		}
+		cursorUpdated, cursorID = time.Unix(0, cursor.Updated).UTC(), cursor.ID
 	}
-	return scanHomes(rows, actor)
+	rows, err := service.pool.Query(ctx, homeSelect+` WHERE tenant_id=$1 AND country=$2 AND status='ACTIVE' AND ($3='' OR title ILIKE '%'||$3||'%' OR locality ILIKE '%'||$3||'%' OR array_to_string(amenities,' ') ILIKE '%'||$3||'%') AND ($4='' OR locality ILIKE '%'||$4||'%') AND ($5='' OR property_type=upper($5)) AND ($6='' OR purpose=upper($6)) AND ($7=0 OR price_amount_minor>=$7) AND ($8=0 OR price_amount_minor<=$8) AND (NOT $10 OR CASE WHEN featured_until>$9 THEN 1 ELSE 0 END<$11 OR (CASE WHEN featured_until>$9 THEN 1 ELSE 0 END=$11 AND (updated_at<$12 OR (updated_at=$12 AND id::text<$13)))) ORDER BY (featured_until>$9) DESC,updated_at DESC,id DESC LIMIT $14`, actor.TenantID, actor.Country, strings.TrimSpace(filter.Query), strings.TrimSpace(filter.Locality), strings.TrimSpace(filter.PropertyType), strings.TrimSpace(filter.Purpose), filter.MinPrice, filter.MaxPrice, now, cursorPresent, cursorFeatured, cursorUpdated, cursorID, limit+1)
+	if err != nil {
+		return HomePage{}, err
+	}
+	values, err := scanHomes(rows, actor)
+	if err != nil {
+		return HomePage{}, err
+	}
+	page := HomePage{Items: values}
+	if len(values) > limit {
+		page.Items = values[:limit]
+		last := page.Items[len(page.Items)-1]
+		page.NextCursor = encodeListingCursor(homeFeatured(last, now), last.UpdatedAt, last.ID)
+	}
+	return page, nil
 }
 
 func (service *PostgresService) Home(actor Actor, id string) (HomeListing, error) {
-	if !postgresLocalActor(actor) || !customer(actor) || !localUUID(id) {
+	if !postgresLocalActor(actor) || !browserReader(actor) || !localUUID(id) {
 		return HomeListing{}, ErrForbidden
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), localVerticalOperationTimeout)
@@ -314,22 +336,44 @@ func (service *PostgresService) mutateHome(actor Actor, key, id, operation, fing
 	return value, false, nil
 }
 
-func (service *PostgresService) BrowseClassifieds(actor Actor, query, category, locality string) ([]ClassifiedListing, error) {
-	if !postgresLocalActor(actor) || !customer(actor) {
-		return nil, ErrForbidden
+func (service *PostgresService) BrowseClassifieds(actor Actor, filter ClassifiedSearch) (ClassifiedPage, error) {
+	limit, cursor, cursorErr := listingPageBounds(filter.Limit, filter.Cursor)
+	if !postgresLocalActor(actor) || !browserReader(actor) {
+		return ClassifiedPage{}, ErrForbidden
+	}
+	if cursorErr != nil {
+		return ClassifiedPage{}, ErrInvalidRequest
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), localVerticalOperationTimeout)
 	defer cancel()
-	_, _ = service.pool.Exec(ctx, `UPDATE local_verticals.classified_listings SET status='EXPIRED',revision=revision+1,updated_at=$3 WHERE tenant_id=$1 AND country=$2 AND status='PUBLISHED' AND expires_at<=$3`, actor.TenantID, actor.Country, service.Now())
-	rows, err := service.pool.Query(ctx, classifiedSelect+` WHERE tenant_id=$1 AND country=$2 AND status='PUBLISHED' AND ($3='' OR title ILIKE '%'||$3||'%' OR description ILIKE '%'||$3||'%') AND ($4='' OR category=upper($4)) AND ($5='' OR locality ILIKE '%'||$5||'%') ORDER BY (featured_until>$6) DESC,updated_at DESC`, actor.TenantID, actor.Country, strings.TrimSpace(query), strings.TrimSpace(category), strings.TrimSpace(locality), service.Now())
-	if err != nil {
-		return nil, err
+	now := service.Now()
+	_, _ = service.pool.Exec(ctx, `UPDATE local_verticals.classified_listings SET status='EXPIRED',revision=revision+1,updated_at=$3 WHERE tenant_id=$1 AND country=$2 AND status='PUBLISHED' AND expires_at<=$3`, actor.TenantID, actor.Country, now)
+	cursorPresent, cursorFeatured, cursorUpdated, cursorID := cursor != nil, 0, time.Unix(0, 0).UTC(), ""
+	if cursor != nil {
+		if cursor.Featured {
+			cursorFeatured = 1
+		}
+		cursorUpdated, cursorID = time.Unix(0, cursor.Updated).UTC(), cursor.ID
 	}
-	return scanClassifieds(rows, actor)
+	rows, err := service.pool.Query(ctx, classifiedSelect+` WHERE tenant_id=$1 AND country=$2 AND status='PUBLISHED' AND ($3='' OR title ILIKE '%'||$3||'%' OR description ILIKE '%'||$3||'%') AND ($4='' OR category=upper($4)) AND ($5='' OR locality ILIKE '%'||$5||'%') AND (NOT $7 OR CASE WHEN featured_until>$6 THEN 1 ELSE 0 END<$8 OR (CASE WHEN featured_until>$6 THEN 1 ELSE 0 END=$8 AND (updated_at<$9 OR (updated_at=$9 AND id::text<$10)))) ORDER BY (featured_until>$6) DESC,updated_at DESC,id DESC LIMIT $11`, actor.TenantID, actor.Country, strings.TrimSpace(filter.Query), strings.TrimSpace(filter.Category), strings.TrimSpace(filter.Locality), now, cursorPresent, cursorFeatured, cursorUpdated, cursorID, limit+1)
+	if err != nil {
+		return ClassifiedPage{}, err
+	}
+	values, err := scanClassifieds(rows, actor)
+	if err != nil {
+		return ClassifiedPage{}, err
+	}
+	page := ClassifiedPage{Items: values}
+	if len(values) > limit {
+		page.Items = values[:limit]
+		last := page.Items[len(page.Items)-1]
+		page.NextCursor = encodeListingCursor(classifiedFeatured(last, now), last.UpdatedAt, last.ID)
+	}
+	return page, nil
 }
 
 func (service *PostgresService) Classified(actor Actor, id string) (ClassifiedListing, error) {
-	if !postgresLocalActor(actor) || !customer(actor) || !localUUID(id) {
+	if !postgresLocalActor(actor) || !browserReader(actor) || !localUUID(id) {
 		return ClassifiedListing{}, ErrForbidden
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), localVerticalOperationTimeout)

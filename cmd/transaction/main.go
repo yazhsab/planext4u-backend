@@ -238,6 +238,13 @@ func run() int {
 	foodHandler, _ := food.NewHandler(foodService)
 	fulfillmentHandler, _ := fulfillment.NewHandler(fulfillmentService)
 	emergencyHandler, _ := emergency.NewHandler(emergencyService)
+	riderEmergencyHandler, _ := emergency.NewRiderHandler(emergencyService, emergency.RiderDutyVerifierFunc(func(actor emergency.Actor) (bool, error) {
+		duty, dutyErr := fulfillmentService.Duty(fulfillment.Actor{TenantID: actor.TenantID, Country: actor.Country, Subject: actor.Subject, Roles: actor.Roles, MFAVerified: actor.MFAVerified})
+		if errors.Is(dutyErr, fulfillment.ErrNotFound) || errors.Is(dutyErr, fulfillment.ErrForbidden) {
+			return false, nil
+		}
+		return dutyErr == nil && duty.Status == "ACTIVE", dutyErr
+	}))
 	localVerticalHandler, _ := localverticals.NewHandler(localVerticalService)
 	socialHandler, _ := social.NewHandler(socialService)
 	application := http.NewServeMux()
@@ -253,6 +260,8 @@ func run() int {
 	for _, prefix := range []string{"/v1/rider/", "/v1/dispatch/", "/v1/order-chats/", "/v1/settlements/", "/v1/payouts", "/v1/payouts/", "/v1/operations/"} {
 		application.Handle(prefix, fulfillmentHandler)
 	}
+	application.Handle("/v1/rider/emergency-incidents", riderEmergencyHandler)
+	application.Handle("/v1/rider/emergency-incidents/", riderEmergencyHandler)
 	application.Handle("/v1/emergency/", emergencyHandler)
 	application.Handle("/v1/homes/", localVerticalHandler)
 	application.Handle("/v1/classifieds/", localVerticalHandler)
@@ -645,10 +654,16 @@ func transactionRoute(request *http.Request) string {
 		return "/v1/food-orders/{order_id}/action"
 	case strings.HasPrefix(path, "/v1/rider/applications/"):
 		return "/v1/rider/applications/{rider_id}/review"
-	case path == "/v1/rider/applications", path == "/v1/rider/profile", path == "/v1/rider/duty", path == "/v1/rider/duty/start", path == "/v1/rider/duty/end", path == "/v1/rider/offers", path == "/v1/rider/tasks", path == "/v1/rider/location", path == "/v1/rider/offline-recovery":
+	case path == "/v1/rider/applications", path == "/v1/rider/profile", path == "/v1/rider/duty", path == "/v1/rider/duty/start", path == "/v1/rider/duty/end", path == "/v1/rider/offers", path == "/v1/rider/tasks", path == "/v1/rider/location", path == "/v1/rider/offline-recovery", path == "/v1/rider/emergency-incidents":
 		return path
+	case strings.HasPrefix(path, "/v1/rider/emergency-incidents/") && strings.HasSuffix(path, "/location"):
+		return "/v1/rider/emergency-incidents/{incident_id}/location"
+	case strings.HasPrefix(path, "/v1/rider/emergency-incidents/"):
+		return "/v1/rider/emergency-incidents/{incident_id}"
 	case strings.HasPrefix(path, "/v1/rider/tasks/"):
 		return "/v1/rider/tasks/{task_id}/action"
+	case strings.HasPrefix(path, "/v1/rider/offers/") && strings.HasSuffix(path, "/decline"):
+		return "/v1/rider/offers/{offer_id}/decline"
 	case strings.HasPrefix(path, "/v1/rider/locations/"):
 		return "/v1/rider/locations/{rider_id}"
 	case path == "/v1/dispatch/tasks", path == "/v1/dispatch/stale-assignment-sweep":

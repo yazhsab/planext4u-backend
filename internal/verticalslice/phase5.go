@@ -11,7 +11,7 @@ import (
 	"github.com/yazhsab/planext4u-backend/internal/social"
 )
 
-func phase5Handlers(clock func() time.Time) (http.Handler, http.Handler, http.Handler, http.Handler, error) {
+func phase5Handlers(clock func() time.Time) (http.Handler, http.Handler, http.Handler, http.Handler, *emergency.Service, error) {
 	profiles := []social.Profile{
 		{ID: syntheticSubject, Handle: "synthetic_customer", DisplayName: "Synthetic Customer"},
 		{ID: "customer-public-synthetic-001", Handle: "local_guide", DisplayName: "Local Guide", Bio: "Trusted neighbourhood updates", Verified: true, FollowerCount: 128, FollowingCount: 24},
@@ -26,11 +26,11 @@ func phase5Handlers(clock func() time.Time) (http.Handler, http.Handler, http.Ha
 		}},
 	}, clock)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	socialHandler, err := social.NewHandler(service)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	now := clock().UTC()
 	localService, err := localverticals.NewService(localverticals.Configuration{
@@ -43,29 +43,29 @@ func phase5Handlers(clock func() time.Time) (http.Handler, http.Handler, http.Ha
 		}},
 	}, clock)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	localHandler, err := localverticals.NewHandler(localService)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	emergencyService, err := emergency.NewService(emergency.Configuration{TenantID: syntheticTenant, Country: "IN", AssignmentSLA: 5 * time.Minute, LocationMaxAge: 2 * time.Minute}, clock)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	emergencyHandler, err := emergency.NewHandler(emergencyService)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	governanceService, err := governance.NewService(phase5GovernanceConfiguration(now), clock)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	governanceHandler, err := governance.NewHandler(governanceService)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
-	return socialHandler, localHandler, emergencyHandler, governanceHandler, nil
+	return socialHandler, localHandler, emergencyHandler, governanceHandler, emergencyService, nil
 }
 
 func phase5Route(path string) string {

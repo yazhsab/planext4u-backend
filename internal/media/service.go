@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -13,6 +14,10 @@ import (
 
 type UploadSigner interface {
 	PresignPut(context.Context, string, ObjectMetadata, time.Time) (string, map[string]string, error)
+}
+
+type PresentationSigner interface {
+	Present(context.Context, string, string, time.Time) (string, error)
 }
 
 type ObjectStore interface {
@@ -32,17 +37,19 @@ type Service struct {
 	clock      func() time.Time
 	newID      func() (string, error)
 	uploadTTL  time.Duration
+	presenter  PresentationSigner
 }
 
 func NewService(repository Repository, signer UploadSigner, objects ObjectStore, scanner MalwareScanner, uploadTTL time.Duration, clock func() time.Time) (*Service, error) {
-	if repository == nil || signer == nil || objects == nil || scanner == nil || clock == nil || uploadTTL < time.Minute || uploadTTL > 30*time.Minute {
+	presenter, canPresent := signer.(PresentationSigner)
+	if repository == nil || signer == nil || objects == nil || scanner == nil || clock == nil || !canPresent || uploadTTL < time.Minute || uploadTTL > 30*time.Minute {
 		return nil, errors.New("invalid media service")
 	}
-	return &Service{repository: repository, signer: signer, objects: objects, scanner: scanner, uploadTTL: uploadTTL, clock: clock, newID: secureID}, nil
+	return &Service{repository: repository, signer: signer, objects: objects, scanner: scanner, uploadTTL: uploadTTL, clock: clock, newID: secureID, presenter: presenter}, nil
 }
 
 func (service *Service) Presign(ctx context.Context, tenantID, country, ownerID string, request PresignRequest) (UploadGrant, error) {
-	if !safeID(tenantID) || !validCountry(country) || !safeID(ownerID) || !validPurpose(request.Purpose) || !validMetadata(ObjectMetadata{
+	if !safeID(tenantID) || !validCountry(country) || !safeID(ownerID) || !validPurpose(request.Purpose) || !validPresentationMetadata(request) || !validMetadata(ObjectMetadata{
 		ContentType: request.ContentType, SizeBytes: request.SizeBytes, SHA256: request.SHA256,
 	}, request.Purpose) {
 		return UploadGrant{}, ErrInvalidRequest
@@ -55,6 +62,7 @@ func (service *Service) Presign(ctx context.Context, tenantID, country, ownerID 
 	expiresAt := now.Add(service.uploadTTL)
 	asset := Asset{ID: id, TenantID: tenantID, Country: country, OwnerID: ownerID, ObjectKey: objectKey(tenantID, ownerID, id), Purpose: request.Purpose,
 		ContentType: request.ContentType, SizeBytes: request.SizeBytes, SHA256: strings.ToLower(request.SHA256), State: StatePendingUpload,
+		AltText: strings.TrimSpace(request.AltText), Width: request.Width, Height: request.Height,
 		CreatedAt: now, UploadExpiresAt: expiresAt, Version: 1}
 	url, headers, err := service.signer.PresignPut(ctx, asset.ObjectKey, ObjectMetadata{ContentType: asset.ContentType, SizeBytes: asset.SizeBytes, SHA256: asset.SHA256}, expiresAt)
 	if err != nil {
@@ -64,6 +72,45 @@ func (service *Service) Presign(ctx context.Context, tenantID, country, ownerID 
 		return UploadGrant{}, err
 	}
 	return UploadGrant{Asset: asset, UploadURL: url, Headers: cloneHeaders(headers), ExpiresAt: expiresAt}, nil
+}
+
+func (service *Service) ResolvePresentations(ctx context.Context, tenantID, country string, assetIDs []string) (PresentationResponse, error) {
+	if !safeID(tenantID) || !validCountry(country) || len(assetIDs) < 1 || len(assetIDs) > 50 {
+		return PresentationResponse{}, ErrInvalidRequest
+	}
+	seen := map[string]bool{}
+	for _, assetID := range assetIDs {
+		if !safeID(assetID) || seen[assetID] {
+			return PresentationResponse{}, ErrInvalidRequest
+		}
+		seen[assetID] = true
+	}
+	response := PresentationResponse{Items: []Presentation{}, UnavailableAssetIDs: []string{}}
+	expiresAt := service.clock().UTC().Add(5 * time.Minute)
+	for _, assetID := range assetIDs {
+		asset, err := service.repository.GetPublic(ctx, tenantID, country, assetID)
+		if errors.Is(err, ErrNotFound) {
+			response.UnavailableAssetIDs = append(response.UnavailableAssetIDs, assetID)
+			continue
+		}
+		if err != nil {
+			return PresentationResponse{}, ErrDependency
+		}
+		if !validPublicPresentationAsset(asset) {
+			response.UnavailableAssetIDs = append(response.UnavailableAssetIDs, assetID)
+			continue
+		}
+		url, err := service.presenter.Present(ctx, asset.ObjectKey, asset.ContentType, expiresAt)
+		if err != nil || !safePresentationURL(url) {
+			return PresentationResponse{}, ErrDependency
+		}
+		expiry := expiresAt
+		response.Items = append(response.Items, Presentation{
+			AssetID: asset.ID, URL: url, ContentType: asset.ContentType, Width: asset.Width, Height: asset.Height,
+			AltText: asset.AltText, Variants: []ResponsiveVariant{}, ExpiresAt: &expiry,
+		})
+	}
+	return response, nil
 }
 
 func (service *Service) Complete(ctx context.Context, tenantID, ownerID, assetID string) (Asset, error) {
@@ -157,6 +204,27 @@ func validMetadata(metadata ObjectMetadata, purpose Purpose) bool {
 func validPurpose(purpose Purpose) bool {
 	_, exists := map[Purpose]bool{PurposeAvatar: true, PurposeCatalogImage: true, PurposeCompletionProof: true, PurposeIdentityDocument: true}[purpose]
 	return exists
+}
+
+func validPresentationMetadata(request PresignRequest) bool {
+	altText := strings.TrimSpace(request.AltText)
+	if request.Purpose == PurposeCatalogImage {
+		return len(altText) >= 1 && len(altText) <= 240 && request.Width >= 1 && request.Width <= 16384 && request.Height >= 1 && request.Height <= 16384
+	}
+	return altText == "" && request.Width == 0 && request.Height == 0
+}
+
+func validPublicPresentationAsset(asset Asset) bool {
+	return asset.Purpose == PurposeCatalogImage && asset.State == StateReady && strings.HasPrefix(asset.ContentType, "image/") &&
+		len(strings.TrimSpace(asset.AltText)) >= 1 && len(asset.AltText) <= 240 && asset.Width >= 1 && asset.Width <= 16384 && asset.Height >= 1 && asset.Height <= 16384
+}
+
+func safePresentationURL(value string) bool {
+	if strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//") && !strings.ContainsAny(value, "\r\n") {
+		return true
+	}
+	parsed, err := url.Parse(value)
+	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil && !strings.ContainsAny(value, "\r\n")
 }
 
 func safeReason(value string) string {

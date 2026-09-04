@@ -209,6 +209,21 @@ resource "aws_lb_listener_rule" "admin" {
   }
 }
 
+resource "aws_lb_listener_rule" "customer_web" {
+  for_each     = contains(keys(var.services), "customer-web") ? { customer-web = var.services["customer-web"] } : {}
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 20
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.service[each.key].arn
+  }
+  condition {
+    path_pattern {
+      values = ["/web/*", "/platform-api/*"]
+    }
+  }
+}
+
 resource "aws_ecs_task_definition" "service" {
   for_each                 = var.services
   family                   = "${var.name}-${var.environment}-${each.key}"

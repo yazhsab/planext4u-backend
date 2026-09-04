@@ -5,8 +5,10 @@
 \getenv audit_password PLANEXT4U_LOCAL_AUDIT_PASSWORD
 \getenv messaging_password PLANEXT4U_LOCAL_MESSAGING_PASSWORD
 \getenv notification_password PLANEXT4U_LOCAL_NOTIFICATION_PASSWORD
+\getenv support_password PLANEXT4U_LOCAL_SUPPORT_PASSWORD
 \getenv transaction_password PLANEXT4U_LOCAL_TRANSACTION_PASSWORD
 \getenv admin_password PLANEXT4U_LOCAL_ADMIN_PASSWORD
+\getenv customer_web_password PLANEXT4U_LOCAL_CUSTOMER_WEB_PASSWORD
 
 SELECT format('CREATE ROLE planext4u_identity_login LOGIN PASSWORD %L', :'identity_password') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'planext4u_identity_login') \gexec
 SELECT format('ALTER ROLE planext4u_identity_login PASSWORD %L', :'identity_password') \gexec
@@ -36,10 +38,18 @@ SELECT format('CREATE ROLE planext4u_notification_login LOGIN PASSWORD %L', :'no
 SELECT format('ALTER ROLE planext4u_notification_login PASSWORD %L', :'notification_password') \gexec
 GRANT planext4u_notification_runtime TO planext4u_notification_login;
 
+SELECT format('CREATE ROLE planext4u_support_login LOGIN PASSWORD %L', :'support_password') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'planext4u_support_login') \gexec
+SELECT format('ALTER ROLE planext4u_support_login PASSWORD %L', :'support_password') \gexec
+GRANT planext4u_support_runtime TO planext4u_support_login;
+
 SELECT format('CREATE ROLE planext4u_transaction_login LOGIN PASSWORD %L', :'transaction_password') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'planext4u_transaction_login') \gexec
 SELECT format('ALTER ROLE planext4u_transaction_login PASSWORD %L', :'transaction_password') \gexec
 GRANT planext4u_transaction_runtime TO planext4u_transaction_login;
 
 SELECT format('CREATE ROLE planext4u_admin_login LOGIN PASSWORD %L', :'admin_password') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'planext4u_admin_login') \gexec
 SELECT format('ALTER ROLE planext4u_admin_login PASSWORD %L', :'admin_password') \gexec
-GRANT planext4u_admin_runtime, planext4u_configuration_runtime, planext4u_audit_runtime TO planext4u_admin_login;
+GRANT planext4u_admin_runtime, planext4u_configuration_runtime, planext4u_audit_runtime, planext4u_support_runtime TO planext4u_admin_login;
+
+SELECT format('CREATE ROLE planext4u_customer_web_login LOGIN PASSWORD %L', :'customer_web_password') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'planext4u_customer_web_login') \gexec
+SELECT format('ALTER ROLE planext4u_customer_web_login PASSWORD %L', :'customer_web_password') \gexec
+GRANT planext4u_customer_web_runtime TO planext4u_customer_web_login;

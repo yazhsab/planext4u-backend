@@ -21,6 +21,7 @@ type Application interface {
 	OfferTask(Actor, string, string, int64) (DeliveryTask, bool, error)
 	Offers(Actor) ([]DeliveryTask, error)
 	AcceptOffer(Actor, string, string, int64) (DeliveryTask, bool, error)
+	DeclineOffer(Actor, string, string, int64, OfferDeclineRequest) (OfferDecline, bool, error)
 	UpdateLocation(Actor, string, LocationUpdate) (RiderLocation, bool, error)
 	Location(Actor, string) (RiderLocation, error)
 	MarkPickedUp(Actor, string, string, int64) (DeliveryTask, bool, error)
@@ -62,6 +63,7 @@ func NewHandler(service Application) (http.Handler, error) {
 	mux.HandleFunc("GET /v1/rider/duty", handler.duty)
 	mux.HandleFunc("POST /v1/rider/duty/end", handler.endDuty)
 	mux.HandleFunc("GET /v1/rider/offers", handler.offers)
+	mux.HandleFunc("POST /v1/rider/offers/{offer_id}/decline", handler.decline)
 	mux.HandleFunc("GET /v1/rider/tasks", handler.tasks)
 	mux.HandleFunc("POST /v1/rider/tasks/{task_id}/accept", handler.accept)
 	mux.HandleFunc("POST /v1/rider/tasks/{task_id}/pickup", handler.pickup)
@@ -224,6 +226,23 @@ func (handler *Handler) accept(writer http.ResponseWriter, request *http.Request
 		return
 	}
 	writeTask(writer, http.StatusOK, value, replay)
+}
+
+func (handler *Handler) decline(writer http.ResponseWriter, request *http.Request) {
+	actor, revision, ok := fulfillmentMutation(writer, request)
+	if !ok {
+		return
+	}
+	var input OfferDeclineRequest
+	if !decodeFulfillmentJSON(writer, request, &input) {
+		return
+	}
+	value, replay, err := handler.service.DeclineOffer(actor, request.Header.Get("Idempotency-Key"), request.PathValue("offer_id"), revision, input)
+	if err != nil {
+		handler.problem(writer, request, err)
+		return
+	}
+	writeFulfillmentReplay(writer, http.StatusCreated, value, replay)
 }
 
 func (handler *Handler) pickup(writer http.ResponseWriter, request *http.Request) {

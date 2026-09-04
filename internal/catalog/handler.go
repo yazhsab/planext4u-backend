@@ -98,8 +98,12 @@ func (handler *Handler) home(writer http.ResponseWriter, request *http.Request) 
 	if !ok {
 		return
 	}
-	result, err := handler.service.Home(request.Context(), tenant, country)
+	result, err := handler.service.Home(request.Context(), tenant, country, request.URL.Query().Get("postal_code"))
 	if err != nil {
+		if errors.Is(err, ErrInvalidRequest) {
+			writeProblem(writer, request, 422, "CATALOG_REQUEST_INVALID", "The service location is invalid.", false)
+			return
+		}
 		writeProblem(writer, request, 503, "CATALOG_UNAVAILABLE", "Catalog is temporarily unavailable.", true)
 		return
 	}

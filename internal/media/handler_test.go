@@ -2,8 +2,10 @@ package media
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -28,5 +30,29 @@ func TestMediaHandlerDeniesMissingAndCrossOwnerScope(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("cross-owner status = %d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestMediaHandlerResolvesTypedPublicPresentation(t *testing.T) {
+	t.Parallel()
+	service, objects, _, _ := mediaFixture(t)
+	grant, _ := service.Presign(context.Background(), "tenant-synthetic", "IN", "vendor-a", validRequest())
+	objects.metadata[grant.Asset.ObjectKey] = ObjectMetadata{ContentType: grant.Asset.ContentType, SizeBytes: grant.Asset.SizeBytes, SHA256: grant.Asset.SHA256}
+	if _, err := service.Complete(context.Background(), "tenant-synthetic", "vendor-a", grant.Asset.ID); err != nil {
+		t.Fatal(err)
+	}
+	handler, _ := NewHandler(service)
+	request := httptest.NewRequest(http.MethodPost, "/v1/media/presentations:resolve", bytes.NewBufferString(`{"asset_ids":["`+grant.Asset.ID+`"]}`))
+	request.Header.Set("X-Planext4u-Tenant", "tenant-synthetic")
+	request.Header.Set("X-Planext4u-Country", "IN")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(body, `"asset_id":"`+grant.Asset.ID+`"`) ||
+		!strings.Contains(body, `"alt_text":"Fresh milk bottle"`) || !strings.Contains(body, `"width":1200`) ||
+		!strings.Contains(body, `"expires_at":`) || strings.Contains(body, `"owner_id"`) {
+		t.Fatalf("response=%d %s", response.Code, body)
 	}
 }

@@ -1,0 +1,121 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Planext4u Customer Web BFF API",
+    "version": "1.0.0",
+    "description": "Same-origin browser session boundary. Platform access and refresh tokens are server-held and never returned to the browser."
+  },
+  "security": [{"customerSession": []}],
+  "paths": {
+    "/web/v1/customer/session": {
+      "get": {
+        "operationId": "customerWebGetSession",
+        "responses": {
+          "200": {"description": "Current safe browser-session projection", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CustomerWebSession"}}}},
+          "401": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "post": {
+        "operationId": "customerWebCreateSession",
+        "security": [],
+        "parameters": [{"$ref": "#/components/parameters/Origin"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CustomerWebSessionInput"}}}},
+        "responses": {
+          "200": {"description": "Existing matching guest session returned idempotently", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CustomerWebSession"}}}},
+          "201": {"description": "Opaque guest session created or guest session upgraded to an authenticated customer session", "headers": {"Set-Cookie": {"description": "Host-only Secure HttpOnly SameSite=Lax opaque session cookie", "schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CustomerWebSession"}}}},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "415": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"},
+          "502": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "delete": {
+        "operationId": "customerWebEndSession",
+        "parameters": [{"$ref": "#/components/parameters/Origin"}, {"$ref": "#/components/parameters/CSRFToken"}],
+        "responses": {
+          "204": {"description": "Server-held platform credentials revoked and opaque cookie cleared"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/web/v1/customer/session/refresh": {
+      "post": {
+        "operationId": "customerWebRefreshSession",
+        "parameters": [{"$ref": "#/components/parameters/Origin"}, {"$ref": "#/components/parameters/CSRFToken"}],
+        "responses": {
+          "200": {"description": "Server-held refresh token and opaque browser cookie rotated", "headers": {"Set-Cookie": {"description": "Rotated opaque session cookie", "schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CustomerWebSession"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "customerSession": {"type": "apiKey", "in": "cookie", "name": "__Host-p4u_customer", "description": "Opaque host-only session identifier; not a platform token."}
+    },
+    "parameters": {
+      "Origin": {"name": "Origin", "in": "header", "required": true, "schema": {"type": "string", "format": "uri"}},
+      "CSRFToken": {"name": "X-CSRF-Token", "in": "header", "required": true, "schema": {"type": "string", "minLength": 32, "maxLength": 256}, "x-planext4u-sensitive": true}
+    },
+    "schemas": {
+      "CustomerWebSessionMode": {"type": "string", "enum": ["GUEST", "AUTHENTICATED"]},
+      "CustomerRole": {"type": "string", "enum": ["GUEST", "CUSTOMER", "VENDOR", "RIDER"]},
+      "CustomerWebSessionInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mode", "country"],
+        "properties": {
+          "mode": {"$ref": "#/components/schemas/CustomerWebSessionMode"},
+          "country": {"type": "string", "pattern": "^[A-Z]{2}$"},
+          "provider": {"type": "string", "enum": ["supabase", "firebase", "oidc", "local"]},
+          "provider_token": {"type": "string", "minLength": 8, "maxLength": 8192, "writeOnly": true, "x-planext4u-sensitive": true},
+          "device_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"}
+        },
+        "allOf": [
+          {"if": {"properties": {"mode": {"const": "AUTHENTICATED"}}}, "then": {"required": ["provider", "provider_token", "device_id"]}}
+        ]
+      },
+      "CustomerWebSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["session_id", "tenant_id", "country", "display_name", "roles", "guest", "csrf_token", "access_expires_at", "session_expires_at"],
+        "properties": {
+          "session_id": {"type": "string", "format": "uuid", "description": "Safe BFF session identifier; never accepted as authentication material."},
+          "identity_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "tenant_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "country": {"type": "string", "pattern": "^[A-Z]{2}$"},
+          "display_name": {"type": "string", "minLength": 1, "maxLength": 128},
+          "roles": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"$ref": "#/components/schemas/CustomerRole"}},
+          "guest": {"type": "boolean"},
+          "csrf_token": {"type": "string", "minLength": 32, "maxLength": 256, "x-planext4u-sensitive": true},
+          "access_expires_at": {"type": "string", "format": "date-time"},
+          "session_expires_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "Problem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["error"],
+        "properties": {"error": {"$ref": "#/components/schemas/ProblemDetail"}}
+      },
+      "ProblemDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "correlation_id", "retryable"],
+        "properties": {
+          "code": {"type": "string", "pattern": "^[A-Z0-9_]{3,128}$"},
+          "message": {"type": "string", "minLength": 1, "maxLength": 512},
+          "correlation_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "retryable": {"type": "boolean"}
+        }
+      }
+    },
+    "responses": {
+      "Problem": {"description": "Structured customer web error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}
+    }
+  }
+}

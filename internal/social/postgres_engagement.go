@@ -823,7 +823,7 @@ func loadSocialMedia(ctx context.Context, querier interface {
 	return value, err
 }
 
-const socialEphemeralSelect = `SELECT e.id::text,e.kind,e.media_job_id::text,e.caption,e.status,e.highlighted,e.expires_at,e.created_at,p.identity_id::text,p.handle,p.display_name,p.bio,COALESCE(p.avatar_asset_id::text,''),p.private,p.verified,p.follower_count,p.following_count,e.tenant_id::text,e.country FROM social.ephemeral_content e JOIN social.profiles p ON p.identity_id=e.author_identity_id`
+const socialEphemeralSelect = `SELECT e.id::text,e.kind,e.media_job_id::text,m.media_asset_id::text,e.caption,e.status,e.highlighted,e.expires_at,e.created_at,p.identity_id::text,p.handle,p.display_name,p.bio,COALESCE(p.avatar_asset_id::text,''),p.private,p.verified,p.follower_count,p.following_count,e.tenant_id::text,e.country FROM social.ephemeral_content e JOIN social.profiles p ON p.identity_id=e.author_identity_id JOIN social.media_jobs m ON m.id=e.media_job_id`
 
 func loadSocialEphemeral(ctx context.Context, querier interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
@@ -833,7 +833,7 @@ func loadSocialEphemeral(ctx context.Context, querier interface {
 
 func scanSocialEphemeral(row interface{ Scan(...any) error }, viewer string) (EphemeralContent, error) {
 	var value EphemeralContent
-	err := row.Scan(&value.ID, &value.Kind, &value.MediaJobID, &value.Caption, &value.Status, &value.Highlighted, &value.ExpiresAt, &value.CreatedAt, &value.Author.ID, &value.Author.Handle, &value.Author.DisplayName, &value.Author.Bio, &value.Author.AvatarAssetID, &value.Author.Private, &value.Author.Verified, &value.Author.FollowerCount, &value.Author.FollowingCount, &value.tenantID, &value.country)
+	err := row.Scan(&value.ID, &value.Kind, &value.MediaJobID, &value.MediaAssetID, &value.Caption, &value.Status, &value.Highlighted, &value.ExpiresAt, &value.CreatedAt, &value.Author.ID, &value.Author.Handle, &value.Author.DisplayName, &value.Author.Bio, &value.Author.AvatarAssetID, &value.Author.Private, &value.Author.Verified, &value.Author.FollowerCount, &value.Author.FollowingCount, &value.tenantID, &value.country)
 	if err != nil {
 		return EphemeralContent{}, err
 	}

@@ -24,15 +24,20 @@ type cachedCategories struct {
 	values      []Category
 	generatedAt time.Time
 }
+type cachedServiceCollections struct {
+	values      []ServiceCollection
+	generatedAt time.Time
+}
 
 type Service struct {
-	repository    Repository
-	clock         func() time.Time
-	staleTTL      time.Duration
-	mu            sync.RWMutex
-	itemCache     map[string]cachedItems
-	categoryCache map[string]cachedCategories
-	zones         []Zone
+	repository             Repository
+	clock                  func() time.Time
+	staleTTL               time.Duration
+	mu                     sync.RWMutex
+	itemCache              map[string]cachedItems
+	categoryCache          map[string]cachedCategories
+	serviceCollectionCache map[string]cachedServiceCollections
+	zones                  []Zone
 }
 
 type Zone struct {
@@ -64,7 +69,7 @@ func NewService(repository Repository, zones []Zone, staleTTL time.Duration, clo
 		}
 	}
 	return &Service{repository: repository, zones: append([]Zone(nil), zones...), staleTTL: staleTTL, clock: clock,
-		itemCache: map[string]cachedItems{}, categoryCache: map[string]cachedCategories{}}, nil
+		itemCache: map[string]cachedItems{}, categoryCache: map[string]cachedCategories{}, serviceCollectionCache: map[string]cachedServiceCollections{}}, nil
 }
 
 func (service *Service) Geocode(tenantID, country, query string) ([]GeocodeCandidate, error) {
@@ -163,7 +168,7 @@ func (service *Service) Categories(ctx context.Context, tenantID, country string
 		}
 		values, status, generatedAt = cloneCategories(cached.values), ProjectionStale, cached.generatedAt
 	}
-	return Page[Category]{Items: values, ProjectionStatus: status, GeneratedAt: generatedAt}
+	return Page[Category]{Items: activeCategoryPresentations(values, now), ProjectionStatus: status, GeneratedAt: generatedAt}
 }
 
 func (service *Service) Items(ctx context.Context, tenantID, country, categoryID, query, cursor string, limit int) (Page[Item], error) {
@@ -171,6 +176,7 @@ func (service *Service) Items(ctx context.Context, tenantID, country, categoryID
 		return Page[Item]{}, ErrInvalidRequest
 	}
 	values, status, generatedAt := service.loadItems(ctx, tenantID, country)
+	values = activeItemPresentations(values, service.clock().UTC())
 	query = strings.ToLower(strings.TrimSpace(query))
 	filtered := make([]Item, 0, len(values))
 	for _, item := range values {
@@ -206,12 +212,37 @@ func (service *Service) Item(ctx context.Context, tenantID, country, itemID stri
 		return Item{}, "", ErrInvalidRequest
 	}
 	items, status, _ := service.loadItems(ctx, tenantID, country)
+	items = activeItemPresentations(items, service.clock().UTC())
 	for _, item := range items {
 		if item.ID == itemID {
 			return item, status, nil
 		}
 	}
 	return Item{}, status, ErrNotFound
+}
+
+func activeCategoryPresentations(values []Category, now time.Time) []Category {
+	result := cloneCategories(values)
+	for index := range result {
+		if result[index].Icon != nil && result[index].Icon.ExpiresAt != nil && !now.Before(*result[index].Icon.ExpiresAt) {
+			result[index].Icon = nil
+		}
+	}
+	return result
+}
+
+func activeItemPresentations(values []Item, now time.Time) []Item {
+	result := cloneItems(values)
+	for index := range result {
+		active := result[index].Media[:0]
+		for _, presentation := range result[index].Media {
+			if presentation.ExpiresAt == nil || now.Before(*presentation.ExpiresAt) {
+				active = append(active, presentation)
+			}
+		}
+		result[index].Media = active
+	}
+	return result
 }
 
 func (service *Service) AskQuestion(ctx context.Context, tenantID, country, subjectID, itemID, idempotencyKey, body string) (Question, error) {
@@ -281,16 +312,27 @@ func (service *Service) loadItems(ctx context.Context, tenantID, country string)
 	return cloneItems(cached.values), ProjectionStale, cached.generatedAt
 }
 
-func (service *Service) Home(ctx context.Context, tenantID, country string) (Home, error) {
+func (service *Service) Home(ctx context.Context, tenantID, country string, postalCodes ...string) (Home, error) {
+	postalCode := ""
+	if len(postalCodes) > 1 || (len(postalCodes) == 1 && postalCodes[0] != "" && !validPostalCode(postalCodes[0])) {
+		return Home{}, ErrInvalidRequest
+	}
+	if len(postalCodes) == 1 {
+		postalCode = strings.TrimSpace(postalCodes[0])
+	}
 	categories := service.Categories(ctx, tenantID, country)
 	items, err := service.Items(ctx, tenantID, country, "", "", "", 12)
 	if err != nil {
 		return Home{}, err
 	}
-	status := worstStatus(categories.ProjectionStatus, items.ProjectionStatus)
+	serviceCollections, serviceStatus, serviceGeneratedAt := service.loadServiceCollections(ctx, tenantID, country, postalCode)
+	status := worstStatus(worstStatus(categories.ProjectionStatus, items.ProjectionStatus), serviceStatus)
 	generatedAt := categories.GeneratedAt
 	if items.GeneratedAt.Before(generatedAt) {
 		generatedAt = items.GeneratedAt
+	}
+	if serviceGeneratedAt.Before(generatedAt) {
+		generatedAt = serviceGeneratedAt
 	}
 	recommendations := cloneItems(items.Items)
 	sort.SliceStable(recommendations, func(left, right int) bool {
@@ -324,9 +366,49 @@ func (service *Service) Home(ctx context.Context, tenantID, country string) (Hom
 	})
 	return Home{
 		Categories: categories.Items, FeaturedItems: items.Items, Recommendations: recommendations, Leaderboard: leaders,
-		HelpShortcuts:    []HelpShortcut{{ID: "orders", Title: "Order help", Route: "/app/orders"}, {ID: "payments", Title: "Payment help", Route: "/app/orders"}, {ID: "browse", Title: "Browse categories", Route: "/app/catalog"}},
-		ProjectionStatus: status, GeneratedAt: generatedAt,
+		HelpShortcuts:      []HelpShortcut{{ID: "orders", Title: "Order help", Route: "/app/orders"}, {ID: "payments", Title: "Payment help", Route: "/app/orders"}, {ID: "browse", Title: "Browse categories", Route: "/app/catalog"}},
+		ServiceCollections: serviceCollections,
+		ProjectionStatus:   status, GeneratedAt: generatedAt,
 	}, nil
+}
+
+func (service *Service) loadServiceCollections(ctx context.Context, tenantID, country, postalCode string) (map[string]ServiceCollection, ProjectionStatus, time.Time) {
+	now := service.clock().UTC()
+	values, err := service.repository.ServiceCollections(ctx, tenantID, country, postalCode)
+	key := scopeKey(tenantID, country) + "\x00" + postalCode
+	status, generatedAt := ProjectionFresh, now
+	if err == nil {
+		service.mu.Lock()
+		service.serviceCollectionCache[key] = cachedServiceCollections{values: cloneServiceCollections(values, now), generatedAt: now}
+		service.mu.Unlock()
+	} else {
+		service.mu.RLock()
+		cached, found := service.serviceCollectionCache[key]
+		service.mu.RUnlock()
+		if !found || now.Sub(cached.generatedAt) > service.staleTTL {
+			return map[string]ServiceCollection{}, ProjectionDegraded, now
+		}
+		values, status, generatedAt = cached.values, ProjectionStale, cached.generatedAt
+	}
+	result := make(map[string]ServiceCollection, len(values))
+	for _, collection := range cloneServiceCollections(values, now) {
+		result[collection.CollectionID] = collection
+	}
+	return result, status, generatedAt
+}
+
+func cloneServiceCollections(values []ServiceCollection, now time.Time) []ServiceCollection {
+	result := make([]ServiceCollection, len(values))
+	for index, value := range values {
+		result[index] = cloneServiceCollection(value)
+		for itemIndex := range result[index].Items {
+			media := result[index].Items[itemIndex].Media
+			if media != nil && media.ExpiresAt != nil && !now.Before(*media.ExpiresAt) {
+				result[index].Items[itemIndex].Media = nil
+			}
+		}
+	}
+	return result
 }
 
 func (service *Service) CheckServiceability(tenantID, country string, point GeoPoint) (Serviceability, error) {

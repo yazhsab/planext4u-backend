@@ -225,10 +225,17 @@ func (repository *MemoryRepository) UpdateProfile(_ context.Context, identityID 
 	if account.Profile.Version != update.Version {
 		return Profile{}, ErrVersionConflict
 	}
+	email, phone := account.Profile.Email, account.Profile.Phone
+	if update.Email != nil {
+		email = *update.Email
+	}
+	if update.Phone != nil {
+		phone = *update.Phone
+	}
 	account.Profile = Profile{
 		DisplayName: update.DisplayName,
-		Email:       update.Email,
-		Phone:       update.Phone,
+		Email:       email,
+		Phone:       phone,
 		Locale:      update.Locale,
 		TimeZone:    update.TimeZone,
 		Version:     account.Profile.Version + 1,

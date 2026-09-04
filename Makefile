@@ -1,7 +1,7 @@
 GO ?= go
 GO_PACKAGES := ./cmd/... ./internal/...
 
-.PHONY: admin-verify build container-build contract-check contract-generate fmt identity-schema-local infra-check local-down local-seed-transaction local-service-logins local-status local-up migration-check migrate-local run run-admin run-identity run-transaction test test-admin-integration test-audit-integration test-booking-integration test-catalog-integration test-checkout-integration test-commerce-integration test-configuration-integration test-emergency-integration test-food-integration test-fulfillment-integration test-gateway-integration test-governance-integration test-identity-integration test-integration test-inventory-integration test-local-verticals-integration test-media-integration test-messaging-integration test-migrations-integration test-notification-integration test-order-integration test-payment-integration test-race test-social-integration test-supply-integration test-wallet-integration vet verify
+.PHONY: admin-verify build container-build contract-check contract-generate fmt identity-schema-local infra-check local-down local-seed-transaction local-service-logins local-status local-up migration-check migrate-local run run-admin run-customer-web run-identity run-transaction test test-admin-integration test-audit-integration test-booking-integration test-catalog-integration test-checkout-integration test-commerce-integration test-configuration-integration test-customer-web-integration test-emergency-integration test-food-integration test-fulfillment-integration test-gateway-integration test-governance-integration test-identity-integration test-integration test-inventory-integration test-local-verticals-integration test-media-integration test-messaging-integration test-migrations-integration test-notification-integration test-order-integration test-payment-integration test-race test-social-integration test-support-integration test-supply-integration test-wallet-integration vet verify
 
 admin-verify:
 	cd admin-web && npm ci && npm run verify && npm run test:e2e
@@ -56,6 +56,9 @@ run-transaction:
 run-admin:
 	$(GO) run ./cmd/admin
 
+run-customer-web:
+	$(GO) run ./cmd/customer-web
+
 identity-schema-local:
 	MIGRATION_DATABASE_URL_FILE=.local/identity/database.url $(GO) run ./cmd/migrate -service platform
 	MIGRATION_DATABASE_URL_FILE=.local/identity/database.url $(GO) run ./cmd/migrate -service identity
@@ -89,6 +92,9 @@ test-admin-integration:
 	ADMIN_DATABASE_TEST_URL="$${ADMIN_DATABASE_TEST_URL:-postgres://planext4u_local:local-only-password@127.0.0.1:54320/planext4u_local?sslmode=disable}" $(GO) test -tags=integration -count=1 ./internal/adminops
 	ADMIN_DATABASE_TEST_URL="$${ADMIN_DATABASE_TEST_URL:-postgres://planext4u_local:local-only-password@127.0.0.1:54320/planext4u_local?sslmode=disable}" $(GO) test -tags=integration -count=1 ./internal/adminshell
 
+test-customer-web-integration:
+	CUSTOMER_WEB_DATABASE_TEST_URL="$${CUSTOMER_WEB_DATABASE_TEST_URL:-postgres://planext4u_local:local-only-password@127.0.0.1:54320/planext4u_local?sslmode=disable}" $(GO) test -tags=integration -count=1 ./internal/customerweb
+
 test-catalog-integration:
 	CATALOG_DATABASE_TEST_URL="$${CATALOG_DATABASE_TEST_URL:-postgres://planext4u_local:local-only-password@127.0.0.1:54320/planext4u_local?sslmode=disable}" $(GO) test -tags=integration -count=1 ./internal/catalog
 
@@ -115,6 +121,9 @@ test-local-verticals-integration:
 
 test-social-integration:
 	SOCIAL_DATABASE_TEST_URL="$${SOCIAL_DATABASE_TEST_URL:-postgres://planext4u_local:local-only-password@127.0.0.1:54320/planext4u_local?sslmode=disable}" $(GO) test -tags=integration -count=1 ./internal/social
+
+test-support-integration:
+	SUPPORT_DATABASE_TEST_URL="$${SUPPORT_DATABASE_TEST_URL:-postgres://planext4u_local:local-only-password@127.0.0.1:54320/planext4u_local?sslmode=disable}" $(GO) test -tags=integration -count=1 ./internal/support
 
 test-governance-integration:
 	GOVERNANCE_DATABASE_TEST_URL="$${GOVERNANCE_DATABASE_TEST_URL:-postgres://planext4u_local:local-only-password@127.0.0.1:54320/planext4u_local?sslmode=disable}" $(GO) test -tags=integration -count=1 ./internal/governance

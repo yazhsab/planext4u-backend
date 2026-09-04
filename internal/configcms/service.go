@@ -9,22 +9,34 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/yazhsab/planext4u-backend/internal/platformlocale"
 )
 
 type Service struct {
-	repository Repository
-	clock      func() time.Time
+	repository      Repository
+	clock           func() time.Time
+	webDeploymentID string
 }
 
 func NewService(repository Repository, clock func() time.Time) (*Service, error) {
+	return NewServiceWithWebDeployment(repository, clock, "local-development")
+}
+
+func NewServiceWithWebDeployment(repository Repository, clock func() time.Time, webDeploymentID string) (*Service, error) {
 	if repository == nil || clock == nil {
 		return nil, fmt.Errorf("invalid configuration service")
 	}
-	return &Service{repository: repository, clock: clock}, nil
+	webDeploymentID = strings.TrimSpace(webDeploymentID)
+	if !ValidDeploymentID(webDeploymentID) {
+		return nil, fmt.Errorf("invalid web deployment identifier")
+	}
+	return &Service{repository: repository, clock: clock, webDeploymentID: webDeploymentID}, nil
 }
 
-func (service *Service) Bootstrap(ctx context.Context, tenantID, country string, platform Platform, appVersion, requestedLocale string) (Bootstrap, error) {
-	if !safeID(tenantID) || len(country) != 2 || (platform != PlatformAndroid && platform != PlatformIOS) || parseVersion(appVersion) == nil {
+func (service *Service) Bootstrap(ctx context.Context, tenantID, country string, platform Platform, appVersion, deploymentID, requestedLocale string) (Bootstrap, error) {
+	if !safeID(tenantID) || len(country) != 2 || !validPlatform(platform) || parseVersion(appVersion) == nil ||
+		(platform == PlatformWeb && !ValidDeploymentID(deploymentID)) {
 		return Bootstrap{}, ErrInvalidSnapshot
 	}
 	snapshot, err := service.repository.Get(ctx, tenantID, country)
@@ -39,10 +51,17 @@ func (service *Service) Bootstrap(ctx context.Context, tenantID, country string,
 	} else if compareVersion(appVersion, latest) < 0 {
 		gate = UpdateOptional
 	}
-	locale := requestedLocale
-	if !containsUnsorted(snapshot.SupportedLocales, locale) {
-		locale = snapshot.DefaultLocale
+	if platform == PlatformWeb && deploymentID != service.webDeploymentID {
+		gate = UpdateRequired
 	}
+	action := UpdateActionNone
+	if gate != UpdateNone {
+		action = UpdateActionStoreUpdate
+		if platform == PlatformWeb {
+			action = UpdateActionReload
+		}
+	}
+	locale := platformlocale.Resolve(requestedLocale, snapshot.DefaultLocale, snapshot.SupportedLocales)
 	now := service.clock().UTC()
 	maintenance := false
 	var maintenanceUntil *time.Time
@@ -55,12 +74,35 @@ func (service *Service) Bootstrap(ctx context.Context, tenantID, country string,
 	}
 	sections := append([]HomeSection(nil), snapshot.HomeSections...)
 	sort.SliceStable(sections, func(left, right int) bool { return sections[left].Priority < sections[right].Priority })
-	return Bootstrap{
-		Revision: snapshot.Revision, PublishedAt: snapshot.PublishedAt, UpdateGate: gate, LatestVersion: latest,
+	result := Bootstrap{
+		Revision: snapshot.Revision, PublishedAt: snapshot.PublishedAt, Platform: platform, ClientVersion: appVersion,
+		UpdateGate: gate, UpdateAction: action, LatestVersion: latest,
 		Maintenance: maintenance, MaintenanceUntil: maintenanceUntil, MaintenanceText: maintenanceText,
 		Locale: locale, SupportedLocales: append([]string(nil), snapshot.SupportedLocales...),
 		ConsentPolicies: append([]ConsentPolicy(nil), snapshot.ConsentPolicies...), Flags: cloneMap(snapshot.Flags), HomeSections: sections, Pages: publishedPages(snapshot.Pages),
-	}, nil
+	}
+	if platform == PlatformWeb {
+		result.ClientDeploymentID = deploymentID
+		result.LatestDeploymentID = service.webDeploymentID
+	}
+	return result, nil
+}
+
+func validPlatform(platform Platform) bool {
+	return platform == PlatformAndroid || platform == PlatformIOS || platform == PlatformWeb
+}
+
+func ValidDeploymentID(value string) bool {
+	if len(value) < 1 || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if !(character >= 'a' && character <= 'z') && !(character >= 'A' && character <= 'Z') &&
+			!(character >= '0' && character <= '9') && !strings.ContainsRune("._:-", character) {
+			return false
+		}
+	}
+	return true
 }
 
 func (service *Service) Page(ctx context.Context, tenantID, country, pageID, requestedLocale string) (PageDocument, error) {
@@ -71,10 +113,7 @@ func (service *Service) Page(ctx context.Context, tenantID, country, pageID, req
 	if err != nil {
 		return PageDocument{}, err
 	}
-	locale := requestedLocale
-	if !containsUnsorted(snapshot.SupportedLocales, locale) {
-		locale = snapshot.DefaultLocale
-	}
+	locale := platformlocale.Resolve(requestedLocale, snapshot.DefaultLocale, snapshot.SupportedLocales)
 	for _, page := range snapshot.Pages {
 		if page.ID == pageID && page.Enabled {
 			pages := publishedPages([]Page{page})

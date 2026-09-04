@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { APIError, getCMSWorkspace, getSession, listAuditEvents, listCMSPageDrafts, saveCMSPageDraft, setCountry } from "./client";
-import { adminSession, auditPage, cmsPageDraftPage, cmsWorkspaceDraft, problem } from "../test/fixtures";
+import { APIError, getCMSWorkspace, getSession, listAuditEvents, listCMSPageDrafts, listSupportTickets, saveCMSPageDraft, setCountry } from "./client";
+import { adminSession, auditPage, cmsPageDraftPage, cmsWorkspaceDraft, problem, supportTicketPage } from "../test/fixtures";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -39,6 +39,15 @@ describe("admin API client", () => {
     vi.stubGlobal("fetch", fetchMock);
     await setCountry("SG", adminSession.csrf_token);
     expect(fetchMock).toHaveBeenCalledWith("/admin/api/v1/session/country", expect.objectContaining({method: "PUT", credentials: "same-origin"}));
+  });
+
+  it("encodes and validates country-scoped support filters", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      expect(requestURL(input)).toContain("/admin/api/v1/support/tickets?owner_role=VENDOR&status=WAITING_FOR_SUPPORT&limit=25");
+      return Promise.resolve(Response.json(supportTicketPage));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(listSupportTickets({ownerRole: "VENDOR", status: "WAITING_FOR_SUPPORT", limit: 25})).resolves.toEqual(supportTicketPage);
   });
 
   it("reports a safe fallback when the error envelope is unreadable", async () => {

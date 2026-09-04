@@ -116,6 +116,87 @@ func (service *PostgresService) Profile(actor Actor, profileID string) (Profile,
 	return value, err
 }
 
+func (service *PostgresService) ProfileByHandle(actor Actor, handle string) (Profile, error) {
+	handle = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(handle), "@"))
+	if !postgresSocialActor(actor) || !validCustomer(actor) || !handlePattern.MatchString(handle) {
+		return Profile{}, ErrForbidden
+	}
+	ctx, cancel := socialContext()
+	defer cancel()
+	var profileID string
+	err := service.pool.QueryRow(ctx, `SELECT identity_id::text FROM social.profiles WHERE tenant_id=$1 AND country=$2 AND lower(handle)=$3`, actor.TenantID, actor.Country, handle).Scan(&profileID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Profile{}, ErrNotFound
+	}
+	if err != nil {
+		return Profile{}, err
+	}
+	value, err := loadSocialProfile(ctx, service.pool, actor, profileID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Profile{}, ErrNotFound
+	}
+	return value, err
+}
+
+func (service *PostgresService) ProfileContent(actor Actor, profileID, kind string) ([]any, error) {
+	kind = strings.ToUpper(strings.TrimSpace(kind))
+	if !postgresSocialActor(actor) || !validCustomer(actor) || !socialUUID(profileID) || !map[string]bool{"POSTS": true, "REELS": true, "TAGGED": true, "SAVED": true}[kind] {
+		return nil, ErrInvalidRequest
+	}
+	ctx, cancel := socialContext()
+	defer cancel()
+	profile, err := loadSocialProfile(ctx, service.pool, actor, profileID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if profile.Private && profile.ID != actor.Subject && profile.Relationship != "ACCEPTED" || kind == "SAVED" && profile.ID != actor.Subject {
+		return nil, ErrNotFound
+	}
+	if kind == "REELS" {
+		values, err := service.Ephemeral(actor)
+		if err != nil {
+			return nil, err
+		}
+		items := make([]any, 0, len(values))
+		for _, value := range values {
+			if value.Author.ID == profileID && value.Kind == "REEL" {
+				items = append(items, value)
+			}
+		}
+		return items, nil
+	}
+	query := socialPostSelect + socialVisibleClause
+	arguments := []any{actor.TenantID, actor.Country, actor.Subject}
+	switch kind {
+	case "POSTS":
+		query += ` AND p.author_identity_id=$4`
+		arguments = append(arguments, profileID)
+	case "TAGGED":
+		query += ` AND ($4=ANY(p.mentions) OR $5=ANY(p.mentions))`
+		arguments = append(arguments, profileID, profile.Handle)
+	case "SAVED":
+		query += ` AND EXISTS(SELECT 1 FROM social.post_engagement saved WHERE saved.tenant_id=p.tenant_id AND saved.country=p.country AND saved.post_id=p.id AND saved.actor_identity_id=$3 AND saved.kind='SAVE')`
+	}
+	query += ` ORDER BY p.created_at DESC,p.id`
+	rows, err := service.pool.Query(ctx, query, arguments...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []any{}
+	for rows.Next() {
+		value, scanErr := scanSocialPost(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		items = append(items, value)
+	}
+	return items, rows.Err()
+}
+
 func (service *PostgresService) Post(actor Actor, postID string) (Post, error) {
 	if !postgresSocialActor(actor) || !validCustomer(actor) || !socialUUID(postID) {
 		return Post{}, ErrForbidden

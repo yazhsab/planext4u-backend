@@ -1,4 +1,4 @@
-import type { AdminOperationPage, AdminSession, AuditPage, CMSPageDraftPage, CMSWorkspaceDraft } from "../api/client";
+import type { AdminOperationPage, AdminSession, AdminSupportTicketPage, AuditPage, CMSPageDraftPage, CMSWorkspaceDraft, ReportDetail, ReportExport, ReportPage } from "../api/client";
 
 export const adminSession: AdminSession = {
   subject_id: "admin-synthetic-001",
@@ -12,10 +12,28 @@ export const adminSession: AdminSession = {
     {id: "workspace", label: "Workspace", path: "/", capability: "admin.shell.read"},
     {id: "operations", label: "Operations", path: "/operations", capability: "admin.operations.read"},
     {id: "governance", label: "Governance", path: "/governance", capability: "admin.governance.read"},
+    {id: "support", label: "Support", path: "/support", capability: "admin.support.manage"},
     {id: "cms", label: "Page builder", path: "/cms", capability: "admin.config.manage"},
     {id: "audit", label: "Audit trail", path: "/audit", capability: "admin.audit.read"},
   ],
   csrf_token: "csrf_synthetic_012345678901234567890123456789",
+};
+
+export const supportTicketPage: AdminSupportTicketPage = {
+  items: [{
+    id: "2c231280-3cf4-49be-9e6c-96683f4de86a",
+    owner_role: "VENDOR",
+    owner_reference: "vendor-synthetic-001",
+    category: "VENDOR_OPERATIONS",
+    subject: "Catalogue review needs assistance",
+    related_reference: "item-synthetic-001",
+    priority: "HIGH",
+    status: "WAITING_FOR_SUPPORT",
+    message_count: 2,
+    last_message_at: "2026-09-01T10:01:00Z",
+    created_at: "2026-09-01T10:00:00Z",
+    updated_at: "2026-09-01T10:01:00Z",
+  }],
 };
 
 export const operationPage: AdminOperationPage = {
@@ -64,6 +82,46 @@ export const governanceView = {
   generated_at: "2026-08-29T10:00:00Z",
 };
 
+export const reportPage: ReportPage = {
+  items: governanceView.metrics.map((metric) => ({
+    ...metric,
+    domain: metric.id.split("-")[0] === "social" ? "social" : "emergency",
+    metric: metric.id.split("-").slice(1).join("_"),
+    export_policy: "MFA_AND_AUDIT_REQUIRED" as const,
+  })),
+};
+
+export const reportDetail: ReportDetail = {
+  report: {
+    id: "social-active",
+    title: "Socio active",
+    domain: "social",
+    metric: "active",
+    value: 5600,
+    unit: "count",
+    freshness: "2026-08-29T10:00:00Z",
+    masked: true,
+    export_policy: "MFA_AND_AUDIT_REQUIRED",
+  },
+  country: "IN",
+  items: [{label: "Socio active", dimensions: {country: "IN", domain: "social", metric: "active"}, value: 5600, unit: "count"}],
+  lineage: {source_projection: "governance.report_cards", aggregation: "country_aggregate", freshness: "2026-08-29T10:00:00Z", generated_at: "2026-08-29T10:00:00Z"},
+};
+
+export const reportExport: ReportExport = {
+  id: "report-export-0123456789abcdef0123456789abcdef",
+  report_id: "social-active",
+  format: "CSV",
+  status: "READY",
+  content_type: "text/csv; charset=utf-8",
+  file_name: "social-active-in.csv",
+  checksum_sha256: "a".repeat(64),
+  size_bytes: 128,
+  download_url: "/admin/api/v1/report-exports/report-export-0123456789abcdef0123456789abcdef/download?token=synthetic-signed-token-0123456789",
+  expires_at: "2026-08-29T10:10:00Z",
+  created_at: "2026-08-29T10:00:00Z",
+};
+
 export const cmsPageDraftPage: CMSPageDraftPage = {
   items: [{
     tenant_id: "tenant-synthetic-001",
@@ -92,8 +150,8 @@ export const cmsWorkspaceDraft: CMSWorkspaceDraft = {
   updated_by: "admin-synthetic-001",
   updated_at: "2026-08-29T10:00:00Z",
   workspace: {
-    minimum_versions: {ANDROID: "1.0.0", IOS: "1.0.0"},
-    latest_versions: {ANDROID: "1.2.0", IOS: "1.2.0"},
+    minimum_versions: {ANDROID: "1.0.0", IOS: "1.0.0", WEB: "1.0.0"},
+    latest_versions: {ANDROID: "1.2.0", IOS: "1.2.0", WEB: "1.2.0"},
     supported_locales: ["en", "ta"],
     default_locale: "en",
     consent_policies: [{purpose: "analytics", policy_version: "2026-08", required: false}],

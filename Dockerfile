@@ -13,7 +13,7 @@ COPY cmd ./cmd
 COPY internal ./internal
 COPY migrations ./migrations
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    case "${SERVICE_COMMAND}" in platform|staging-slice|gateway|identity|configuration|catalog|transaction|admin|audit|media|messaging|notification) ;; *) exit 2 ;; esac && \
+    case "${SERVICE_COMMAND}" in platform|staging-slice|gateway|identity|configuration|catalog|transaction|admin|customer-web|audit|media|messaging|notification) ;; *) exit 2 ;; esac && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -buildvcs=false \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \

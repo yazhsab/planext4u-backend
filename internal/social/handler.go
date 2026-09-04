@@ -13,6 +13,8 @@ import (
 type Application interface {
 	Feed(Actor, string, int) (FeedPage, error)
 	Profile(Actor, string) (Profile, error)
+	ProfileByHandle(Actor, string) (Profile, error)
+	ProfileContent(Actor, string, string) ([]any, error)
 	Post(Actor, string) (Post, error)
 	CreatePost(Actor, string, CreatePostRequest) (Post, bool, error)
 	SetLike(Actor, string, string, int64, bool) (Post, bool, error)
@@ -62,9 +64,11 @@ func NewHandler(service Application) (http.Handler, error) {
 	mux.HandleFunc("PUT /v1/social/posts/{post_id}/save", handler.save)
 	mux.HandleFunc("POST /v1/social/posts/{post_id}/shares", handler.share)
 	mux.HandleFunc("GET /v1/social/posts/{post_id}/comments", handler.comments)
+	mux.HandleFunc("GET /v1/social/profile-handles/{handle}", handler.profileByHandle)
 	mux.HandleFunc("POST /v1/social/posts/{post_id}/comments", handler.createComment)
 	mux.HandleFunc("POST /v1/social/posts/{post_id}/reports", handler.report)
 	mux.HandleFunc("GET /v1/social/profiles/{profile_id}", handler.profile)
+	mux.HandleFunc("GET /v1/social/profiles/{profile_id}/content", handler.profileContent)
 	mux.HandleFunc("POST /v1/social/profiles/{profile_id}/follow", handler.follow)
 	mux.HandleFunc("PUT /v1/social/profiles/{profile_id}/relationship", handler.relationship)
 	mux.HandleFunc("POST /v1/social/follow-requests/{follower_id}/accept", handler.acceptFollow)
@@ -200,7 +204,12 @@ func (handler *Handler) comments(writer http.ResponseWriter, request *http.Reque
 		handler.problem(writer, request, err)
 		return
 	}
-	writeSocialJSON(writer, http.StatusOK, map[string]any{"items": values})
+	items, next, err := paginateSocial(values, request.URL.Query().Get("cursor"), socialListLimit(request), "comments:"+request.PathValue("post_id"))
+	if err != nil {
+		handler.problem(writer, request, err)
+		return
+	}
+	writeSocialJSON(writer, http.StatusOK, CommentPage{Items: items, NextCursor: next})
 }
 
 func (handler *Handler) createComment(writer http.ResponseWriter, request *http.Request) {
@@ -231,6 +240,38 @@ func (handler *Handler) profile(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 	writeSocialJSON(writer, http.StatusOK, value)
+}
+
+func (handler *Handler) profileByHandle(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := socialActor(writer, request)
+	if !ok {
+		return
+	}
+	value, err := handler.service.ProfileByHandle(actor, request.PathValue("handle"))
+	if err != nil {
+		handler.problem(writer, request, err)
+		return
+	}
+	writeSocialJSON(writer, http.StatusOK, value)
+}
+
+func (handler *Handler) profileContent(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := socialActor(writer, request)
+	if !ok {
+		return
+	}
+	kind := strings.ToUpper(strings.TrimSpace(request.URL.Query().Get("kind")))
+	values, err := handler.service.ProfileContent(actor, request.PathValue("profile_id"), kind)
+	if err != nil {
+		handler.problem(writer, request, err)
+		return
+	}
+	items, next, err := paginateSocial(values, request.URL.Query().Get("cursor"), socialListLimit(request), "profile-content:"+request.PathValue("profile_id")+":"+kind)
+	if err != nil {
+		handler.problem(writer, request, err)
+		return
+	}
+	writeSocialJSON(writer, http.StatusOK, ProfileContentPage{Items: items, NextCursor: next})
 }
 
 func (handler *Handler) follow(writer http.ResponseWriter, request *http.Request) {
@@ -353,6 +394,18 @@ func socialMutation(writer http.ResponseWriter, request *http.Request) (Actor, i
 		return Actor{}, 0, false
 	}
 	return actor, revision, true
+}
+
+func socialListLimit(request *http.Request) int {
+	raw := request.URL.Query().Get("limit")
+	if raw == "" {
+		return 0
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return -1
+	}
+	return value
 }
 
 func socialActor(writer http.ResponseWriter, request *http.Request) (Actor, bool) {

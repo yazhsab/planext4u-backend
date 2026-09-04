@@ -1,6 +1,24 @@
 {
   "components": {
     "parameters": {
+      "IdempotencyKey": {
+        "in": "header",
+        "name": "Idempotency-Key",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "minLength": 16,
+          "type": "string"
+        }
+      },
+      "IfMatch": {
+        "in": "header",
+        "name": "If-Match",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
       "ItemID": {
         "in": "path",
         "name": "item_id",
@@ -568,6 +586,305 @@
           "vendor_id"
         ],
         "type": "object"
+      },
+      "ApproveVendorCatalogRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "approved": {
+            "type": "boolean"
+          },
+          "reason": {
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "approved",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "CheckInVendorFieldVisitRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "latitude": {
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "longitude": {
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "type": "object"
+      },
+      "CreateVendorPromotionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "title": {
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": [
+          "budget",
+          "ends_at",
+          "kind",
+          "starts_at",
+          "title"
+        ],
+        "type": "object"
+      },
+      "RegisterVendorRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "business_name": {
+            "type": "string"
+          },
+          "business_type": {
+            "type": "string"
+          },
+          "contact_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "business_name",
+          "business_type",
+          "contact_name"
+        ],
+        "type": "object"
+      },
+      "ScheduleVendorFieldVisitRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_radius_m": {
+            "maximum": 2000,
+            "minimum": 20,
+            "type": "number"
+          },
+          "latitude": {
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "longitude": {
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          "scheduled_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "allowed_radius_m",
+          "latitude",
+          "longitude",
+          "scheduled_at"
+        ],
+        "type": "object"
+      },
+      "SetVendorInventoryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "stock": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stock"
+        ],
+        "type": "object"
+      },
+      "SetVendorScheduleRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleWindow"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "windows"
+        ],
+        "type": "object"
+      },
+      "SetVendorZonesRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "zones": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceZone"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "zones"
+        ],
+        "type": "object"
+      },
+      "SubmitVendorBankRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "holder_name": {
+            "minLength": 3,
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "ifsc": {
+            "pattern": "^[A-Z]{4}0[A-Z0-9]{6}$",
+            "type": "string"
+          },
+          "last4": {
+            "pattern": "^[0-9]{4}$",
+            "type": "string"
+          },
+          "reference": {
+            "pattern": "^bankref_[A-Za-z0-9_-]{8,100}$",
+            "type": "string",
+            "x-planext4u-sensitive": true
+          }
+        },
+        "required": [
+          "holder_name",
+          "ifsc",
+          "last4",
+          "reference"
+        ],
+        "type": "object"
+      },
+      "SubmitVendorDocumentsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/SubmitVendorDocumentRequest"
+            },
+            "maxItems": 10,
+            "minItems": 2,
+            "type": "array"
+          }
+        },
+        "required": [
+          "documents"
+        ],
+        "type": "object"
+      },
+      "SubmitVendorDocumentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "TransitionVendorApplicationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "minLength": 8,
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ApplicationStatus"
+          }
+        },
+        "required": [
+          "reason",
+          "status"
+        ],
+        "type": "object"
+      },
+      "TransitionVendorWorkRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "UpsertVendorCatalogItemRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CatalogKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "sku": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "kind",
+          "name",
+          "price",
+          "sku"
+        ],
+        "type": "object"
+      },
+      "VerifyVendorBankRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -604,6 +921,24 @@
     "/v1/vendor/application/bank": {
       "post": {
         "operationId": "submitVendorBank",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitVendorBankRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -621,6 +956,24 @@
     "/v1/vendor/application/documents": {
       "post": {
         "operationId": "submitVendorDocuments",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitVendorDocumentsRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -638,6 +991,24 @@
     "/v1/vendor/application/field-visit": {
       "post": {
         "operationId": "scheduleVendorFieldVisit",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleVendorFieldVisitRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -655,6 +1026,24 @@
     "/v1/vendor/application/zones": {
       "post": {
         "operationId": "setVendorZones",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetVendorZonesRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -672,6 +1061,21 @@
     "/v1/vendor/applications": {
       "post": {
         "operationId": "registerVendor",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterVendorRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -692,8 +1096,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/VendorID"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyVendorBankRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -714,8 +1134,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/VendorID"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckInVendorFieldVisitRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -736,8 +1172,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/VendorID"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionVendorApplicationRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -782,6 +1234,21 @@
       },
       "post": {
         "operationId": "createVendorCatalogItem",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertVendorCatalogItemRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -802,8 +1269,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/ItemID"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertVendorCatalogItemRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -824,8 +1307,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/ItemID"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveVendorCatalogRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -846,8 +1345,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/ItemID"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetVendorInventoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -868,8 +1383,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/ItemID"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetVendorScheduleRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -904,6 +1435,21 @@
     "/v1/vendor/promotions": {
       "post": {
         "operationId": "createVendorPromotion",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateVendorPromotionRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -958,8 +1504,21 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionVendorWorkRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

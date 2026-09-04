@@ -130,6 +130,22 @@ type DeliveryTask struct {
 	deliveryOTPHash   string
 }
 
+type OfferDeclineRequest struct {
+	ReasonCode string `json:"reason_code"`
+	Note       string `json:"note,omitempty"`
+}
+
+type OfferDecline struct {
+	TaskID       string    `json:"task_id"`
+	TaskRevision int64     `json:"task_revision"`
+	ReasonCode   string    `json:"reason_code"`
+	Note         string    `json:"note,omitempty"`
+	DeclinedAt   time.Time `json:"declined_at"`
+	tenantID     string
+	country      string
+	riderID      string
+}
+
 type TaskSeed struct {
 	ID             string `json:"id"`
 	OrderID        string `json:"order_id"`

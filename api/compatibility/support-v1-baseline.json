@@ -1,0 +1,23 @@
+{
+  "operations": [
+    {"method": "POST", "path": "/v1/support/tickets"},
+    {"method": "GET", "path": "/v1/support/tickets"},
+    {"method": "GET", "path": "/v1/support/tickets/{ticket_id}"},
+    {"method": "POST", "path": "/v1/support/tickets/{ticket_id}/messages"},
+    {"method": "GET", "path": "/internal/v1/support/tickets"}
+  ],
+  "required_properties": {
+    "CreateTicketRequest": ["owner_role", "category", "subject", "description"],
+    "AddMessageRequest": ["body"],
+    "TicketMessage": ["id", "author_type", "body", "created_at"],
+    "Ticket": ["id", "owner_role", "category", "subject", "priority", "status", "messages", "created_at", "updated_at"],
+    "AdminTicket": ["id", "owner_role", "owner_reference", "category", "subject", "priority", "status", "message_count", "last_message_at", "created_at", "updated_at"]
+  },
+  "enum_values": {
+    "Role": ["CUSTOMER", "VENDOR", "RIDER"],
+    "TicketCategory": ["ACCOUNT", "ORDER", "PAYMENT", "VENDOR_OPERATIONS", "RIDER_OPERATIONS", "OTHER"],
+    "TicketPriority": ["LOW", "NORMAL", "HIGH", "URGENT"],
+    "TicketStatus": ["OPEN", "WAITING_FOR_SUPPORT", "WAITING_FOR_REQUESTER", "RESOLVED", "CLOSED"],
+    "MessageAuthorType": ["REQUESTER", "SUPPORT"]
+  }
+}

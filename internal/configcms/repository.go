@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/yazhsab/planext4u-backend/internal/platformlocale"
 )
 
 var (
@@ -142,23 +144,28 @@ func (sink *MemoryAuditSink) Records() []AuditRecord {
 
 func validateSnapshot(snapshot Snapshot) error {
 	if !safeID(snapshot.TenantID) || len(snapshot.Country) != 2 || snapshot.Revision < 1 || snapshot.PublishedAt.IsZero() ||
-		len(snapshot.MinimumVersions) != 2 || len(snapshot.LatestVersions) != 2 || len(snapshot.SupportedLocales) == 0 ||
+		len(snapshot.MinimumVersions) != 3 || len(snapshot.LatestVersions) != 3 || len(snapshot.SupportedLocales) == 0 ||
 		!containsString(snapshot.SupportedLocales, snapshot.DefaultLocale) || len(snapshot.Flags) > 256 || len(snapshot.HomeSections) > 64 || len(snapshot.Pages) > 64 {
 		return ErrInvalidSnapshot
 	}
-	for _, platform := range []Platform{PlatformAndroid, PlatformIOS} {
+	for _, platform := range []Platform{PlatformAndroid, PlatformIOS, PlatformWeb} {
 		minimum, minOK := snapshot.MinimumVersions[platform]
 		latest, latestOK := snapshot.LatestVersions[platform]
 		if !minOK || !latestOK || compareVersion(minimum, latest) > 0 {
 			return ErrInvalidSnapshot
 		}
 	}
-	seen := map[string]struct{}{}
+	localeSeen := map[string]struct{}{}
 	for _, locale := range snapshot.SupportedLocales {
-		if locale != "en" && locale != "ta" {
+		if !platformlocale.IsSupported(locale) {
 			return ErrInvalidSnapshot
 		}
+		if _, duplicate := localeSeen[locale]; duplicate {
+			return ErrInvalidSnapshot
+		}
+		localeSeen[locale] = struct{}{}
 	}
+	seen := map[string]struct{}{}
 	for _, policy := range snapshot.ConsentPolicies {
 		if !safeID(policy.Purpose) || !safeID(policy.PolicyVersion) {
 			return ErrInvalidSnapshot

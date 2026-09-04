@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -31,6 +32,11 @@ func (repository *PostgresRepository) Ready(ctx context.Context) error {
 		       SELECT 1 FROM information_schema.columns
 		       WHERE table_schema = 'media' AND table_name = 'assets'
 		         AND column_name = 'lifecycle_state'
+		   )
+		   AND EXISTS (
+		       SELECT 1 FROM information_schema.columns
+		       WHERE table_schema = 'media' AND table_name = 'assets'
+		         AND column_name = 'presentation_width'
 		   )`).Scan(&ready); err != nil {
 		return fmt.Errorf("check media schema readiness: %w", err)
 	}
@@ -53,12 +59,13 @@ func (repository *PostgresRepository) Create(ctx context.Context, asset Asset) e
 		INSERT INTO media.assets
 			(id, tenant_id, country, owner_id, object_key, content_type, size_bytes,
 			 checksum_sha256, status, classification, created_at, updated_at, purpose,
-			 lifecycle_state, upload_expires_at, ready_at, rejected_code, version)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17)`,
+			 lifecycle_state, upload_expires_at, ready_at, rejected_code, alt_text,
+			 presentation_width, presentation_height, version)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
 		asset.ID, asset.TenantID, asset.Country, asset.OwnerID, asset.ObjectKey, asset.ContentType,
 		asset.SizeBytes, asset.SHA256, legacyStatus(asset.State), classification(asset.Purpose),
 		asset.CreatedAt, asset.Purpose, asset.State, asset.UploadExpiresAt, asset.ReadyAt,
-		nullableString(asset.RejectedCode), asset.Version)
+		nullableString(asset.RejectedCode), nullableString(asset.AltText), nullableInt(asset.Width), nullableInt(asset.Height), asset.Version)
 	if err != nil {
 		if mediaConflict(err) {
 			return ErrConflict
@@ -89,7 +96,8 @@ func (repository *PostgresRepository) Get(ctx context.Context, tenantID, ownerID
 	value, err := scanPostgresAsset(repository.pool.QueryRow(ctx, `
 		SELECT id::text, tenant_id::text, country, owner_id, object_key, purpose,
 		       content_type, size_bytes, checksum_sha256, lifecycle_state, created_at,
-		       upload_expires_at, ready_at, rejected_code, version
+		       upload_expires_at, ready_at, rejected_code, alt_text,
+		       presentation_width, presentation_height, version
 		FROM media.assets
 		WHERE id = $1 AND tenant_id = $2 AND owner_id = $3 AND lifecycle_state <> 'DELETED'`,
 		assetID, tenantID, ownerID))
@@ -98,6 +106,31 @@ func (repository *PostgresRepository) Get(ctx context.Context, tenantID, ownerID
 	}
 	if err != nil {
 		return Asset{}, fmt.Errorf("read media asset: %w", err)
+	}
+	return value, nil
+}
+
+func (repository *PostgresRepository) GetPublic(ctx context.Context, tenantID, country, assetID string) (Asset, error) {
+	if _, err := uuid.Parse(tenantID); err != nil || !validCountry(country) {
+		return Asset{}, ErrNotFound
+	}
+	if _, err := uuid.Parse(assetID); err != nil {
+		return Asset{}, ErrNotFound
+	}
+	value, err := scanPostgresAsset(repository.pool.QueryRow(ctx, `
+		SELECT id::text, tenant_id::text, country, owner_id, object_key, purpose,
+		       content_type, size_bytes, checksum_sha256, lifecycle_state, created_at,
+		       upload_expires_at, ready_at, rejected_code, alt_text,
+		       presentation_width, presentation_height, version
+		FROM media.assets
+		WHERE id = $1 AND tenant_id = $2 AND country = $3
+		  AND classification = 'PUBLIC' AND purpose = 'CATALOG_IMAGE'
+		  AND lifecycle_state = 'READY'`, assetID, tenantID, country))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Asset{}, ErrNotFound
+	}
+	if err != nil {
+		return Asset{}, fmt.Errorf("read public media asset: %w", err)
 	}
 	return value, nil
 }
@@ -150,15 +183,25 @@ type mediaRow interface {
 
 func scanPostgresAsset(row mediaRow) (Asset, error) {
 	var value Asset
-	var rejectedCode *string
+	var rejectedCode, altText *string
+	var width, height *int
 	if err := row.Scan(&value.ID, &value.TenantID, &value.Country, &value.OwnerID,
 		&value.ObjectKey, &value.Purpose, &value.ContentType, &value.SizeBytes, &value.SHA256,
-		&value.State, &value.CreatedAt, &value.UploadExpiresAt, &value.ReadyAt, &rejectedCode,
-		&value.Version); err != nil {
+		&value.State, &value.CreatedAt, &value.UploadExpiresAt, &value.ReadyAt, &rejectedCode, &altText,
+		&width, &height, &value.Version); err != nil {
 		return Asset{}, err
 	}
 	if rejectedCode != nil {
 		value.RejectedCode = *rejectedCode
+	}
+	if altText != nil {
+		value.AltText = *altText
+	}
+	if width != nil {
+		value.Width = *width
+	}
+	if height != nil {
+		value.Height = *height
 	}
 	return value, nil
 }
@@ -175,7 +218,9 @@ func validPersistentAsset(asset Asset) bool {
 		(asset.State != StateReady || asset.ReadyAt != nil) &&
 		(asset.State != StateRejected || asset.RejectedCode != "") &&
 		(asset.State != StatePendingUpload || (asset.ReadyAt == nil && asset.RejectedCode == "")) &&
-		(asset.State != StatePendingScan || (asset.ReadyAt == nil && asset.RejectedCode == ""))
+		(asset.State != StatePendingScan || (asset.ReadyAt == nil && asset.RejectedCode == "")) &&
+		((asset.AltText == "" && asset.Width == 0 && asset.Height == 0) ||
+			(len(strings.TrimSpace(asset.AltText)) >= 1 && len(asset.AltText) <= 240 && asset.Width >= 1 && asset.Width <= 16384 && asset.Height >= 1 && asset.Height <= 16384))
 }
 
 func validState(value State) bool {
@@ -215,6 +260,13 @@ func classification(value Purpose) string {
 
 func nullableString(value string) any {
 	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func nullableInt(value int) any {
+	if value == 0 {
 		return nil
 	}
 	return value

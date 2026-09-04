@@ -17,10 +17,38 @@ func NewHandler(service *Service) (http.Handler, error) {
 	handler := &Handler{service: service}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/media/uploads", handler.presign)
+	mux.HandleFunc("POST /v1/media/presentations:resolve", handler.resolvePresentations)
 	mux.HandleFunc("POST /v1/media/{asset_id}/complete", handler.complete)
 	mux.HandleFunc("GET /v1/media/{asset_id}", handler.get)
 	mux.HandleFunc("DELETE /v1/media/{asset_id}", handler.delete)
 	return mux, nil
+}
+
+func (handler *Handler) resolvePresentations(writer http.ResponseWriter, request *http.Request) {
+	tenant := strings.TrimSpace(request.Header.Get("X-Planext4u-Tenant"))
+	country := strings.TrimSpace(request.Header.Get("X-Planext4u-Country"))
+	if !safeID(tenant) || !validCountry(country) {
+		writeProblem(writer, request, http.StatusUnauthorized, "REQUEST_SCOPE_INVALID", "The authenticated request scope is invalid.", false)
+		return
+	}
+	defer request.Body.Close()
+	var input PresentationRequest
+	decoder := json.NewDecoder(io.LimitReader(request.Body, 16*1024))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil {
+		writeProblem(writer, request, http.StatusUnprocessableEntity, "MEDIA_PRESENTATION_REQUEST_INVALID", "The media presentation request is invalid.", false)
+		return
+	}
+	result, err := handler.service.ResolvePresentations(request.Context(), tenant, country, input.AssetIDs)
+	if errors.Is(err, ErrDependency) {
+		writeProblem(writer, request, http.StatusServiceUnavailable, "MEDIA_PRESENTATION_UNAVAILABLE", "Media presentation is temporarily unavailable.", true)
+		return
+	}
+	if err != nil {
+		writeProblem(writer, request, http.StatusUnprocessableEntity, "MEDIA_PRESENTATION_REQUEST_INVALID", "The media presentation request is invalid.", false)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
 }
 
 func (handler *Handler) presign(writer http.ResponseWriter, request *http.Request) {

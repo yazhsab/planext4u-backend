@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/yazhsab/planext4u-backend/internal/platformlocale"
 )
 
 type IDFactory func(string) (string, error)
@@ -137,6 +138,35 @@ func (service *Service) Exchange(ctx context.Context, input ExchangeInput) (Auth
 	return result, nil
 }
 
+// CreateGuestSession issues an ephemeral, access-only principal. Guest
+// sessions are intentionally not written to the customer identity repository
+// and never receive a refresh token.
+func (service *Service) CreateGuestSession(country string) (GuestSession, error) {
+	country = strings.ToUpper(strings.TrimSpace(country))
+	if _, allowed := service.allowedCountries[country]; !allowed {
+		return GuestSession{}, ErrInvalidInput
+	}
+	subjectID, err := service.newID("guest")
+	if err != nil {
+		return GuestSession{}, fmt.Errorf("create guest subject ID: %w", err)
+	}
+	sessionID, err := service.newID("guest_session")
+	if err != nil {
+		return GuestSession{}, fmt.Errorf("create guest session ID: %w", err)
+	}
+	token, expiresAt, err := service.tokenIssuer.Issue(Principal{
+		Subject: subjectID, Session: sessionID, TenantID: service.tenantID,
+		Country: country, Roles: []Role{RoleGuest}, AuthTime: service.now().UTC(),
+	})
+	if err != nil {
+		return GuestSession{}, fmt.Errorf("issue guest access token: %w", err)
+	}
+	return GuestSession{
+		SessionID: sessionID, TenantID: service.tenantID, Country: country,
+		AccessToken: token, AccessExpiresAt: expiresAt, TokenType: "Bearer",
+	}, nil
+}
+
 func (service *Service) Refresh(ctx context.Context, presentedToken string) (Authentication, error) {
 	currentDigest, err := service.refreshHasher.Digest(presentedToken)
 	if err != nil {
@@ -234,15 +264,22 @@ func (service *Service) UpdateProfile(ctx context.Context, trusted TrustedIdenti
 		return Profile{}, err
 	}
 	update.DisplayName = strings.TrimSpace(update.DisplayName)
-	update.Email = strings.ToLower(strings.TrimSpace(update.Email))
-	update.Phone = strings.TrimSpace(update.Phone)
 	update.Locale = strings.TrimSpace(update.Locale)
 	update.TimeZone = strings.TrimSpace(update.TimeZone)
+	if update.Email != nil {
+		normalized := strings.ToLower(strings.TrimSpace(*update.Email))
+		update.Email = &normalized
+	}
+	if update.Phone != nil {
+		normalized := strings.TrimSpace(*update.Phone)
+		update.Phone = &normalized
+	}
 	if !utf8.ValidString(update.DisplayName) ||
 		utf8.RuneCountInString(update.DisplayName) < 1 ||
 		utf8.RuneCountInString(update.DisplayName) > 100 ||
-		!validProfileEmail(update.Email) || !validProfilePhone(update.Phone) ||
-		(update.Locale != "en" && update.Locale != "ta") ||
+		(update.Email != nil && !validProfileEmail(*update.Email)) ||
+		(update.Phone != nil && !validProfilePhone(*update.Phone)) ||
+		!platformlocale.IsSupported(update.Locale) ||
 		len(update.TimeZone) > 64 || update.Version < 1 {
 		return Profile{}, ErrInvalidInput
 	}

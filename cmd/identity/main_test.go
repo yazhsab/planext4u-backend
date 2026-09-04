@@ -15,6 +15,7 @@ func TestLoadRuntimeConfigUsesBoundedDefaults(t *testing.T) {
 	if config.environment != "development" || config.httpAddress != ":8083" ||
 		config.providerTimeout != 3*time.Second || config.accessTTL != 10*time.Minute ||
 		config.sessionTTL != 30*24*time.Hour || config.databaseMaxConns != 50 ||
+		config.guestMaxSkew != time.Minute || config.guestRateWindow != time.Minute || config.guestRateLimit != 120 ||
 		strings.Join(config.allowedCountries, ",") != "IN,GB" {
 		t.Fatalf("defaults = %#v", config)
 	}
@@ -48,6 +49,8 @@ func TestLoadRuntimeConfigRejectsUnsafeSettings(t *testing.T) {
 		{name: "provider credentials", mutate: func(values map[string]string) { values["PROVIDER_BASE_URL"] = "https://user:secret@provider.example" }, wantErr: "PROVIDER_BASE_URL"},
 		{name: "country", mutate: func(values map[string]string) { values["ALLOWED_COUNTRIES"] = "IND" }, wantErr: "ALLOWED_COUNTRIES"},
 		{name: "access ttl", mutate: func(values map[string]string) { values["ACCESS_TTL"] = "30m" }, wantErr: "safe range"},
+		{name: "guest exchange key", mutate: func(values map[string]string) { delete(values, "GUEST_SESSION_HMAC_KEY_FILE") }, wantErr: "required identity"},
+		{name: "guest rate", mutate: func(values map[string]string) { values["GUEST_SESSION_RATE_LIMIT"] = "0" }, wantErr: "safe range"},
 		{name: "pool bounds", mutate: func(values map[string]string) {
 			values["DATABASE_MIN_CONNS"] = "20"
 			values["DATABASE_MAX_CONNS"] = "10"
@@ -89,15 +92,16 @@ func TestDatabaseConfigRequiresVerifiedTLSOutsideDevelopment(t *testing.T) {
 
 func validIdentityConfig() map[string]string {
 	return map[string]string{
-		"DATABASE_URL_FILE":     "/run/secrets/identity-database-url",
-		"PROVIDER_BASE_URL":     "http://127.0.0.1:18081",
-		"TENANT_ID":             "c688a212-50fc-4d5c-b370-35a8c1d04f55",
-		"ALLOWED_COUNTRIES":     "IN, GB, IN",
-		"JWT_ISSUER":            "http://identity.local",
-		"JWT_AUDIENCE":          "planext4u-mobile",
-		"JWT_KEY_ID":            "identity-2026-01",
-		"JWT_PRIVATE_KEY_FILE":  "/run/secrets/identity-private-key",
-		"REFRESH_HMAC_KEY_FILE": "/run/secrets/identity-refresh-hmac",
+		"DATABASE_URL_FILE":           "/run/secrets/identity-database-url",
+		"PROVIDER_BASE_URL":           "http://127.0.0.1:18081",
+		"TENANT_ID":                   "c688a212-50fc-4d5c-b370-35a8c1d04f55",
+		"ALLOWED_COUNTRIES":           "IN, GB, IN",
+		"JWT_ISSUER":                  "http://identity.local",
+		"JWT_AUDIENCE":                "planext4u-mobile",
+		"JWT_KEY_ID":                  "identity-2026-01",
+		"JWT_PRIVATE_KEY_FILE":        "/run/secrets/identity-private-key",
+		"REFRESH_HMAC_KEY_FILE":       "/run/secrets/identity-refresh-hmac",
+		"GUEST_SESSION_HMAC_KEY_FILE": "/run/secrets/identity-guest-session-hmac",
 	}
 }
 

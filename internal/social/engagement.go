@@ -155,7 +155,7 @@ func (service *Service) CreateEphemeral(actor Actor, key string, request CreateE
 	}
 	value := &EphemeralContent{
 		ID: "social-content-" + sequenceID(service.next()), Author: cloneProfile(*profile), Kind: kind,
-		MediaJobID: request.MediaJobID, Caption: caption, Status: "PUBLISHED", ExpiresAt: now.Add(ttl),
+		MediaJobID: request.MediaJobID, MediaAssetID: media.AssetID, Caption: caption, Status: "PUBLISHED", ExpiresAt: now.Add(ttl),
 		AllowedActions: []string{"HIGHLIGHT", "DELETE"}, CreatedAt: now, tenantID: actor.TenantID, country: actor.Country,
 	}
 	service.ephemeral[value.ID] = value

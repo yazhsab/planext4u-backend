@@ -341,6 +341,90 @@ func TestGatewayAppliesAnonymousAndPrincipalRateLimits(t *testing.T) {
 	}
 }
 
+func TestGatewayGuestReadAllowlistAndCountryScope(t *testing.T) {
+	t.Parallel()
+
+	forwarded := make(chan *http.Request, 4)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		forwarded <- request.Clone(request.Context())
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+	handler := newGatewayTestHandler(t, upstream.URL, fixedVerifier{principal: syntheticGuestPrincipal()}, UnlimitedLimiter{}, UnlimitedLimiter{}, time.Second, 1024)
+
+	for _, path := range []string{
+		"/v1/bootstrap?platform=WEB&country=IN",
+		"/v1/pages/customer-home",
+		"/v1/home",
+		"/v1/catalog/categories",
+		"/v1/catalog/items/item-synthetic-1",
+		"/v1/homes/listings?limit=20",
+		"/v1/homes/listings/home-synthetic-1",
+		"/v1/classifieds/listings?category=electronics",
+		"/v1/classifieds/listings/classified-synthetic-1",
+	} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Header.Set("Authorization", "Bearer guest")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d %s", path, response.Code, response.Body.String())
+		}
+		got := <-forwarded
+		if got.Header.Get("X-Planext4u-Country") != "IN" || got.Header.Get("X-Planext4u-Roles") != "GUEST" || got.Header.Get("Authorization") != "" {
+			t.Fatalf("trusted guest headers for %s = %v", path, got.Header)
+		}
+	}
+
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/v1/catalog/items"},
+		{http.MethodGet, "/v1/cart"},
+		{http.MethodGet, "/v1/me"},
+		{http.MethodGet, "/v1/bootstrap?platform=WEB&country=GB"},
+	} {
+		request := httptest.NewRequest(test.method, test.path, nil)
+		request.Header.Set("Authorization", "Bearer guest")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "GUEST_ACCESS_FORBIDDEN") {
+			t.Fatalf("%s %s = %d %s", test.method, test.path, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestGatewayAppliesDedicatedGuestRateLimit(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+	guestLimiter, err := NewMemoryLimiter(1, time.Minute, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := newGatewayTestHandler(t, upstream.URL, fixedVerifier{principal: syntheticGuestPrincipal()}, UnlimitedLimiter{}, UnlimitedLimiter{}, time.Second, 1024)
+	handler.config.GuestLimiter = guestLimiter
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		request := httptest.NewRequest(http.MethodGet, "/v1/catalog/items", nil)
+		request.RemoteAddr = "192.0.2.40:1234"
+		request.Header.Set("Authorization", "Bearer guest")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if attempt == 1 && response.Code != http.StatusOK {
+			t.Fatalf("first = %d %s", response.Code, response.Body.String())
+		}
+		if attempt == 2 && (response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") == "") {
+			t.Fatalf("second = %d %s headers=%v", response.Code, response.Body.String(), response.Header())
+		}
+	}
+}
+
 func TestGatewayFailsClosedWhenRateLimitStoreIsUnavailable(t *testing.T) {
 	t.Parallel()
 
@@ -637,5 +721,15 @@ func syntheticPrincipal() Principal {
 		Country:   "IN",
 		DeviceID:  "device-synthetic-001",
 		Roles:     []string{"CUSTOMER"},
+	}
+}
+
+func syntheticGuestPrincipal() Principal {
+	return Principal{
+		Subject:   "guest-synthetic-001",
+		SessionID: "guest-session-synthetic-001",
+		TenantID:  "tenant-synthetic-001",
+		Country:   "IN",
+		Roles:     []string{"GUEST"},
 	}
 }

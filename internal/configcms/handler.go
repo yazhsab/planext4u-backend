@@ -44,7 +44,7 @@ func (handler *Handler) bootstrap(writer http.ResponseWriter, request *http.Requ
 	country := strings.TrimSpace(request.Header.Get("X-Planext4u-Country"))
 	result, err := handler.service.Bootstrap(
 		request.Context(), tenantID, country, Platform(strings.ToUpper(request.URL.Query().Get("platform"))),
-		request.URL.Query().Get("app_version"), request.URL.Query().Get("locale"),
+		request.URL.Query().Get("app_version"), request.URL.Query().Get("deployment_id"), request.URL.Query().Get("locale"),
 	)
 	if err != nil {
 		status, code, message := http.StatusUnprocessableEntity, "BOOTSTRAP_REQUEST_INVALID", "The bootstrap request is invalid."

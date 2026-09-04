@@ -158,6 +158,10 @@ jobs:
         env:
           ADMIN_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
         run: make test-admin-integration
+      - name: Verify encrypted opaque customer web sessions and rotation
+        env:
+          CUSTOMER_WEB_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable
+        run: make test-customer-web-integration
       - name: Verify secure media lifecycle persistence against PostgreSQL
         env:
           MEDIA_DATABASE_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/planext4u_test?sslmode=disable

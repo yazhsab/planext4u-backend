@@ -2,6 +2,7 @@ package verticalslice
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,11 +14,14 @@ import (
 	"github.com/yazhsab/planext4u-backend/internal/checkout"
 	"github.com/yazhsab/planext4u-backend/internal/commerce"
 	"github.com/yazhsab/planext4u-backend/internal/configcms"
+	"github.com/yazhsab/planext4u-backend/internal/emergency"
+	"github.com/yazhsab/planext4u-backend/internal/fulfillment"
 	"github.com/yazhsab/planext4u-backend/internal/gateway"
 	"github.com/yazhsab/planext4u-backend/internal/inventory"
 	"github.com/yazhsab/planext4u-backend/internal/notification"
 	"github.com/yazhsab/planext4u-backend/internal/order"
 	"github.com/yazhsab/planext4u-backend/internal/payment"
+	"github.com/yazhsab/planext4u-backend/internal/support"
 	"github.com/yazhsab/planext4u-backend/internal/wallet"
 )
 
@@ -71,15 +75,33 @@ func New(config Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	supportService, err := support.NewService(support.NewMemoryRepository(), config.Clock)
+	if err != nil {
+		return nil, err
+	}
+	supportHandler, err := support.NewHandler(supportService)
+	if err != nil {
+		return nil, err
+	}
 	commerceHandler, transactionHandler, bookingHandler, err := customerTransactionHandlers(config.Clock, orderNotifier)
 	if err != nil {
 		return nil, err
 	}
-	supplyHandler, foodHandler, fulfillmentHandler, err := phase4Handlers(config.Clock)
+	supplyHandler, foodHandler, fulfillmentHandler, fulfillmentService, err := phase4Handlers(config.Clock)
 	if err != nil {
 		return nil, err
 	}
-	socialHandler, localVerticalHandler, emergencyHandler, governanceHandler, err := phase5Handlers(config.Clock)
+	socialHandler, localVerticalHandler, emergencyHandler, governanceHandler, emergencyService, err := phase5Handlers(config.Clock)
+	if err != nil {
+		return nil, err
+	}
+	riderEmergencyHandler, err := emergency.NewRiderHandler(emergencyService, emergency.RiderDutyVerifierFunc(func(actor emergency.Actor) (bool, error) {
+		duty, dutyErr := fulfillmentService.Duty(fulfillment.Actor{TenantID: actor.TenantID, Country: actor.Country, Subject: actor.Subject, Roles: actor.Roles, MFAVerified: actor.MFAVerified})
+		if errors.Is(dutyErr, fulfillment.ErrNotFound) || errors.Is(dutyErr, fulfillment.ErrForbidden) {
+			return false, nil
+		}
+		return dutyErr == nil && duty.Status == "ACTIVE", dutyErr
+	}))
 	if err != nil {
 		return nil, err
 	}
@@ -103,6 +125,9 @@ func New(config Config) (http.Handler, error) {
 		upstream.Handle(path, bookingHandler)
 	}
 	upstream.Handle("/v1/notifications/devices/", notificationHandler)
+	upstream.Handle("/v1/notification/preferences/", notificationHandler)
+	upstream.Handle("/v1/support/tickets", supportHandler)
+	upstream.Handle("/v1/support/tickets/", supportHandler)
 	upstream.Handle("/v1/vendor/", supplyHandler)
 	upstream.Handle("/v1/restaurants", foodHandler)
 	upstream.Handle("/v1/restaurants/", foodHandler)
@@ -110,6 +135,8 @@ func New(config Config) (http.Handler, error) {
 	upstream.Handle("/v1/food-orders", foodHandler)
 	upstream.Handle("/v1/food-orders/", foodHandler)
 	upstream.Handle("/v1/rider/", fulfillmentHandler)
+	upstream.Handle("/v1/rider/emergency-incidents", riderEmergencyHandler)
+	upstream.Handle("/v1/rider/emergency-incidents/", riderEmergencyHandler)
 	upstream.Handle("/v1/dispatch/", fulfillmentHandler)
 	upstream.Handle("/v1/order-chats/", fulfillmentHandler)
 	upstream.Handle("/v1/settlements/", fulfillmentHandler)
@@ -142,9 +169,19 @@ func Route(request *http.Request) string {
 		return route
 	}
 	switch request.URL.Path {
-	case "/healthz", "/readyz", "/health/ready", "/v1/auth/exchange", "/v1/me/consents", "/v1/bootstrap", "/v1/home", "/v1/catalog/categories", "/v1/catalog/items", "/v1/catalog/search", "/v1/catalog/suggestions", "/v1/serviceability/check", "/v1/geocoding/search", "/v1/cart", "/v1/addresses", "/v1/delivery-slots", "/v1/checkout/quotes", "/v1/checkout/orders", "/v1/orders", "/v1/wallet", "/v1/wallet/experience", "/v1/wallet/referrals", "/v1/wallet/refills", "/v1/notifications/devices/current", "/v1/payments/webhooks/razorpay", "/v1/payments/webhooks/paystack", "/v1/services", "/v1/service-slot-holds", "/v1/service-bookings":
+	case "/healthz", "/readyz", "/health/ready", "/v1/auth/exchange", "/v1/me/consents", "/v1/bootstrap", "/v1/home", "/v1/catalog/categories", "/v1/catalog/items", "/v1/catalog/search", "/v1/catalog/suggestions", "/v1/serviceability/check", "/v1/geocoding/search", "/v1/cart", "/v1/addresses", "/v1/delivery-slots", "/v1/checkout/quotes", "/v1/checkout/orders", "/v1/orders", "/v1/wallet", "/v1/wallet/experience", "/v1/wallet/referrals", "/v1/wallet/refills", "/v1/notifications/devices/current", "/v1/payments/webhooks/razorpay", "/v1/payments/webhooks/paystack", "/v1/services", "/v1/service-slot-holds", "/v1/service-bookings", "/v1/support/tickets":
 		return request.URL.Path
 	default:
+		parts := strings.Split(strings.Trim(request.URL.Path, "/"), "/")
+		if len(parts) == 5 && parts[0] == "v1" && parts[1] == "notification" && parts[2] == "preferences" {
+			return "/v1/notification/preferences/{purpose}/{channel}"
+		}
+		if len(parts) == 4 && parts[0] == "v1" && parts[1] == "support" && parts[2] == "tickets" {
+			return "/v1/support/tickets/{ticket_id}"
+		}
+		if len(parts) == 5 && parts[0] == "v1" && parts[1] == "support" && parts[2] == "tickets" && parts[4] == "messages" {
+			return "/v1/support/tickets/{ticket_id}/messages"
+		}
 		if strings.HasPrefix(request.URL.Path, "/v1/me/consents/") {
 			return "/v1/me/consents/{purpose}"
 		}
@@ -313,14 +350,14 @@ func customerTransactionHandlers(clock func() time.Time, notifier order.Notifier
 func configurationHandler(clock func() time.Time) (http.Handler, error) {
 	snapshot := configcms.Snapshot{
 		TenantID: syntheticTenant, Country: "IN", Revision: 1, PublishedAt: time.Date(2026, 8, 27, 0, 0, 0, 0, time.UTC),
-		MinimumVersions:  map[configcms.Platform]string{configcms.PlatformAndroid: "0.1.0", configcms.PlatformIOS: "0.1.0"},
-		LatestVersions:   map[configcms.Platform]string{configcms.PlatformAndroid: "0.1.0", configcms.PlatformIOS: "0.1.0"},
-		SupportedLocales: []string{"en", "ta"}, DefaultLocale: "en",
+		MinimumVersions:  map[configcms.Platform]string{configcms.PlatformAndroid: "0.1.0", configcms.PlatformIOS: "0.1.0", configcms.PlatformWeb: "0.1.0"},
+		LatestVersions:   map[configcms.Platform]string{configcms.PlatformAndroid: "0.1.0", configcms.PlatformIOS: "0.1.0", configcms.PlatformWeb: "0.1.0"},
+		SupportedLocales: []string{"en", "ta", "hi", "te", "kn", "ml", "mr", "bn", "gu"}, DefaultLocale: "en",
 		ConsentPolicies: []configcms.ConsentPolicy{
 			{Purpose: "ESSENTIAL", PolicyVersion: "privacy-2026-01", Required: true},
 			{Purpose: "LOCATION_SERVICEABILITY", PolicyVersion: "location-2026-01", Required: true},
 		},
-		Flags: map[string]bool{"customer_home": true, "catalog_read": true, "service_booking": true, "food_ordering": true, "vendor_operations": true, "rider_fulfillment": true, "order_chat": true, "settlements": true, "socio": true, "homes": true, "classifieds": true, "emergency": true},
+		Flags: map[string]bool{"customer_home": true, "catalog_read": true, "service_booking": true, "food_ordering": true, "vendor_operations": true, "rider_fulfillment": true, "order_chat": true, "settlements": true, "support": true, "socio": true, "homes": true, "classifieds": true, "emergency": true},
 		HomeSections: []configcms.HomeSection{
 			{ID: "featured", Kind: "FEATURED_ITEMS", TitleKey: "home.featured", Enabled: true, Priority: 10},
 			{ID: "categories", Kind: "CATEGORY_GRID", TitleKey: "home.categories", Enabled: true, Priority: 20},
@@ -368,13 +405,20 @@ func configurationHandler(clock func() time.Time) (http.Handler, error) {
 }
 
 func customerCatalogHandler(clock func() time.Time) (http.Handler, error) {
-	repository, err := catalog.NewMemoryRepository(
+	repository, err := catalog.NewMemoryRepositoryWithServiceCollections(
 		[]catalog.Category{{ID: "daily-needs", Name: "Daily needs", Priority: 10}, {ID: "local-services", Name: "Local services", Priority: 20}},
 		[]catalog.Item{
 			{ID: "item-milk", CategoryID: "daily-needs", Name: "Fresh milk", Summary: "One litre", Price: catalog.Money{AmountMinor: 6500, Currency: "INR"}, Available: true, SellerName: "Coimbatore Dairy", VerifiedLocalSeller: true, Description: "Fresh local milk delivered chilled.", RatingAverage: 4.7, ReviewCount: 86, Variants: []catalog.Variant{{ID: "variant-milk-1l", Label: "1 litre", Price: catalog.Money{AmountMinor: 6500, Currency: "INR"}, Available: true, StockQuantity: 50, MaxPerOrder: 10}}, SearchTerms: []string{"milk", "dairy"}},
 			{ID: "item-groceries", CategoryID: "daily-needs", Name: "Weekly groceries", Summary: "Essential grocery bundle", Price: catalog.Money{AmountMinor: 120000, Currency: "INR"}, Available: true, SellerName: "Neighbourhood Mart", VerifiedLocalSeller: true, Variants: []catalog.Variant{{ID: "variant-groceries-weekly", Label: "Essential bundle", Price: catalog.Money{AmountMinor: 120000, Currency: "INR"}, Available: true, StockQuantity: 20, MaxPerOrder: 3}}, SearchTerms: []string{"grocery", "essentials"}},
 			{ID: "item-sesame-oil", CategoryID: "daily-needs", Name: "Cold-pressed sesame oil", Summary: "Traditional wood-pressed local oil", Price: catalog.Money{AmountMinor: 24000, Currency: "INR"}, Available: true, SellerName: "Annam Local Foods", VerifiedLocalSeller: true, Description: "Small-batch sesame oil cold pressed from locally sourced seeds.", Specifications: map[string]string{"Origin": "Tamil Nadu", "Method": "Wood pressed", "Shelf life": "9 months"}, RatingAverage: 4.8, ReviewCount: 124, DeliveryEstimate: "In stock • earliest delivery tomorrow", Reviews: []catalog.Review{{ID: "review-sesame-001", AuthorDisplayName: "Verified customer", Score: 5, Body: "Fresh aroma and secure local packaging.", VerifiedPurchase: true, CreatedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)}}, Questions: []catalog.Question{{ID: "question-sesame-001", Question: "Is this suitable for traditional cooking?", AskedBy: "Planext4u customer", AskedAt: time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC), Answer: "Yes. It is cold pressed and intended for everyday cooking.", AnsweredBy: "Annam Local Foods", AnsweredAt: pointerTime(time.Date(2026, 8, 19, 11, 0, 0, 0, time.UTC))}}, RelatedItemIDs: []string{"item-groceries"}, Variants: []catalog.Variant{{ID: "variant-sesame-oil-500ml", Label: "500ml", Price: catalog.Money{AmountMinor: 24000, Currency: "INR"}, CompareAtPrice: &catalog.Money{AmountMinor: 28000, Currency: "INR"}, Available: true, StockQuantity: 24, MaxPerOrder: 5}, {ID: "variant-sesame-oil-1l", Label: "1L", Price: catalog.Money{AmountMinor: 45000, Currency: "INR"}, CompareAtPrice: &catalog.Money{AmountMinor: 52000, Currency: "INR"}, Available: true, StockQuantity: 12, MaxPerOrder: 5}}, SearchTerms: []string{"oil", "sesame", "gingelly", "cold pressed"}},
 		},
+		[]catalog.ServiceCollectionProjection{{
+			Collection: catalog.ServiceCollection{CollectionID: "popular-services", Title: "Popular services", Items: []catalog.ServiceCollectionItem{{
+				ServiceID: "service-home-cleaning", ProviderID: "provider-clean-001", Title: "Home cleaning", Summary: "Trusted local cleaning team",
+				Price: catalog.Money{AmountMinor: 20000, Currency: "INR"}, PriceDisplay: "From ₹200.00", Trust: catalog.ServiceTrustSummary{VerifiedProvider: true, RatingAverage: 4.8, CompletedBookings: 241}, NavigationTarget: "/app/services/service-home-cleaning",
+			}}},
+			ServicePostalCodes: map[string][]string{"service-home-cleaning": {"600001", "600002", "600003"}},
+		}},
 	)
 	if err != nil {
 		return nil, err

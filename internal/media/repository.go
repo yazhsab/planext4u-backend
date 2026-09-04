@@ -17,7 +17,18 @@ var (
 type Repository interface {
 	Create(context.Context, Asset) error
 	Get(context.Context, string, string, string) (Asset, error)
+	GetPublic(context.Context, string, string, string) (Asset, error)
 	Update(context.Context, Asset, int64) error
+}
+
+func (repository *MemoryRepository) GetPublic(_ context.Context, tenantID, country, assetID string) (Asset, error) {
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	asset, exists := repository.assets[assetID]
+	if !exists || asset.TenantID != tenantID || asset.Country != country || asset.Purpose != PurposeCatalogImage || asset.State != StateReady {
+		return Asset{}, ErrNotFound
+	}
+	return cloneAsset(asset), nil
 }
 
 type MemoryRepository struct {

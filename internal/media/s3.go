@@ -31,6 +31,7 @@ func (adapter *S3Adapter) Ready(ctx context.Context) error {
 
 type s3Presigner interface {
 	PresignPutObject(context.Context, *s3.PutObjectInput, ...func(*s3.PresignOptions)) (*v4.PresignedHTTPRequest, error)
+	PresignGetObject(context.Context, *s3.GetObjectInput, ...func(*s3.PresignOptions)) (*v4.PresignedHTTPRequest, error)
 }
 
 type S3Adapter struct {
@@ -38,6 +39,23 @@ type S3Adapter struct {
 	presigner s3Presigner
 	bucket    string
 	clock     func() time.Time
+}
+
+func (adapter *S3Adapter) Present(ctx context.Context, key, contentType string, expiresAt time.Time) (string, error) {
+	if !validObjectKey(key) || !strings.HasPrefix(contentType, "image/") {
+		return "", ErrInvalidRequest
+	}
+	expires := expiresAt.UTC().Sub(adapter.clock().UTC())
+	if expires < time.Minute || expires > 15*time.Minute {
+		return "", ErrInvalidRequest
+	}
+	request, err := adapter.presigner.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(adapter.bucket), Key: aws.String(key), ResponseContentType: aws.String(contentType),
+	}, func(options *s3.PresignOptions) { options.Expires = expires })
+	if err != nil {
+		return "", fmt.Errorf("presign media presentation: %w", err)
+	}
+	return request.URL, nil
 }
 
 func NewS3Adapter(client *s3.Client, bucket string, clock func() time.Time) (*S3Adapter, error) {
@@ -142,4 +160,5 @@ func validMetadataForS3(value ObjectMetadata) bool {
 var regexpSHA256 = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
 
 var _ UploadSigner = (*S3Adapter)(nil)
+var _ PresentationSigner = (*S3Adapter)(nil)
 var _ ObjectStore = (*S3Adapter)(nil)

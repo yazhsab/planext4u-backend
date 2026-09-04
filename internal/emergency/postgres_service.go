@@ -64,7 +64,7 @@ func (service *PostgresService) Ready(ctx context.Context) error {
 
 func (service *PostgresService) Create(actor Actor, key string, input CreateRequest) (Request, bool, error) {
 	category, priority, description := strings.ToUpper(strings.TrimSpace(input.Category)), strings.ToUpper(strings.TrimSpace(input.Priority)), strings.TrimSpace(input.Description)
-	if !postgresEmergencyActor(actor) || !customer(actor) || !validKey(key) || !input.LocationConsent || !map[string]bool{"MEDICAL": true, "SAFETY": true, "FIRE": true, "ACCIDENT": true, "OTHER": true}[category] || !map[string]bool{"HIGH": true, "CRITICAL": true}[priority] || len(description) < 5 || len(description) > 2000 || !validLocation(input.Location) {
+	if !postgresEmergencyActor(actor) || (!customer(actor) && !hasRole(actor, "RIDER")) || !validKey(key) || !input.LocationConsent || !map[string]bool{"MEDICAL": true, "SAFETY": true, "FIRE": true, "ACCIDENT": true, "OTHER": true}[category] || !map[string]bool{"HIGH": true, "CRITICAL": true}[priority] || len(description) < 5 || len(description) > 2000 || !validLocation(input.Location) {
 		return Request{}, false, ErrInvalidRequest
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), emergencyOperationTimeout)

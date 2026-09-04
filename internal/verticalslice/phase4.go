@@ -10,14 +10,14 @@ import (
 	"github.com/yazhsab/planext4u-backend/internal/supply"
 )
 
-func phase4Handlers(clock func() time.Time) (http.Handler, http.Handler, http.Handler, error) {
+func phase4Handlers(clock func() time.Time) (http.Handler, http.Handler, http.Handler, *fulfillment.Service, error) {
 	supplyService, err := supply.NewService(clock)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	supplyHandler, err := supply.NewHandler(supplyService)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	foodService, err := food.NewService(food.Configuration{
@@ -35,11 +35,11 @@ func phase4Handlers(clock func() time.Time) (http.Handler, http.Handler, http.Ha
 		},
 	}, clock)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	foodHandler, err := food.NewHandler(foodService)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	fulfillmentService, err := fulfillment.NewService(fulfillment.Configuration{
@@ -50,20 +50,20 @@ func phase4Handlers(clock func() time.Time) (http.Handler, http.Handler, http.Ha
 		},
 	}, clock)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	fulfillmentHandler, err := fulfillment.NewHandler(fulfillmentService)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return supplyHandler, foodHandler, fulfillmentHandler, nil
+	return supplyHandler, foodHandler, fulfillmentHandler, fulfillmentService, nil
 }
 
 func phase4Route(path string) string {
 	exact := map[string]bool{
 		"/v1/vendor/applications": true, "/v1/vendor/application": true, "/v1/vendor/application/documents": true, "/v1/vendor/application/field-visit": true, "/v1/vendor/application/zones": true, "/v1/vendor/application/bank": true, "/v1/vendor/dashboard": true, "/v1/vendor/catalog": true, "/v1/vendor/work": true, "/v1/vendor/promotions": true,
 		"/v1/restaurants": true, "/v1/food-carts": true, "/v1/food-orders": true,
-		"/v1/rider/applications": true, "/v1/rider/profile": true, "/v1/rider/duty/start": true, "/v1/rider/duty": true, "/v1/rider/duty/end": true, "/v1/rider/offers": true, "/v1/rider/tasks": true, "/v1/rider/location": true, "/v1/rider/offline-recovery": true,
+		"/v1/rider/applications": true, "/v1/rider/profile": true, "/v1/rider/duty/start": true, "/v1/rider/duty": true, "/v1/rider/duty/end": true, "/v1/rider/offers": true, "/v1/rider/tasks": true, "/v1/rider/location": true, "/v1/rider/offline-recovery": true, "/v1/rider/emergency-incidents": true,
 		"/v1/dispatch/tasks": true, "/v1/dispatch/stale-assignment-sweep": true, "/v1/settlements/ledger": true, "/v1/settlements/seed": true, "/v1/settlements/reconciliation": true, "/v1/payouts": true, "/v1/operations/territories": true, "/v1/operations/attendance": true, "/v1/operations/audit": true,
 	}
 	if exact[path] {
@@ -99,11 +99,20 @@ func phase4Route(path string) string {
 			return "/v1/vendor/work/{work_id}/" + parts[4]
 		}
 	case "rider":
+		if len(parts) == 4 && parts[2] == "emergency-incidents" {
+			return "/v1/rider/emergency-incidents/{incident_id}"
+		}
+		if len(parts) == 5 && parts[2] == "emergency-incidents" && parts[4] == "location" {
+			return "/v1/rider/emergency-incidents/{incident_id}/location"
+		}
 		if len(parts) == 5 && parts[2] == "applications" {
 			return "/v1/rider/applications/{rider_id}/review"
 		}
 		if len(parts) == 5 && parts[2] == "tasks" {
 			return "/v1/rider/tasks/{task_id}/" + parts[4]
+		}
+		if len(parts) == 5 && parts[2] == "offers" && parts[4] == "decline" {
+			return "/v1/rider/offers/{offer_id}/decline"
 		}
 		if len(parts) == 4 && parts[2] == "locations" {
 			return "/v1/rider/locations/{rider_id}"

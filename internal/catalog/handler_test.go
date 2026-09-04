@@ -64,3 +64,27 @@ func TestCatalogHandlerRoutesProjectionAndLocation(t *testing.T) {
 		t.Fatalf("question response = %d %s", response.Code, response.Body.String())
 	}
 }
+
+func TestHomeHandlerProjectsCMSServiceCollectionForPostalCode(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	projection := ServiceCollectionProjection{
+		Collection: ServiceCollection{CollectionID: "popular-services", Title: "Popular services", Items: []ServiceCollectionItem{{
+			ServiceID: "service-tv-repair", ProviderID: "provider-tv-001", Title: "TV repair", Summary: "Verified technician",
+			Price: Money{AmountMinor: 49900, Currency: "INR"}, PriceDisplay: "From ₹499.00", Trust: ServiceTrustSummary{VerifiedProvider: true, RatingAverage: 4.8, CompletedBookings: 241}, NavigationTarget: "/app/services/service-tv-repair",
+		}}},
+		ServicePostalCodes: map[string][]string{"service-tv-repair": {"641001"}},
+	}
+	repository, _ := NewMemoryRepositoryWithServiceCollections(syntheticCategories(), syntheticItems(), []ServiceCollectionProjection{projection})
+	service, _ := NewService(repository, nil, 15*time.Minute, func() time.Time { return now })
+	handler, _ := NewHandler(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/home?postal_code=641001", nil)
+	request.Header.Set("X-Planext4u-Tenant", "tenant-synthetic")
+	request.Header.Set("X-Planext4u-Country", "IN")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"popular-services"`) || !strings.Contains(response.Body.String(), `"price_display":"From ₹499.00"`) || !strings.Contains(response.Body.String(), `"serviceable":true`) {
+		t.Fatalf("home response=%d %s", response.Code, response.Body.String())
+	}
+}

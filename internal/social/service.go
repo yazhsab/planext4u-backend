@@ -138,6 +138,91 @@ func (service *Service) Profile(actor Actor, profileID string) (Profile, error) 
 	return service.presentProfileLocked(actor.Subject, profile), nil
 }
 
+func (service *Service) ProfileByHandle(actor Actor, handle string) (Profile, error) {
+	handle = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(handle), "@"))
+	if !validCustomer(actor) || !handlePattern.MatchString(handle) {
+		return Profile{}, ErrForbidden
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	for _, profile := range service.profiles {
+		if profile.Handle == handle && profile.tenantID == actor.TenantID && profile.country == actor.Country && !service.isBlockedLocked(actor.Subject, profile.ID) {
+			return service.presentProfileLocked(actor.Subject, profile), nil
+		}
+	}
+	return Profile{}, ErrNotFound
+}
+
+func (service *Service) ProfileContent(actor Actor, profileID, kind string) ([]any, error) {
+	kind = strings.ToUpper(strings.TrimSpace(kind))
+	if !validCustomer(actor) || !safeID(profileID) || !map[string]bool{"POSTS": true, "REELS": true, "TAGGED": true, "SAVED": true}[kind] {
+		return nil, ErrInvalidRequest
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	profile := service.profiles[profileID]
+	if profile == nil || profile.tenantID != actor.TenantID || profile.country != actor.Country || service.isBlockedLocked(actor.Subject, profileID) {
+		return nil, ErrNotFound
+	}
+	if profile.Private && profile.ID != actor.Subject && !service.followAcceptedLocked(actor.Subject, profile.ID) {
+		return nil, ErrNotFound
+	}
+	if kind == "SAVED" && profile.ID != actor.Subject {
+		return nil, ErrNotFound
+	}
+	if kind == "REELS" {
+		values := make([]EphemeralContent, 0)
+		now := service.clock().UTC()
+		for _, value := range service.ephemeral {
+			if value.Author.ID != profile.ID || value.Kind != "REEL" || value.Status != "PUBLISHED" || (!value.Highlighted && !now.Before(value.ExpiresAt)) {
+				continue
+			}
+			clone := cloneEphemeral(*value)
+			clone.Author = service.presentProfileLocked(actor.Subject, profile)
+			if profile.ID != actor.Subject {
+				clone.AllowedActions = []string{"REPORT"}
+			}
+			values = append(values, clone)
+		}
+		sort.Slice(values, func(i, j int) bool { return values[i].CreatedAt.After(values[j].CreatedAt) })
+		items := make([]any, len(values))
+		for index := range values {
+			items[index] = values[index]
+		}
+		return items, nil
+	}
+	values := make([]Post, 0)
+	for _, value := range service.posts {
+		if value.Status != PostPublished || !service.canViewPostLocked(actor, value) {
+			continue
+		}
+		matches := kind == "POSTS" && value.Author.ID == profile.ID || kind == "SAVED" && value.saves[actor.Subject]
+		if kind == "TAGGED" {
+			for _, mention := range value.Mentions {
+				normalized := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(mention)), "@")
+				if normalized == profile.Handle || normalized == strings.ToLower(profile.ID) {
+					matches = true
+					break
+				}
+			}
+		}
+		if matches {
+			values = append(values, service.presentPostLocked(actor, value))
+		}
+	}
+	sort.Slice(values, func(i, j int) bool {
+		if values[i].CreatedAt.Equal(values[j].CreatedAt) {
+			return values[i].ID < values[j].ID
+		}
+		return values[i].CreatedAt.After(values[j].CreatedAt)
+	})
+	items := make([]any, len(values))
+	for index := range values {
+		items[index] = values[index]
+	}
+	return items, nil
+}
+
 func (service *Service) Post(actor Actor, postID string) (Post, error) {
 	if !validCustomer(actor) || !safeID(postID) {
 		return Post{}, ErrForbidden

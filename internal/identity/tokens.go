@@ -87,6 +87,12 @@ func (issuer *JWTIssuer) Issue(principal Principal) (string, time.Time, error) {
 		roles[index] = string(role)
 	}
 	sort.Strings(roles)
+	assurance := "urn:planext4u:loa:provider"
+	authMethod := []string{"provider_token"}
+	if len(principal.Roles) == 1 && principal.Roles[0] == RoleGuest {
+		assurance = "urn:planext4u:loa:guest"
+		authMethod = []string{"guest_session"}
+	}
 	now := issuer.config.Now().UTC().Truncate(time.Second)
 	expiresAt := now.Add(issuer.config.AccessTTL)
 	tokenID, err := randomIdentifier(issuer.config.Random, "atk", 16)
@@ -115,8 +121,8 @@ func (issuer *JWTIssuer) Issue(principal Principal) (string, time.Time, error) {
 		NotBefore:  now.Unix(),
 		ExpiresAt:  expiresAt.Unix(),
 		TokenID:    tokenID,
-		Assurance:  "urn:planext4u:loa:provider",
-		AuthMethod: []string{"provider_token"},
+		Assurance:  assurance,
+		AuthMethod: authMethod,
 	})
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("encode access token claims: %w", err)
@@ -220,7 +226,7 @@ func validRefreshToken(token string) bool {
 
 func validRole(role Role) bool {
 	switch role {
-	case RoleCustomer, RoleVendor, RoleRider, RoleAdmin:
+	case RoleCustomer, RoleGuest, RoleVendor, RoleRider, RoleAdmin:
 		return true
 	default:
 		return false
