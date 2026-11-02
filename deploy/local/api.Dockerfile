@@ -7,7 +7,7 @@ COPY cmd ./cmd
 COPY internal ./internal
 COPY migrations ./migrations
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    for service in identity configuration catalog transaction admin gateway media migrate secret-bootstrap local-media-init; do \
+    for service in identity configuration catalog transaction admin gateway media media-version-cleanup migrate secret-bootstrap local-media-init; do \
       CGO_ENABLED=0 GOOS=linux go build -trimpath -buildvcs=false -ldflags="-s -w" \
         -o /out/${service} ./cmd/${service} || exit 1; \
     done

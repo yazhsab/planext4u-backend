@@ -10,11 +10,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// DueVersionCleaner is an intentionally unwired, cleanup-only boundary. Its
-// database pool must assume the NOLOGIN planext4u_media_cleanup role with SET
-// ROLE, and its S3 client must use a separate version-cleanup identity. A
-// dedicated login and both credentials remain deployment provisioning work;
-// the ordinary media runtime must never receive them.
+// DueVersionCleaner is a cleanup-only boundary used by the explicit one-asset
+// command. Its database pool must connect as the dedicated cleanup login and
+// assume the NOLOGIN planext4u_media_cleanup role with SET ROLE. Its S3 client
+// must use a separate version-cleanup identity. Provisioning remains outside
+// the ordinary media runtime.
 type DueVersionCleaner struct {
 	pool   *pgxpool.Pool
 	purger exactKeyVersionPurger
@@ -56,13 +56,14 @@ func (cleaner *DueVersionCleaner) PurgeDueAsset(ctx context.Context, requestID, 
 		return result, fmt.Errorf("begin due media version purge: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	// A caller with inherited owner/superuser privileges is not a separate
-	// cleanup identity. Require the exact role even in local verification.
-	var role string
-	if err := tx.QueryRow(ctx, `SELECT current_user`).Scan(&role); err != nil {
+	// SET ROLE alone is insufficient: a migration administrator could assume
+	// the cleanup role. Require the separate session login on every attempt,
+	// including idempotent readback, before any owner or S3 operation.
+	var login, role string
+	if err := tx.QueryRow(ctx, `SELECT session_user,current_user`).Scan(&login, &role); err != nil {
 		return result, fmt.Errorf("check media cleanup identity: %w", err)
 	}
-	if role != "planext4u_media_cleanup" {
+	if login != "planext4u_media_cleanup_login" || role != "planext4u_media_cleanup" {
 		return result, fmt.Errorf("media cleanup requires a separate database role: %w", ErrDependency)
 	}
 	var key, policy string

@@ -112,13 +112,22 @@ func dueVersionFixture(t *testing.T) (context.Context, *pgxpool.Pool, *pgxpool.P
 			t.Fatalf("apply %s: %v", path, err)
 		}
 	}
+	if _, err := owner.Exec(ctx, `CREATE ROLE planext4u_media_cleanup_login LOGIN PASSWORD 'synthetic-cleanup-only'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(ctx, `GRANT planext4u_media_cleanup TO planext4u_media_cleanup_login`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, done := context.WithTimeout(context.Background(), 5*time.Second)
+		defer done()
+		_, _ = owner.Exec(cleanupCtx, `DROP ROLE IF EXISTS planext4u_media_cleanup_login`)
+	})
 	rolePool := func(role string) *pgxpool.Pool {
 		config, err := pgxpool.ParseConfig(url)
 		if err != nil {
 			t.Fatal(err)
 		}
-		// The test login is a migration administrator that assumes a NOLOGIN
-		// role. Production needs a separately provisioned cleanup login.
 		config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 			_, err := conn.Exec(ctx, "SET ROLE "+role)
 			return err
@@ -130,7 +139,24 @@ func dueVersionFixture(t *testing.T) (context.Context, *pgxpool.Pool, *pgxpool.P
 		t.Cleanup(pool.Close)
 		return pool
 	}
-	cleanup := rolePool("planext4u_media_cleanup")
+	cleanupURL, err := urlpkg.Parse(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupURL.User = urlpkg.UserPassword("planext4u_media_cleanup_login", "synthetic-cleanup-only")
+	cleanupConfig, err := pgxpool.ParseConfig(cleanupURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, `SET ROLE planext4u_media_cleanup`)
+		return err
+	}
+	cleanup, err := pgxpool.NewWithConfig(ctx, cleanupConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanup.Close)
 	runtime := rolePool("planext4u_media_runtime")
 	tenant, subject, request := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	otherTenant, otherSubject, otherRequest := uuid.NewString(), uuid.NewString(), uuid.NewString()
@@ -241,6 +267,19 @@ func TestDueVersionCleanerDisposableScopeAndEvidence(t *testing.T) {
 	}
 	if _, err := (&DueVersionCleaner{pool: owner, purger: proof}).PurgeDueAsset(ctx, request, asset); err == nil || proof.callCount() != 0 {
 		t.Fatalf("admin login impersonated cleanup role: calls=%d err=%v", proof.callCount(), err)
+	}
+	impostorConfig := owner.Config()
+	impostorConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, `SET ROLE planext4u_media_cleanup`)
+		return err
+	}
+	impostor, err := pgxpool.NewWithConfig(ctx, impostorConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(impostor.Close)
+	if _, err := (&DueVersionCleaner{pool: impostor, purger: proof}).PurgeDueAsset(ctx, request, asset); err == nil || proof.callCount() != 0 {
+		t.Fatalf("migration login with SET ROLE entered object store: calls=%d err=%v", proof.callCount(), err)
 	}
 	if _, err := runtime.Exec(ctx, `SELECT media.prepare_due_version_purge($1,$2)`, request, asset); err == nil {
 		t.Fatal("ordinary media runtime executed cleanup preparation")
