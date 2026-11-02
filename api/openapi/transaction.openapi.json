@@ -55,6 +55,17 @@
           "default": {
             "type": "boolean"
           },
+          "geography": {
+            "$ref": "#/components/schemas/AddressGeography",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AddressGeography"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -104,11 +115,102 @@
         ],
         "type": "object"
       },
+      "AddressGeography": {
+        "additionalProperties": false,
+        "properties": {
+          "area_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "path": {
+            "items": {
+              "$ref": "#/components/schemas/AddressGeographyRecord"
+            },
+            "maxItems": 5,
+            "minItems": 5,
+            "type": "array"
+          }
+        },
+        "required": [
+          "area_id",
+          "path"
+        ],
+        "type": "object"
+      },
+      "AddressGeographyRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "country": {
+            "pattern": "^[A-Z]{2}$",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "COUNTRY",
+              "STATE",
+              "DISTRICT",
+              "CITY",
+              "AREA"
+            ],
+            "type": "string"
+          },
+          "master_revision": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "name_en": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name_ta": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "parent_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "country",
+          "kind",
+          "code",
+          "parent_id",
+          "name_en",
+          "name_ta",
+          "master_revision"
+        ],
+        "type": "object"
+      },
       "AddressInput": {
         "additionalProperties": false,
         "properties": {
           "default": {
             "type": "boolean"
+          },
+          "geography_area_id": {
+            "description": "Optional for legacy clients. The normal governed address editor selects an active AREA. The owning store validates and captures its complete active ancestry; unchanged/omitted selections preserve the saved snapshot after retirement.",
+            "format": "uuid",
+            "type": "string"
           },
           "label": {
             "maxLength": 60,
@@ -1554,6 +1656,9 @@
             },
             "description": "Customer addresses"
           },
+          "401": {
+            "description": "Current owning customer/source session is invalid; replays are also reauthorized."
+          },
           "403": {
             "$ref": "#/components/responses/Problem"
           }
@@ -1594,6 +1699,9 @@
               }
             }
           },
+          "401": {
+            "description": "Current owning customer/source session is invalid; replays are also reauthorized."
+          },
           "409": {
             "$ref": "#/components/responses/Problem"
           },
@@ -1620,6 +1728,9 @@
         "responses": {
           "204": {
             "description": "Address deleted"
+          },
+          "401": {
+            "description": "Current owning customer/source session is invalid; replays are also reauthorized."
           },
           "404": {
             "$ref": "#/components/responses/Problem"
@@ -1669,6 +1780,9 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Current owning customer/source session is invalid; replays are also reauthorized."
           },
           "404": {
             "$ref": "#/components/responses/Problem"

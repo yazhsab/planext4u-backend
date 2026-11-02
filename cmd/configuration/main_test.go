@@ -47,3 +47,22 @@ func TestConfigurationDatabaseTLSIsRequiredOutsideDevelopment(t *testing.T) {
 		t.Fatalf("TLS validation error=%v", err)
 	}
 }
+
+func TestPublicStartupRuntimeRequiresExplicitTenantAndCountries(t *testing.T) {
+	values := map[string]string{"APP_ENV": "development", "DATABASE_URL_FILE": "/synthetic/database", "PUBLIC_STARTUP_TENANT_ID": "tenant-synthetic", "PUBLIC_STARTUP_COUNTRIES": "IN,NG"}
+	lookup := func(key string) (string, bool) { value, ok := values[key]; return value, ok }
+	if config, err := loadRuntimeConfig(lookup); err != nil || config.publicStartup.TenantID != "tenant-synthetic" || len(config.publicStartup.Countries) != 2 {
+		t.Fatalf("public startup config=%+v %v", config.publicStartup, err)
+	}
+	for _, countries := range []string{"", "IN,IN", "in", "IN, NG", "IN,"} {
+		values["PUBLIC_STARTUP_COUNTRIES"] = countries
+		if _, err := loadRuntimeConfig(lookup); err == nil {
+			t.Fatalf("invalid public country configuration accepted: %q", countries)
+		}
+	}
+	values["PUBLIC_STARTUP_COUNTRIES"] = "IN"
+	delete(values, "PUBLIC_STARTUP_TENANT_ID")
+	if _, err := loadRuntimeConfig(lookup); err == nil {
+		t.Fatal("public country routing without a deployment tenant accepted")
+	}
+}

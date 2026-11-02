@@ -19,6 +19,7 @@ func NewHandler(service *Service) (http.Handler, error) {
 	mux.HandleFunc("POST /v1/media/uploads", handler.presign)
 	mux.HandleFunc("POST /v1/media/presentations:resolve", handler.resolvePresentations)
 	mux.HandleFunc("POST /v1/media/{asset_id}/complete", handler.complete)
+	mux.HandleFunc("POST /v1/media/{asset_id}/access", handler.privateAccess)
 	mux.HandleFunc("GET /v1/media/{asset_id}", handler.get)
 	mux.HandleFunc("DELETE /v1/media/{asset_id}", handler.delete)
 	return mux, nil
@@ -73,11 +74,11 @@ func (handler *Handler) presign(writer http.ResponseWriter, request *http.Reques
 }
 
 func (handler *Handler) complete(writer http.ResponseWriter, request *http.Request) {
-	tenant, _, owner, ok := scope(writer, request)
+	tenant, country, owner, ok := scope(writer, request)
 	if !ok {
 		return
 	}
-	asset, err := handler.service.Complete(request.Context(), tenant, owner, request.PathValue("asset_id"))
+	asset, err := handler.service.CompleteScoped(request.Context(), tenant, country, owner, request.PathValue("asset_id"))
 	if err != nil {
 		handleError(writer, request, err)
 		return
@@ -86,11 +87,11 @@ func (handler *Handler) complete(writer http.ResponseWriter, request *http.Reque
 }
 
 func (handler *Handler) get(writer http.ResponseWriter, request *http.Request) {
-	tenant, _, owner, ok := scope(writer, request)
+	tenant, country, owner, ok := scope(writer, request)
 	if !ok {
 		return
 	}
-	asset, err := handler.service.Get(request.Context(), tenant, owner, request.PathValue("asset_id"))
+	asset, err := handler.service.GetScoped(request.Context(), tenant, country, owner, request.PathValue("asset_id"))
 	if err != nil {
 		handleError(writer, request, err)
 		return
@@ -99,15 +100,29 @@ func (handler *Handler) get(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (handler *Handler) delete(writer http.ResponseWriter, request *http.Request) {
-	tenant, _, owner, ok := scope(writer, request)
+	tenant, country, owner, ok := scope(writer, request)
 	if !ok {
 		return
 	}
-	if err := handler.service.Delete(request.Context(), tenant, owner, request.PathValue("asset_id")); err != nil {
+	if err := handler.service.DeleteScoped(request.Context(), tenant, country, owner, request.PathValue("asset_id")); err != nil {
 		handleError(writer, request, err)
 		return
 	}
 	writer.WriteHeader(http.StatusNoContent)
+}
+
+func (handler *Handler) privateAccess(writer http.ResponseWriter, request *http.Request) {
+	tenant, country, owner, ok := scope(writer, request)
+	if !ok {
+		return
+	}
+	value, err := handler.service.PrivateAccess(request.Context(), tenant, country, owner, request.PathValue("asset_id"))
+	if err != nil {
+		handleError(writer, request, err)
+		return
+	}
+	writer.Header().Set("Cache-Control", "private, no-store")
+	writeJSON(writer, 200, value)
 }
 
 func scope(writer http.ResponseWriter, request *http.Request) (string, string, string, bool) {
@@ -123,6 +138,8 @@ func scope(writer http.ResponseWriter, request *http.Request) (string, string, s
 
 func handleError(writer http.ResponseWriter, request *http.Request, err error) {
 	switch {
+	case errors.Is(err, ErrRetained):
+		writeProblem(writer, request, 409, "MEDIA_EVIDENCE_RETAINED", "An application retains this evidence. Its retention and erasure workflow must release it before deletion.", false)
 	case errors.Is(err, ErrNotFound):
 		writeProblem(writer, request, 404, "MEDIA_NOT_FOUND", "The media asset was not found.", false)
 	case errors.Is(err, ErrExpired):

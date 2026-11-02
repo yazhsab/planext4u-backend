@@ -167,6 +167,10 @@ func mediaFixture(t *testing.T) (*Service, *fakeObjects, *fakeScanner, *time.Tim
 
 type fakeSigner struct{}
 
+func (fakeSigner) SignPrivate(_ context.Context, key, _ string, expiresAt time.Time) (string, error) {
+	return fmt.Sprintf("https://private.example/%s?expires=%d", key, expiresAt.Unix()), nil
+}
+
 func (fakeSigner) Present(_ context.Context, key, _ string, expiresAt time.Time) (string, error) {
 	return fmt.Sprintf("https://media.example/%s?expires=%d", key, expiresAt.Unix()), nil
 }

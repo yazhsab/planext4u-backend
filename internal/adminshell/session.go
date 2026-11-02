@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/yazhsab/planext4u-backend/internal/adminops"
 )
@@ -157,6 +158,14 @@ func capabilities(roles []Role) map[string]bool {
 		result[CapabilityShellRead] = true
 		switch role {
 		case RoleSuperAdmin:
+			result[CapabilityPrivacyGovern] = true
+			result[CapabilityParticipantReview] = true
+			result[CapabilityParticipantBind] = true
+			result[CapabilityParticipantFieldCheckIn] = true
+			result[CapabilityFulfillmentExport] = true
+			result[CapabilityFulfillmentRead] = true
+			result[CapabilityFulfillmentCommand] = true
+			result[CapabilityOperatorsManage] = true
 			result[CapabilityAuditRead] = true
 			grantAllOperations(result)
 			result[CapabilityContentManage] = true
@@ -164,12 +173,21 @@ func capabilities(roles []Role) map[string]bool {
 			result[CapabilityConfigManage] = true
 			result[CapabilityGovernanceRead] = true
 		case RoleCountryAdmin:
+			result[CapabilityPrivacyGovern] = true
+			result[CapabilityParticipantReview] = true
+			result[CapabilityParticipantBind] = true
+			result[CapabilityParticipantFieldCheckIn] = true
+			result[CapabilityFulfillmentExport] = true
+			result[CapabilityFulfillmentRead] = true
+			result[CapabilityFulfillmentCommand] = true
 			result[CapabilityAuditRead] = true
 			grantAllOperations(result)
 			result[CapabilityContentManage] = true
 			result[CapabilitySupportManage] = true
 			result[CapabilityConfigManage] = true
 			result[CapabilityGovernanceRead] = true
+		case RoleFinance:
+			result[CapabilityParticipantBankVerify] = true
 		case RoleContentAdmin:
 			result[CapabilityOperationsRead] = true
 			result[adminops.CapabilityCatalog] = true
@@ -188,6 +206,12 @@ func capabilities(roles []Role) map[string]bool {
 			result[CapabilityOperationsRead] = true
 			result[adminops.CapabilityReporting] = true
 			result[CapabilityGovernanceRead] = true
+		case RoleRegionalStaff:
+			result[CapabilityParticipantReview] = true
+			result[CapabilityParticipantFieldCheckIn] = true
+			result[CapabilityFulfillmentExport] = true
+			result[CapabilityFulfillmentRead] = true
+			result[CapabilityFulfillmentCommand] = true
 		}
 	}
 	return result
@@ -232,7 +256,7 @@ func capabilityList(values map[string]bool) []string {
 
 func validPrincipal(principal Principal) bool {
 	if !safeIdentifier(principal.SubjectID) || !safeIdentifier(principal.SessionID) || !safeIdentifier(principal.TenantID) ||
-		strings.TrimSpace(principal.DisplayName) == "" || len(principal.DisplayName) > 128 || len(principal.Roles) == 0 ||
+		strings.TrimSpace(principal.DisplayName) == "" || !utf8.ValidString(principal.DisplayName) || utf8.RuneCountInString(principal.DisplayName) > 128 || principal.OperatorRevision < 0 || len(principal.Roles) == 0 ||
 		len(principal.Roles) > 8 || len(principal.AllowedCountries) == 0 || len(principal.AllowedCountries) > 32 ||
 		!contains(principal.AllowedCountries, principal.SelectedCountry) || principal.AuthenticatedAt.IsZero() {
 		return false
@@ -241,6 +265,9 @@ func validPrincipal(principal Principal) bool {
 		if !validRole(role) {
 			return false
 		}
+	}
+	if containsRole(principal.Roles, RoleFinance) && !containsRole(principal.Roles, RoleCountryAdmin) && !containsRole(principal.Roles, RoleSuperAdmin) {
+		return false
 	}
 	for _, country := range principal.AllowedCountries {
 		if !validCountry(country) {
@@ -252,7 +279,7 @@ func validPrincipal(principal Principal) bool {
 
 func validRole(role Role) bool {
 	switch role {
-	case RoleSuperAdmin, RoleCountryAdmin, RoleContentAdmin, RoleSupportAdmin, RoleAuditor:
+	case RoleSuperAdmin, RoleCountryAdmin, RoleFinance, RoleContentAdmin, RoleSupportAdmin, RoleAuditor, RoleRegionalStaff:
 		return true
 	default:
 		return false

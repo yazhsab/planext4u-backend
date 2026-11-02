@@ -33,6 +33,7 @@ type runtimeConfig struct {
 	databaseMaxConns    int32
 	databaseMinConns    int32
 	databaseMaxLifetime time.Duration
+	publicStartup       configcms.PublicStartupConfig
 }
 
 func main() { os.Exit(run()) }
@@ -84,12 +85,23 @@ func run() int {
 		logger.Error("configure snapshot cache", "error", err)
 		return 2
 	}
-	service, err := configcms.NewServiceWithWebDeployment(cache, time.Now, runtime.webDeploymentID)
+	service, err := configcms.NewServiceWithPublicRepository(cache, repository, time.Now, runtime.webDeploymentID)
 	if err != nil {
 		logger.Error("configure service", "error", err)
 		return 2
 	}
-	application, err := configcms.NewHandler(service)
+	audiences, err := configcms.NewPostgresAudienceResolver(pool)
+	if err != nil {
+		logger.Error("configure audience membership", "error", err)
+		return 2
+	}
+	occupations, err := configcms.NewPostgresOccupationDirectory(pool)
+	if err != nil {
+		logger.Error("configure occupation directory", "error", err)
+		return 2
+	}
+	geography, _ := configcms.NewPostgresGeographyDirectory(pool)
+	application, err := configcms.NewHandlerWithReferenceDirectories(service, audiences, runtime.publicStartup, occupations, geography)
 	if err != nil {
 		logger.Error("configure handler", "error", err)
 		return 2
@@ -147,6 +159,13 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 		webDeploymentID = "local-development"
 	}
 	result := runtimeConfig{service: base, databaseURLFile: requiredValue(lookup, "DATABASE_URL_FILE"), databaseURL: requiredValue(lookup, "DATABASE_URL"), webDeploymentID: webDeploymentID, cacheTTL: time.Minute, databaseMaxConns: 50, databaseMinConns: 5, databaseMaxLifetime: 30 * time.Minute}
+	result.publicStartup.TenantID = requiredValue(lookup, "PUBLIC_STARTUP_TENANT_ID")
+	if countries := requiredValue(lookup, "PUBLIC_STARTUP_COUNTRIES"); countries != "" {
+		result.publicStartup.Countries = strings.Split(countries, ",")
+	}
+	if !result.publicStartup.Valid() {
+		return runtimeConfig{}, fmt.Errorf("public startup requires one deployment tenant and explicit uppercase country codes")
+	}
 	for key, destination := range map[string]*time.Duration{"CACHE_TTL": &result.cacheTTL, "DATABASE_MAX_LIFETIME": &result.databaseMaxLifetime} {
 		if value, ok := lookup(key); ok && strings.TrimSpace(value) != "" {
 			parsed, parseErr := time.ParseDuration(strings.TrimSpace(value))
@@ -210,7 +229,7 @@ func requiredValue(lookup func(string) (string, bool), key string) string {
 }
 
 func configurationRoute(request *http.Request) string {
-	if request.URL.Path == "/v1/bootstrap" {
+	if request.URL.Path == "/v1/bootstrap" || request.URL.Path == "/v1/startup" {
 		return request.URL.Path
 	}
 	if strings.HasPrefix(request.URL.Path, "/v1/pages/") {

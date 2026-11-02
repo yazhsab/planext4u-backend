@@ -1,0 +1,22 @@
+import { z } from "zod";
+import { requestJSON } from "./client";
+
+const uuid = z.uuid();
+const node = z.object({id: uuid, parent_id: uuid.optional(), kind: z.enum(["ORGANIZATION", "TERRITORY"]), name: z.string().min(1).max(128), active: z.boolean(), revision: z.number().int().positive()});
+const role = z.object({id: uuid, name: z.string(), capabilities: z.array(z.string())});
+const assignment = z.object({subject_id: uuid, node_id: uuid, role_id: uuid, status: z.enum(["ACTIVE", "SUSPENDED", "LEFT"]), revision: z.number().int().positive()});
+const workspace = z.object({nodes: z.array(node), roles: z.array(role), staff: z.array(assignment)});
+const invitation = z.object({id: uuid, token: z.string().min(43).max(43), subject_id: uuid, node_id: uuid, role_id: uuid, expires_at: z.iso.datetime({offset: true})});
+const territoryBinding = z.object({territory_id: uuid, name: z.string(), region_id: z.string(), node_id: uuid.optional(), revision: z.number().int().nonnegative()});
+export const getTerritoryBindings = (signal?: AbortSignal) => requestJSON("/admin/api/v1/organization/territory-bindings", z.object({items: z.array(territoryBinding)}), {signal});
+export const bindTerritory = (id: string, value: {node_id: string; revision: number; reason: string}, csrf: string) => requestJSON(`/admin/api/v1/organization/territory-bindings/${encodeURIComponent(uuid.parse(id))}`, z.undefined(), body(value, csrf, "PUT"));
+export type OrganizationWorkspace = z.infer<typeof workspace>;
+export type StaffAssignment = z.infer<typeof assignment>;
+const body = (value: unknown, csrf: string, method = "POST"): RequestInit => ({method, headers: {"Content-Type": "application/json", "X-CSRF-Token": csrf}, body: JSON.stringify(value)});
+export const getOrganization = (search: string, signal?: AbortSignal) => requestJSON(`/admin/api/v1/organization?${new URLSearchParams({search})}`, workspace, {signal});
+export const createNode = (value: {name: string; kind: string; parent_id: string}, csrf: string) => requestJSON("/admin/api/v1/organization/nodes", node, body(value, csrf));
+export const createJobRole = (value: {name: string; node_id: string; capabilities: string[]}, csrf: string) => requestJSON("/admin/api/v1/organization/roles", role, body(value, csrf));
+export const setStaff = (value: Omit<StaffAssignment, "revision"> & {revision: number}, csrf: string) => requestJSON("/admin/api/v1/organization/staff", assignment, body(value, csrf, "PUT"));
+export const inviteStaff = (value: {subject_id: string; node_id: string; role_id: string}, csrf: string) => requestJSON("/admin/api/v1/organization/invitations", invitation, body(value, csrf));
+export const acceptInvitation = (token: string, csrf: string) => requestJSON("/admin/api/v1/organization/invitations/accept", z.undefined(), body({token}, csrf));
+export const setNodeStatus = (id: string, revision: number, active: boolean, csrf: string) => requestJSON(`/admin/api/v1/organization/nodes/${encodeURIComponent(uuid.parse(id))}/status`, z.undefined(), body({revision, active}, csrf, "PUT"));

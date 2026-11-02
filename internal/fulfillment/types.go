@@ -6,24 +6,28 @@ import (
 )
 
 var (
-	ErrInvalidRequest      = errors.New("invalid fulfillment request")
-	ErrNotFound            = errors.New("fulfillment resource not found")
-	ErrForbidden           = errors.New("fulfillment action forbidden")
-	ErrConflict            = errors.New("fulfillment resource conflict")
-	ErrInvalidTransition   = errors.New("invalid fulfillment transition")
-	ErrIdempotencyConflict = errors.New("fulfillment idempotency conflict")
-	ErrOfferExpired        = errors.New("fulfillment offer expired")
-	ErrLocationStale       = errors.New("fulfillment location stale")
-	ErrChatExpired         = errors.New("fulfillment chat expired")
-	ErrMFARequired         = errors.New("fulfillment mfa required")
+	ErrInvalidRequest          = errors.New("invalid fulfillment request")
+	ErrNotFound                = errors.New("fulfillment resource not found")
+	ErrForbidden               = errors.New("fulfillment action forbidden")
+	ErrConflict                = errors.New("fulfillment resource conflict")
+	ErrInvalidTransition       = errors.New("invalid fulfillment transition")
+	ErrIdempotencyConflict     = errors.New("fulfillment idempotency conflict")
+	ErrOfferExpired            = errors.New("fulfillment offer expired")
+	ErrLocationStale           = errors.New("fulfillment location stale")
+	ErrChatExpired             = errors.New("fulfillment chat expired")
+	ErrMFARequired             = errors.New("fulfillment mfa required")
+	ErrDeliveryConsentRequired = errors.New("current delivery location consent required")
 )
 
 type Actor struct {
-	TenantID    string
-	Country     string
-	Subject     string
-	Roles       []string
-	MFAVerified bool
+	SourceSessionID   string `json:"-"`
+	OperatorSessionID string `json:"-"`
+	OperatorRevision  int64  `json:"-"`
+	TenantID          string
+	Country           string
+	Subject           string
+	Roles             []string
+	MFAVerified       bool
 }
 
 type Money struct {
@@ -52,24 +56,29 @@ type RiderDocument struct {
 }
 
 type RiderProfile struct {
-	ID             string          `json:"id"`
-	RiderID        string          `json:"rider_id"`
-	Revision       int64           `json:"revision"`
-	Status         RiderStatus     `json:"status"`
-	FullName       string          `json:"full_name"`
-	PhoneMasked    string          `json:"phone_masked"`
-	VehicleType    string          `json:"vehicle_type"`
-	VehicleNumber  string          `json:"vehicle_number"`
-	Documents      []RiderDocument `json:"documents"`
-	BankReference  string          `json:"bank_reference,omitempty"`
-	BankStatus     string          `json:"bank_status,omitempty"`
-	Zones          []string        `json:"zones"`
-	MaxConcurrent  int             `json:"max_concurrent"`
-	AllowedActions []string        `json:"allowed_actions"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
-	tenantID       string
-	country        string
+	ReviewReason         string          `json:"review_reason,omitempty"`
+	ReviewedAt           *time.Time      `json:"reviewed_at,omitempty"`
+	ReworkAllowed        bool            `json:"rework_allowed"`
+	LastCommandSequence  int64           `json:"last_command_sequence"`
+	LastLocationSequence int64           `json:"last_location_sequence"`
+	ID                   string          `json:"id"`
+	RiderID              string          `json:"rider_id"`
+	Revision             int64           `json:"revision"`
+	Status               RiderStatus     `json:"status"`
+	FullName             string          `json:"full_name"`
+	PhoneMasked          string          `json:"phone_masked"`
+	VehicleType          string          `json:"vehicle_type"`
+	VehicleNumber        string          `json:"vehicle_number"`
+	Documents            []RiderDocument `json:"documents"`
+	BankReference        string          `json:"bank_reference,omitempty"`
+	BankStatus           string          `json:"bank_status,omitempty"`
+	Zones                []string        `json:"zones"`
+	MaxConcurrent        int             `json:"max_concurrent"`
+	AllowedActions       []string        `json:"allowed_actions"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
+	tenantID             string
+	country              string
 }
 
 type RiderRegistrationRequest struct {
@@ -316,7 +325,7 @@ type RegionalDashboard struct {
 	UnassignedTasks     int             `json:"unassigned_tasks"`
 	AtRiskTasks         int             `json:"at_risk_tasks"`
 	CompletedToday      int             `json:"completed_today"`
-	PayoutsPending      Money           `json:"payouts_pending"`
+	PayoutsPending      *Money          `json:"payouts_pending,omitempty"`
 	LatestLocations     []RiderLocation `json:"latest_locations"`
 	RecentFieldCheckIns []FieldCheckIn  `json:"recent_field_check_ins"`
 	GeneratedAt         time.Time       `json:"generated_at"`
@@ -333,6 +342,9 @@ type Reconciliation struct {
 }
 
 type Configuration struct {
+	// In-memory fixture adapter only. The persistent runtime resolves current
+	// organization bindings and assignments through its restricted SQL function.
+	TerritoryAuthority    func(Actor, string, string) bool
 	TenantID              string
 	Country               string
 	OfferTTL              time.Duration

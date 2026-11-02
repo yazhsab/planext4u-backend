@@ -6,14 +6,15 @@ import (
 )
 
 var (
-	ErrInvalidRequest   = errors.New("invalid admin operation")
-	ErrForbidden        = errors.New("admin operation forbidden")
-	ErrFreshMFARequired = errors.New("fresh MFA is required")
-	ErrFourEyesRequired = errors.New("a different approver is required")
-	ErrChangeNotFound   = errors.New("admin change not found")
-	ErrRevisionConflict = errors.New("admin change revision conflict")
-	ErrInvalidState     = errors.New("invalid admin change state")
-	ErrExecutionFailed  = errors.New("admin operation execution failed")
+	ErrInvalidRequest     = errors.New("invalid admin operation")
+	ErrForbidden          = errors.New("admin operation forbidden")
+	ErrFreshMFARequired   = errors.New("fresh MFA is required")
+	ErrFourEyesRequired   = errors.New("a different approver is required")
+	ErrChangeNotFound     = errors.New("admin change not found")
+	ErrRevisionConflict   = errors.New("admin change revision conflict")
+	ErrInvalidState       = errors.New("invalid admin change state")
+	ErrExecutionFailed    = errors.New("admin operation execution failed")
+	ErrAdapterUnavailable = errors.New("owning service adapter is unavailable")
 )
 
 type Domain string

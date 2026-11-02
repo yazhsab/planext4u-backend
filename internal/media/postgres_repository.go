@@ -37,6 +37,43 @@ func (repository *PostgresRepository) Ready(ctx context.Context) error {
 		       SELECT 1 FROM information_schema.columns
 		       WHERE table_schema = 'media' AND table_name = 'assets'
 		         AND column_name = 'presentation_width'
+		   )
+		   AND EXISTS (
+		       SELECT 1 FROM information_schema.columns
+		       WHERE table_schema = 'media' AND table_name = 'upload_sessions'
+		         AND column_name = 'grant_provenance'
+		   )
+		   AND EXISTS (
+		       SELECT 1 FROM pg_trigger
+		       WHERE tgrelid = to_regclass('media.upload_sessions')
+		         AND tgname = 'protect_upload_grant_provenance' AND NOT tgisinternal
+		   )
+		   AND EXISTS (
+		       SELECT 1 FROM pg_trigger
+		       WHERE tgrelid = to_regclass('media.assets')
+		         AND tgname = 'protect_deleted_asset' AND NOT tgisinternal
+		   )
+		   AND to_regclass('media.object_purge_state') IS NOT NULL
+		   AND to_regprocedure('media.lock_object_purge_state(uuid,uuid,text,text)') IS NOT NULL
+		   AND EXISTS (
+		       SELECT 1 FROM pg_trigger
+		       WHERE tgrelid = to_regclass('media.assets')
+		         AND tgname = 'enqueue_object_purge_state' AND NOT tgisinternal
+		   )
+		   AND EXISTS (
+		       SELECT 1 FROM pg_trigger
+		       WHERE tgrelid = to_regclass('media.object_purge_state')
+		         AND tgname = 'protect_object_purge_state_write' AND NOT tgisinternal
+		   )
+		   AND EXISTS (
+		       SELECT 1 FROM pg_trigger
+		       WHERE tgrelid = to_regclass('media.upload_sessions')
+		         AND tgname = 'reject_deleted_asset_upload_session' AND NOT tgisinternal
+		   )
+		   AND EXISTS (
+		       SELECT 1 FROM pg_trigger
+		       WHERE tgrelid = to_regclass('media.object_purge_state')
+		         AND tgname = 'require_deleted_asset_for_purge_state' AND NOT tgisinternal
 		   )`).Scan(&ready); err != nil {
 		return fmt.Errorf("check media schema readiness: %w", err)
 	}
@@ -46,8 +83,8 @@ func (repository *PostgresRepository) Ready(ctx context.Context) error {
 	return nil
 }
 
-func (repository *PostgresRepository) Create(ctx context.Context, asset Asset) error {
-	if !validPersistentAsset(asset) || asset.Version != 1 || asset.State != StatePendingUpload {
+func (repository *PostgresRepository) Create(ctx context.Context, asset Asset, provenance UploadGrantProvenance) error {
+	if !validPersistentAsset(asset) || asset.Version != 1 || asset.State != StatePendingUpload || !validUploadGrantProvenance(provenance) {
 		return ErrInvalidRequest
 	}
 	transaction, err := repository.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
@@ -73,8 +110,8 @@ func (repository *PostgresRepository) Create(ctx context.Context, asset Asset) e
 		return fmt.Errorf("insert media asset: %w", err)
 	}
 	if _, err := transaction.Exec(ctx, `
-		INSERT INTO media.upload_sessions (id, asset_id, expires_at, created_at)
-		VALUES ($1, $1, $2, $3)`, asset.ID, asset.UploadExpiresAt, asset.CreatedAt); err != nil {
+		INSERT INTO media.upload_sessions (id, asset_id, expires_at, created_at, grant_provenance, grant_valid_until)
+		VALUES ($1, $1, $2, $3, $4, $5)`, asset.ID, asset.UploadExpiresAt, asset.CreatedAt, provenance.Scheme, provenance.ValidUntil); err != nil {
 		if mediaConflict(err) {
 			return ErrConflict
 		}

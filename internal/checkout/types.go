@@ -13,51 +13,57 @@ import (
 )
 
 var (
-	ErrInvalidRequest      = errors.New("invalid checkout request")
-	ErrAddressNotFound     = errors.New("checkout address not found")
-	ErrAddressConflict     = errors.New("checkout address revision conflict")
-	ErrSlotNotAvailable    = errors.New("delivery slot unavailable")
-	ErrPromotionInvalid    = errors.New("promotion is invalid")
-	ErrQuoteNotFound       = errors.New("checkout quote not found")
-	ErrQuoteExpired        = errors.New("checkout quote expired")
-	ErrQuoteStale          = errors.New("checkout quote is stale")
-	ErrPaymentMethod       = errors.New("payment method is not allowed")
-	ErrCommercialTerms     = errors.New("commercial terms are unavailable")
-	ErrIdempotencyConflict = errors.New("checkout idempotency conflict")
+	ErrInvalidRequest       = errors.New("invalid checkout request")
+	ErrAddressNotFound      = errors.New("checkout address not found")
+	ErrAddressConflict      = errors.New("checkout address revision conflict")
+	ErrAddressSession       = errors.New("address source session invalid")
+	ErrGeographyUnavailable = errors.New("address geography provider unavailable")
+	ErrSlotNotAvailable     = errors.New("delivery slot unavailable")
+	ErrPromotionInvalid     = errors.New("promotion is invalid")
+	ErrQuoteNotFound        = errors.New("checkout quote not found")
+	ErrQuoteExpired         = errors.New("checkout quote expired")
+	ErrQuoteStale           = errors.New("checkout quote is stale")
+	ErrPaymentMethod        = errors.New("payment method is not allowed")
+	ErrCommercialTerms      = errors.New("commercial terms are unavailable")
+	ErrIdempotencyConflict  = errors.New("checkout idempotency conflict")
 )
 
 type Scope struct {
-	TenantID   string
-	Country    string
-	CustomerID string
+	TenantID        string
+	Country         string
+	CustomerID      string
+	SourceSessionID string `json:"-"`
 }
 
 type Address struct {
-	ID          string  `json:"id"`
-	Label       string  `json:"label"`
-	Line1       string  `json:"line1"`
-	Line2       string  `json:"line2,omitempty"`
-	PostalCode  string  `json:"postal_code"`
-	Locality    string  `json:"locality"`
-	Latitude    float64 `json:"latitude,omitempty"`
-	Longitude   float64 `json:"longitude,omitempty"`
-	Serviceable bool    `json:"serviceable"`
-	Default     bool    `json:"default"`
-	Revision    int64   `json:"revision"`
-	TenantID    string  `json:"-"`
-	Country     string  `json:"-"`
-	CustomerID  string  `json:"-"`
+	ID                   string            `json:"id"`
+	Label                string            `json:"label"`
+	Line1                string            `json:"line1"`
+	Line2                string            `json:"line2,omitempty"`
+	PostalCode           string            `json:"postal_code"`
+	Locality             string            `json:"locality"`
+	Latitude             float64           `json:"latitude,omitempty"`
+	Longitude            float64           `json:"longitude,omitempty"`
+	Serviceable          bool              `json:"serviceable"`
+	Default              bool              `json:"default"`
+	Revision             int64             `json:"revision"`
+	TenantID             string            `json:"-"`
+	Country              string            `json:"-"`
+	CustomerID           string            `json:"-"`
+	Geography            *AddressGeography `json:"geography,omitempty"`
+	requestedGeographyID string
 }
 
 type AddressInput struct {
-	Label      string  `json:"label"`
-	Line1      string  `json:"line1"`
-	Line2      string  `json:"line2,omitempty"`
-	PostalCode string  `json:"postal_code"`
-	Locality   string  `json:"locality"`
-	Latitude   float64 `json:"latitude,omitempty"`
-	Longitude  float64 `json:"longitude,omitempty"`
-	Default    bool    `json:"default"`
+	Label           string  `json:"label"`
+	Line1           string  `json:"line1"`
+	Line2           string  `json:"line2,omitempty"`
+	PostalCode      string  `json:"postal_code"`
+	Locality        string  `json:"locality"`
+	Latitude        float64 `json:"latitude,omitempty"`
+	Longitude       float64 `json:"longitude,omitempty"`
+	Default         bool    `json:"default"`
+	GeographyAreaID string  `json:"geography_area_id,omitempty"`
 }
 
 type PostalZone struct {

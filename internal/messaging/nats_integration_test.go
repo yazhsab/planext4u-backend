@@ -34,8 +34,9 @@ func TestJetStreamPublisherUsesBrokerDeduplicationAndDurableAcknowledgement(t *t
 	streamName := "P4U_TEST_" + strings.ToUpper(suffix)
 	subjectPrefix := "planext4u.test." + suffix
 	stream, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name: streamName, Subjects: []string{subjectPrefix + ".>"}, Storage: jetstream.MemoryStorage,
-		Duplicates: 2 * time.Minute,
+		Name: streamName, Subjects: []string{subjectPrefix + ".>"}, Storage: jetstream.FileStorage,
+		Retention: jetstream.LimitsPolicy, Discard: jetstream.DiscardOld,
+		MaxAge: maximumJetStreamMessageAge, Duplicates: 2 * time.Minute,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -61,5 +62,41 @@ func TestJetStreamPublisherUsesBrokerDeduplicationAndDurableAcknowledgement(t *t
 	}
 	if info.State.Msgs != 1 {
 		t.Fatalf("deduplicated stream messages=%d", info.State.Msgs)
+	}
+	// An operator can change broker retention independently of the app. Neither
+	// health nor a later publish may accept an unbounded durable copy.
+	if _, err := js.UpdateStream(ctx, jetstream.StreamConfig{
+		Name: streamName, Subjects: []string{subjectPrefix + ".>"}, Storage: jetstream.FileStorage,
+		Retention: jetstream.LimitsPolicy, Discard: jetstream.DiscardOld,
+		MaxAge: 0, Duplicates: 2 * time.Minute,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := publisher.Ready(ctx); err == nil {
+		t.Fatal("unbounded broker retention passed readiness")
+	}
+	other := syntheticMessage("00000000-0000-4000-8000-000000000002", 2)
+	if err := publisher.Publish(ctx, other); err == nil {
+		t.Fatal("outbox publisher sent an event after broker retention widened")
+	}
+	info, err = stream.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.State.Msgs != 1 {
+		t.Fatalf("unsafe broker mutation retained %d messages", info.State.Msgs)
+	}
+	if _, err := js.UpdateStream(ctx, jetstream.StreamConfig{
+		Name: streamName, Subjects: []string{subjectPrefix + ".>"}, Storage: jetstream.FileStorage,
+		Retention: jetstream.LimitsPolicy, Discard: jetstream.DiscardOld,
+		MaxAge: maximumJetStreamMessageAge, Duplicates: 2 * time.Minute,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := publisher.Ready(ctx); err != nil {
+		t.Fatalf("bounded retention did not restore readiness: %v", err)
+	}
+	if err := publisher.Publish(ctx, other); err != nil {
+		t.Fatalf("bounded retention did not restore publishing: %v", err)
 	}
 }

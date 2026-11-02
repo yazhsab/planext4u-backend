@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/yazhsab/planext4u-backend/internal/platformlocale"
 )
 
@@ -166,10 +167,13 @@ func validateSnapshot(snapshot Snapshot) error {
 		localeSeen[locale] = struct{}{}
 	}
 	seen := map[string]struct{}{}
+	policySeen := map[string]bool{}
 	for _, policy := range snapshot.ConsentPolicies {
-		if !safeID(policy.Purpose) || !safeID(policy.PolicyVersion) {
+		if !safeID(policy.Purpose) || !safeID(policy.PolicyVersion) || policySeen[policy.Purpose] ||
+			policy.Purpose == "CONTACT_MATCHING" && (policy.Required || len(policy.PolicyVersion) > 64 || !validContactPolicyVersion(policy.PolicyVersion)) {
 			return ErrInvalidSnapshot
 		}
+		policySeen[policy.Purpose] = true
 	}
 	for _, section := range snapshot.HomeSections {
 		if !safeID(section.ID) || !safeID(section.Kind) || !safeID(section.TitleKey) || section.Priority < 0 {
@@ -182,6 +186,9 @@ func validateSnapshot(snapshot Snapshot) error {
 	}
 	pageIDs, routes := map[string]bool{}, map[string]bool{}
 	for _, page := range snapshot.Pages {
+		if !validEducationPage(page) || !validStartupPage(page) {
+			return ErrInvalidSnapshot
+		}
 		if !safeID(page.ID) || !safeID(page.TitleKey) || !validPageRoute(page.Route) || len(page.Audience) == 0 || len(page.Audience) > 4 || len(page.Blocks) > 100 || pageIDs[page.ID] || routes[page.Route] {
 			return ErrInvalidSnapshot
 		}
@@ -190,6 +197,17 @@ func validateSnapshot(snapshot Snapshot) error {
 			if audience != "PUBLIC" && audience != "CUSTOMER" && audience != "VENDOR" && audience != "RIDER" {
 				return ErrInvalidSnapshot
 			}
+		}
+		if len(page.AudienceGroups) > 16 {
+			return ErrInvalidSnapshot
+		}
+		groups := map[uuid.UUID]bool{}
+		for _, group := range page.AudienceGroups {
+			id, err := uuid.Parse(group)
+			if err != nil || id.String() != group || groups[id] {
+				return ErrInvalidSnapshot
+			}
+			groups[id] = true
 		}
 		blockIDs := map[string]bool{}
 		for _, block := range page.Blocks {
@@ -207,18 +225,32 @@ func validateSnapshot(snapshot Snapshot) error {
 	return nil
 }
 
+func validContactPolicyVersion(value string) bool {
+	if len(value) < 1 || len(value) > 64 {
+		return false
+	}
+	for index, character := range value {
+		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || index > 0 && (character == '.' || character == '_' || character == ':' || character == '-') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func cloneSnapshot(snapshot Snapshot) Snapshot {
 	result := snapshot
 	result.MinimumVersions = cloneMap(snapshot.MinimumVersions)
 	result.LatestVersions = cloneMap(snapshot.LatestVersions)
 	result.SupportedLocales = append([]string(nil), snapshot.SupportedLocales...)
-	result.ConsentPolicies = append([]ConsentPolicy(nil), snapshot.ConsentPolicies...)
+	result.ConsentPolicies = append([]ConsentPolicy{}, snapshot.ConsentPolicies...)
 	result.Flags = cloneMap(snapshot.Flags)
-	result.HomeSections = append([]HomeSection(nil), snapshot.HomeSections...)
+	result.HomeSections = append([]HomeSection{}, snapshot.HomeSections...)
 	result.Pages = make([]Page, len(snapshot.Pages))
 	for pageIndex, page := range snapshot.Pages {
 		result.Pages[pageIndex] = page
 		result.Pages[pageIndex].Audience = append([]string(nil), page.Audience...)
+		result.Pages[pageIndex].AudienceGroups = append([]string(nil), page.AudienceGroups...)
 		result.Pages[pageIndex].Blocks = make([]PageBlock, len(page.Blocks))
 		for blockIndex, block := range page.Blocks {
 			result.Pages[pageIndex].Blocks[blockIndex] = block

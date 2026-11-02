@@ -4,6 +4,7 @@ package order
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"sync"
@@ -38,6 +39,8 @@ func TestPostgresOrderLifecycleReplayNotificationsAndIsolation(t *testing.T) {
 		"../../migrations/platform/000003_transaction_roles.up.sql",
 		"../../migrations/ordering/000001_ordering.up.sql",
 		"../../migrations/ordering/000002_durable_lifecycle.up.sql",
+		"../../migrations/ordering/000003_vendor_work_intents.up.sql",
+		"../../migrations/ordering/000004_vendor_work_cancellations.up.sql",
 	} {
 		migration, readErr := os.ReadFile(path)
 		if readErr != nil {
@@ -135,6 +138,98 @@ func TestPostgresOrderLifecycleReplayNotificationsAndIsolation(t *testing.T) {
 	}
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ordering.notification_intents WHERE order_id=$1`, created.ID).Scan(&intentCount); err != nil || intentCount != 2 {
 		t.Fatalf("notification rows=%d err=%v", intentCount, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ordering.vendor_work_intents WHERE order_id=$1`, created.ID).Scan(&intentCount); err != nil || intentCount != 1 {
+		t.Fatalf("placed-order vendor intents=%d err=%v", intentCount, err)
+	}
+	if _, err := restarted.ClaimVendorWorkIntents(ctx, 101); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("unbounded vendor claim=%v", err)
+	}
+	claims, err := restarted.ClaimVendorWorkIntents(ctx, 1)
+	if err != nil || len(claims) != 1 || claims[0].OrderID != created.ID || claims[0].OrderRevision != 1 || len(claims[0].Lines) != 1 || claims[0].Attempts != 1 {
+		t.Fatalf("initial vendor claim=%#v err=%v", claims, err)
+	}
+	if again, err := restarted.ClaimVendorWorkIntents(ctx, 1); err != nil || len(again) != 0 {
+		t.Fatalf("leased vendor claim repeated=%#v err=%v", again, err)
+	}
+	if err := restarted.RetryVendorWorkIntent(ctx, claims[0].ID, claims[0].ClaimToken, "SUPPLY_UNAVAILABLE"); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.AckVendorWorkIntent(ctx, claims[0].ID, claims[0].ClaimToken); !errors.Is(err, ErrVendorWorkClaimLost) {
+		t.Fatalf("released claim acknowledged=%v", err)
+	}
+	if again, err := restarted.ClaimVendorWorkIntents(ctx, 1); err != nil || len(again) != 0 {
+		t.Fatalf("vendor backoff skipped=%#v err=%v", again, err)
+	}
+	now = now.Add(3 * time.Second)
+	reclaimed, err := restarted.ClaimVendorWorkIntents(ctx, 1)
+	if err != nil || len(reclaimed) != 1 || reclaimed[0].ID != claims[0].ID || reclaimed[0].ClaimToken == claims[0].ClaimToken || reclaimed[0].Attempts != 2 {
+		t.Fatalf("vendor retry claim=%#v err=%v", reclaimed, err)
+	}
+	if err := restarted.AckVendorWorkIntent(ctx, claims[0].ID, claims[0].ClaimToken); !errors.Is(err, ErrVendorWorkClaimLost) {
+		t.Fatalf("stale vendor claim acknowledged=%v", err)
+	}
+	if err := restarted.AckVendorWorkIntent(ctx, reclaimed[0].ID, reclaimed[0].ClaimToken); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := restarted.ClaimVendorWorkIntents(ctx, 1); err != nil || len(again) != 0 {
+		t.Fatalf("delivered vendor claim repeated=%#v err=%v", again, err)
+	}
+
+	pendingSnapshot := orderSnapshot()
+	pendingSnapshot.PaymentID = "payment-pending-002"
+	pendingOrder, replay, err := restarted.Create(scope, "order-payment-pending-002", pendingSnapshot, false)
+	if err != nil || replay || pendingOrder.Status != StatusPendingPayment {
+		t.Fatalf("pending order=%#v replay=%t err=%v", pendingOrder, replay, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ordering.vendor_work_intents WHERE order_id=$1`, pendingOrder.ID).Scan(&intentCount); err != nil || intentCount != 0 {
+		t.Fatalf("pending order vendor intents=%d err=%v", intentCount, err)
+	}
+	placed, replay, err := restarted.Transition(scope, "order-payment-capture-002", pendingOrder.ID, 1, StatusPlaced, "PLATFORM", "Payment captured")
+	if err != nil || replay || placed.Revision != 2 {
+		t.Fatalf("captured order=%#v replay=%t err=%v", placed, replay, err)
+	}
+	if _, replay, err := restarted.Transition(scope, "order-payment-capture-002", pendingOrder.ID, 1, StatusPlaced, "PLATFORM", "Payment captured"); err != nil || !replay {
+		t.Fatalf("capture replay=%t err=%v", replay, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ordering.vendor_work_intents WHERE order_id=$1 AND order_revision=2`, pendingOrder.ID).Scan(&intentCount); err != nil || intentCount != 1 {
+		t.Fatalf("captured order vendor intents=%d err=%v", intentCount, err)
+	}
+
+	multi := orderSnapshot()
+	first := multi.Lines[0]
+	first.Quantity, first.LineTotal.AmountMinor, first.TaxMinor, first.DiscountMinor, first.CommissionMinor = 1, 10000, 400, 900, 1200
+	second := first
+	second.VendorID, second.ItemID, second.VariantID = "vendor-local-002", "item-rice", "variant-rice"
+	multi.Lines = []LineSnapshot{first, second}
+	multi.PaymentID = "payment-multi-vendor-003"
+	multiOrder, replay, err := restarted.Create(scope, "order-multi-vendor-003", multi, true)
+	if err != nil || replay {
+		t.Fatalf("multi-vendor order=%#v replay=%t err=%v", multiOrder, replay, err)
+	}
+	rows, err := pool.Query(ctx, `SELECT vendor_id,lines FROM ordering.vendor_work_intents WHERE order_id=$1 ORDER BY vendor_id`, multiOrder.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	perVendor := map[string][]LineSnapshot{}
+	for rows.Next() {
+		var vendorID string
+		var payload []byte
+		if err := rows.Scan(&vendorID, &payload); err != nil {
+			t.Fatal(err)
+		}
+		var lines []LineSnapshot
+		if err := json.Unmarshal(payload, &lines); err != nil {
+			t.Fatal(err)
+		}
+		perVendor[vendorID] = lines
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(perVendor) != 2 || len(perVendor[first.VendorID]) != 1 || len(perVendor[second.VendorID]) != 1 || perVendor[first.VendorID][0].VariantID != first.VariantID || perVendor[second.VendorID][0].VariantID != second.VariantID {
+		t.Fatalf("vendor line split=%#v", perVendor)
 	}
 }
 

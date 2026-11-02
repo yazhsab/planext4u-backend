@@ -14,6 +14,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/yazhsab/planext4u-backend/internal/bankverification"
+	"github.com/yazhsab/planext4u-backend/internal/kycattestation"
+	"github.com/yazhsab/planext4u-backend/internal/ocrattestation"
+	"github.com/yazhsab/planext4u-backend/internal/privateevidence"
 )
 
 const supplyOperationTimeout = 20 * time.Second
@@ -22,15 +26,52 @@ const supplyOperationTimeout = 20 * time.Second
 // plane. Every revision and idempotency response is committed with the domain
 // mutation that produced it.
 type PostgresService struct {
-	pool  *pgxpool.Pool
-	clock func() time.Time
+	pool         *pgxpool.Pool
+	clock        func() time.Time
+	evidence     privateevidence.Verifier
+	bankVerifier bankverification.Verifier
+	kycVerifier  kycattestation.Verifier
+	ocrVerifier  ocrattestation.Verifier
 }
 
-func NewPostgresService(pool *pgxpool.Pool, clock func() time.Time) (*PostgresService, error) {
-	if pool == nil || clock == nil {
+func NewPostgresService(pool *pgxpool.Pool, clock func() time.Time, verifiers ...privateevidence.Verifier) (*PostgresService, error) {
+	if pool == nil || clock == nil || len(verifiers) > 1 || len(verifiers) == 1 && verifiers[0] == nil {
 		return nil, ErrInvalidRequest
 	}
-	return &PostgresService{pool: pool, clock: clock}, nil
+	verifier := privateevidence.Unavailable()
+	if len(verifiers) == 1 {
+		verifier = verifiers[0]
+	}
+	return &PostgresService{pool: pool, clock: clock, evidence: verifier, bankVerifier: bankverification.Unavailable(), kycVerifier: kycattestation.Unavailable(), ocrVerifier: ocrattestation.Unavailable()}, nil
+}
+
+func NewPostgresServiceWithProviders(pool *pgxpool.Pool, clock func() time.Time, documents privateevidence.Verifier, bank bankverification.Verifier, kyc ...kycattestation.Verifier) (*PostgresService, error) {
+	if bank == nil || len(kyc) > 1 || len(kyc) == 1 && kyc[0] == nil {
+		return nil, ErrInvalidRequest
+	}
+	service, err := NewPostgresService(pool, clock, documents)
+	if err != nil {
+		return nil, err
+	}
+	service.bankVerifier = bank
+	if len(kyc) == 1 {
+		service.kycVerifier = kyc[0]
+	}
+	return service, nil
+}
+
+// NewPostgresServiceWithOCR requires explicit independent OCR and KYC
+// verifiers. The older constructor remains fail-closed for OCR transitions.
+func NewPostgresServiceWithOCR(pool *pgxpool.Pool, clock func() time.Time, documents privateevidence.Verifier, bank bankverification.Verifier, kyc kycattestation.Verifier, ocr ocrattestation.Verifier) (*PostgresService, error) {
+	if kyc == nil || ocr == nil {
+		return nil, ErrInvalidRequest
+	}
+	service, err := NewPostgresServiceWithProviders(pool, clock, documents, bank, kyc)
+	if err != nil {
+		return nil, err
+	}
+	service.ocrVerifier = ocr
+	return service, nil
 }
 
 func (service *PostgresService) Now() time.Time { return service.clock().UTC() }
@@ -57,6 +98,9 @@ func (service *PostgresService) Register(actor Actor, key string, request Regist
 		return Application{}, false, fmt.Errorf("begin vendor registration: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockVendorSession(ctx, tx, actor); err != nil {
+		return Application{}, false, err
+	}
 	if err := supplyCommandLock(ctx, tx, actor, "register", key); err != nil {
 		return Application{}, false, err
 	}
@@ -66,7 +110,7 @@ func (service *PostgresService) Register(actor Actor, key string, request Regist
 		return Application{}, false, err
 	} else if found {
 		replay.tenantID, replay.country = actor.TenantID, actor.Country
-		return replay, true, nil
+		return roleApplication(actor, replay), true, nil
 	}
 	var exists bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM supply.vendor_applications WHERE tenant_id=$1 AND country=$2 AND vendor_identity_id=$3)`, actor.TenantID, actor.Country, actor.Subject).Scan(&exists); err != nil {
@@ -77,6 +121,7 @@ func (service *PostgresService) Register(actor Actor, key string, request Regist
 	}
 	now := service.Now()
 	value := Application{ID: supplyUUID("application", actor.TenantID+":"+actor.Country+":"+actor.Subject), VendorID: actor.Subject, Revision: 1, Status: StatusRegistered, BusinessName: strings.TrimSpace(request.BusinessName), BusinessType: strings.TrimSpace(request.BusinessType), ContactName: strings.TrimSpace(request.ContactName), AllowedActions: []string{"SUBMIT_DOCUMENTS"}, Timeline: []TimelineEvent{{Status: StatusRegistered, Actor: actor.Subject, CreatedAt: now}}, CreatedAt: now, UpdatedAt: now, tenantID: actor.TenantID, country: actor.Country}
+	value = roleApplication(actor, value)
 	if _, err := tx.Exec(ctx, `INSERT INTO supply.vendor_applications (id,tenant_id,country,vendor_identity_id,revision,status,business_name,business_type,contact_name,verified,created_at,updated_at) VALUES ($1,$2,$3,$4,1,$5,$6,$7,$8,false,$9,$9)`, value.ID, actor.TenantID, actor.Country, actor.Subject, value.Status, value.BusinessName, value.BusinessType, value.ContactName, now); err != nil {
 		return Application{}, false, mapSupplyError(err)
 	}
@@ -98,33 +143,52 @@ func (service *PostgresService) Application(actor Actor) (Application, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), supplyOperationTimeout)
 	defer cancel()
-	value, err := service.loadApplicationByVendor(ctx, service.pool, actor.TenantID, actor.Country, actor.Subject, false)
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return Application{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err = lockVendorSession(ctx, tx, actor); err != nil {
+		return Application{}, err
+	}
+	value, err := service.loadApplicationByVendor(ctx, tx, actor.TenantID, actor.Country, actor.Subject, false)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Application{}, ErrNotFound
 	}
 	if err != nil {
 		return Application{}, err
 	}
+	if err = lockVendorSession(ctx, tx, actor); err != nil {
+		return Application{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Application{}, err
+	}
 	return roleApplication(actor, value), nil
 }
 
 func (service *PostgresService) SubmitDocuments(actor Actor, key string, revision int64, request DocumentsRequest) (Application, bool, error) {
-	if len(request.Documents) < 2 || len(request.Documents) > 10 {
+	if !validApplicationDocuments(request.Documents, postgresSupplyUUID) {
 		return Application{}, false, ErrInvalidRequest
-	}
-	for _, document := range request.Documents {
-		if !postgresSupplyUUID(document.AssetID) || !regexp.MustCompile(`^[A-Z_]{2,40}$`).MatchString(document.Kind) {
-			return Application{}, false, ErrInvalidRequest
-		}
 	}
 	return service.mutateApplication(actor, actor.Subject, key, revision, "documents", request, func(value *Application) error {
 		if !hasRole(actor, "VENDOR") || value.Status != StatusRegistered {
 			return ErrInvalidTransition
 		}
+		ids := make([]string, len(request.Documents))
+		for index, document := range request.Documents {
+			ids[index] = document.AssetID
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := service.evidence.VerifyIdentityDocuments(ctx, privateevidence.Scope{TenantID: actor.TenantID, Country: actor.Country, OwnerID: actor.Subject}, ids); err != nil {
+			return err
+		}
 		value.Documents = cloneDocuments(request.Documents)
 		for index := range value.Documents {
 			value.Documents[index].OCRStatus = "PENDING"
 			value.Documents[index].ExtractedFields = nil
+			value.Documents[index].ReviewReason = ""
 		}
 		value.Status = StatusDocumentsSubmitted
 		return nil
@@ -136,7 +200,10 @@ func (service *PostgresService) Transition(actor Actor, key string, revision int
 }
 
 func (service *PostgresService) TransitionForVendor(actor Actor, key, vendorID string, revision int64, request TransitionRequest) (Application, bool, error) {
-	if !hasAnyRole(actor, "OPS_ADMIN", "SUPER_ADMIN", "FIELD_OFFICER", "FINANCE") || len(strings.TrimSpace(request.Reason)) < 8 {
+	if !actor.MFAVerified {
+		return Application{}, false, ErrForbidden
+	}
+	if !hasAnyRole(actor, "OPS_ADMIN", "SUPER_ADMIN", "FIELD_OFFICER", "FINANCE", "REGIONAL_ADMIN") || hasRole(actor, "REGIONAL_ADMIN") && !hasAnyRole(actor, "OPS_ADMIN", "SUPER_ADMIN", "FIELD_OFFICER", "FINANCE") && request.Status != StatusRejected || len(strings.TrimSpace(request.Reason)) < 8 {
 		return Application{}, false, ErrForbidden
 	}
 	return service.mutateApplication(actor, vendorID, key, revision, "transition", request, func(value *Application) error {
@@ -146,10 +213,28 @@ func (service *PostgresService) TransitionForVendor(actor Actor, key, vendorID s
 		if request.Status == StatusOCRReview {
 			for index := range value.Documents {
 				value.Documents[index].OCRStatus = "REVIEW_REQUIRED"
-				value.Documents[index].ExtractedFields = map[string]string{"business_name": value.BusinessName}
+				value.Documents[index].ExtractedFields = nil
 			}
 		}
 		if request.Status == StatusKYCReview {
+			if err := service.verifyDocuments(actor.TenantID, actor.Country, value.VendorID, value.Documents); err != nil {
+				return err
+			}
+			for _, document := range value.Documents {
+				if document.OCRStatus != "REVIEW_REQUIRED" {
+					return ErrConflict
+				}
+			}
+			ocrID, err := service.verifyOCRDocuments(actor.TenantID, actor.Country, value.VendorID, value.Revision, value.Documents)
+			if err != nil {
+				return err
+			}
+			attestationID, err := service.verifyKYCDocuments(actor.TenantID, actor.Country, value.VendorID, value.Documents)
+			if err != nil {
+				return err
+			}
+			value.Timeline = append(value.Timeline, TimelineEvent{Status: value.Status, Actor: actor.Subject, Reason: fmt.Sprintf("Provider OCR attestation %s for document revision %d", ocrID, value.Revision), CreatedAt: service.Now()})
+			value.Timeline = append(value.Timeline, TimelineEvent{Status: value.Status, Actor: actor.Subject, Reason: "Provider KYC attestation: " + attestationID, CreatedAt: service.Now()})
 			for index := range value.Documents {
 				value.Documents[index].OCRStatus = "VERIFIED"
 			}
@@ -157,6 +242,22 @@ func (service *PostgresService) TransitionForVendor(actor Actor, key, vendorID s
 		if request.Status == StatusApproved {
 			if value.Bank == nil || value.Bank.Status != "VERIFIED" || len(value.Zones) == 0 || value.Visit == nil || value.Visit.CheckedInAt == nil {
 				return ErrConflict
+			}
+			for _, document := range value.Documents {
+				if document.OCRStatus != "VERIFIED" {
+					return ErrConflict
+				}
+			}
+			if err := service.verifyDocuments(actor.TenantID, actor.Country, value.VendorID, value.Documents); err != nil {
+				return err
+			}
+			attestationID, err := service.verifyKYCDocuments(actor.TenantID, actor.Country, value.VendorID, value.Documents)
+			if err != nil {
+				return err
+			}
+			value.Timeline = append(value.Timeline, TimelineEvent{Status: value.Status, Actor: actor.Subject, Reason: "Provider KYC reattestation: " + attestationID, CreatedAt: service.Now()})
+			if err := service.verifyApplicationBank(actor, value, "Bank revalidated before approval"); err != nil {
+				return err
 			}
 			value.Verified = true
 		}
@@ -166,6 +267,36 @@ func (service *PostgresService) TransitionForVendor(actor Actor, key, vendorID s
 		value.Status = request.Status
 		return nil
 	})
+}
+
+func (service *PostgresService) verifyDocuments(tenant, country, owner string, documents []Document) error {
+	ids := make([]string, len(documents))
+	for index, document := range documents {
+		ids[index] = document.AssetID
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return service.evidence.VerifyIdentityDocuments(ctx, privateevidence.Scope{TenantID: tenant, Country: country, OwnerID: owner}, ids)
+}
+
+func (service *PostgresService) verifyKYCDocuments(tenant, country, owner string, documents []Document) (string, error) {
+	input := make([]kycattestation.Document, len(documents))
+	for index, document := range documents {
+		input[index] = kycattestation.Document{Kind: document.Kind, AssetID: document.AssetID}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return service.kycVerifier.Verify(ctx, kycattestation.Scope{TenantID: tenant, Country: country, OwnerID: owner}, input)
+}
+
+func (service *PostgresService) verifyOCRDocuments(tenant, country, owner string, revision int64, documents []Document) (string, error) {
+	input := make([]ocrattestation.Document, len(documents))
+	for index, document := range documents {
+		input[index] = ocrattestation.Document{Kind: document.Kind, AssetID: document.AssetID}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return service.ocrVerifier.Verify(ctx, ocrattestation.Scope{TenantID: tenant, Country: country, OwnerID: owner, DocumentRevision: revision}, input)
 }
 
 func (service *PostgresService) ScheduleVisit(actor Actor, key string, revision int64, request VisitRequest) (Application, bool, error) {
@@ -234,6 +365,9 @@ func (service *PostgresService) SubmitBank(actor Actor, key string, revision int
 }
 
 func (service *PostgresService) VerifyBank(actor Actor, key, vendorID string, revision int64, reason string) (Application, bool, error) {
+	if !actor.MFAVerified {
+		return Application{}, false, ErrForbidden
+	}
 	if !hasAnyRole(actor, "FINANCE", "SUPER_ADMIN") || len(strings.TrimSpace(reason)) < 8 {
 		return Application{}, false, ErrForbidden
 	}
@@ -241,9 +375,27 @@ func (service *PostgresService) VerifyBank(actor Actor, key, vendorID string, re
 		if value.Status != StatusBankReview || value.Bank == nil {
 			return ErrInvalidTransition
 		}
+		if err := service.verifyApplicationBank(actor, value, reason); err != nil {
+			return err
+		}
 		value.Bank.Status = "VERIFIED"
 		return nil
 	})
+}
+
+func (service *PostgresService) verifyApplicationBank(actor Actor, value *Application, reason string) error {
+	if value.Bank == nil {
+		return bankverification.ErrRejected
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	bank := value.Bank
+	id, err := service.bankVerifier.Verify(ctx, bankverification.Scope{TenantID: actor.TenantID, Country: actor.Country, OwnerID: value.VendorID}, bankverification.Account{Reference: bank.Reference, HolderName: bank.HolderName, Last4: bank.Last4, IFSC: bank.IFSC})
+	if err != nil {
+		return err
+	}
+	value.Timeline = append(value.Timeline, TimelineEvent{Status: value.Status, Actor: actor.Subject, Reason: strings.TrimSpace(reason) + "; provider bank verification: " + id, CreatedAt: service.Now()})
+	return nil
 }
 
 func (service *PostgresService) UpsertCatalog(actor Actor, key, currentID string, revision int64, request CatalogRequest) (CatalogItem, bool, error) {
@@ -328,11 +480,26 @@ func (service *PostgresService) Catalog(actor Actor) ([]CatalogItem, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), supplyOperationTimeout)
 	defer cancel()
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	adminRead := hasAnyRole(actor, "OPS_ADMIN", "SUPER_ADMIN")
+	lockRead := func() error {
+		if adminRead {
+			return lockApplicationReviewer(ctx, tx, actor, "")
+		}
+		return lockVendorSession(ctx, tx, actor)
+	}
+	if err = lockRead(); err != nil {
+		return nil, err
+	}
 	query := `SELECT id::text FROM supply.catalog_items WHERE tenant_id=$1 AND country=$2 AND vendor_identity_id=$3 ORDER BY updated_at DESC`
-	if hasAnyRole(actor, "OPS_ADMIN", "SUPER_ADMIN") {
+	if adminRead {
 		query = `SELECT id::text FROM supply.catalog_items WHERE tenant_id=$1 AND country=$2 AND ($3::uuid IS NOT NULL) ORDER BY updated_at DESC`
 	}
-	rows, err := service.pool.Query(ctx, query, actor.TenantID, actor.Country, actor.Subject)
+	rows, err := tx.Query(ctx, query, actor.TenantID, actor.Country, actor.Subject)
 	if err != nil {
 		return nil, fmt.Errorf("list vendor catalog: %w", err)
 	}
@@ -345,15 +512,25 @@ func (service *PostgresService) Catalog(actor Actor) ([]CatalogItem, error) {
 		}
 		ids = append(ids, id)
 	}
+	err = rows.Err()
 	rows.Close()
+	if err != nil {
+		return nil, err
+	}
 	result := make([]CatalogItem, 0, len(ids))
 	for _, id := range ids {
-		value, err := loadCatalogItem(ctx, service.pool, id, false)
+		value, err := loadCatalogItem(ctx, tx, id, false)
 		if err != nil {
 			return nil, err
 		}
 		value.AllowedActions = catalogActions(actor, value)
 		result = append(result, value)
+	}
+	if err = lockRead(); err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -407,21 +584,37 @@ func (service *PostgresService) Work(actor Actor) ([]WorkItem, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), supplyOperationTimeout)
 	defer cancel()
-	rows, err := service.pool.Query(ctx, `SELECT id::text,vendor_identity_id::text,reference_type,reference_id::text,status,total_minor,currency,customer_label,updated_at FROM supply.work_items WHERE tenant_id=$1 AND country=$2 AND vendor_identity_id=$3 ORDER BY updated_at DESC`, actor.TenantID, actor.Country, actor.Subject)
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err = lockVendorSession(ctx, tx, actor); err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, `SELECT id::text,vendor_identity_id::text,reference_type,reference_id::text,status,total_minor,currency,customer_label,updated_at FROM supply.work_items WHERE tenant_id=$1 AND country=$2 AND vendor_identity_id=$3 ORDER BY updated_at DESC`, actor.TenantID, actor.Country, actor.Subject)
 	if err != nil {
 		return nil, fmt.Errorf("list vendor work: %w", err)
 	}
-	defer rows.Close()
 	result := []WorkItem{}
 	for rows.Next() {
 		var value WorkItem
 		if err := rows.Scan(&value.ID, &value.VendorID, &value.ReferenceType, &value.ReferenceID, &value.Status, &value.Total.AmountMinor, &value.Total.Currency, &value.CustomerLabel, &value.UpdatedAt); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		value.tenantID, value.country, value.AllowedActions = actor.TenantID, actor.Country, workActions(value.Status)
 		result = append(result, value)
 	}
-	return result, rows.Err()
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if err = lockVendorSession(ctx, tx, actor); err != nil {
+		return nil, err
+	}
+	return result, tx.Commit(ctx)
 }
 
 func (service *PostgresService) SeedWork(actor Actor, item WorkItem) error {
@@ -519,17 +712,32 @@ func (service *PostgresService) UpsertPromotion(actor Actor, key string, request
 }
 
 func (service *PostgresService) Dashboard(actor Actor) (Dashboard, error) {
-	application, err := service.Application(actor)
-	if err != nil {
-		return Dashboard{}, err
+	if !postgresSupplyActor(actor) || !hasRole(actor, "VENDOR") {
+		return Dashboard{}, ErrForbidden
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), supplyOperationTimeout)
 	defer cancel()
-	result := Dashboard{Application: application, Sales: Money{Currency: "INR"}, Recommendations: []string{}, OfflineSnapshotAt: service.Now()}
-	if err := service.pool.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE stock<5) FROM supply.catalog_items WHERE tenant_id=$1 AND country=$2 AND vendor_identity_id=$3`, actor.TenantID, actor.Country, actor.Subject).Scan(&result.CatalogItems, &result.LowStockItems); err != nil {
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
 		return Dashboard{}, err
 	}
-	if err := service.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status NOT IN ('COMPLETED','CANCELLED')),COALESCE(sum(total_minor) FILTER (WHERE status='COMPLETED'),0) FROM supply.work_items WHERE tenant_id=$1 AND country=$2 AND vendor_identity_id=$3`, actor.TenantID, actor.Country, actor.Subject).Scan(&result.OpenWorkItems, &result.Sales.AmountMinor); err != nil {
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err = lockVendorSession(ctx, tx, actor); err != nil {
+		return Dashboard{}, err
+	}
+	application, err := service.loadApplicationByVendor(ctx, tx, actor.TenantID, actor.Country, actor.Subject, false)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Dashboard{}, ErrNotFound
+	}
+	if err != nil {
+		return Dashboard{}, err
+	}
+	application = roleApplication(actor, application)
+	result := Dashboard{Application: application, Sales: Money{Currency: "INR"}, Recommendations: []string{}, OfflineSnapshotAt: service.Now()}
+	if err := tx.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE stock<5) FROM supply.catalog_items WHERE tenant_id=$1 AND country=$2 AND vendor_identity_id=$3`, actor.TenantID, actor.Country, actor.Subject).Scan(&result.CatalogItems, &result.LowStockItems); err != nil {
+		return Dashboard{}, err
+	}
+	if err := tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status NOT IN ('COMPLETED','CANCELLED')),COALESCE(sum(total_minor) FILTER (WHERE status='COMPLETED'),0) FROM supply.work_items WHERE tenant_id=$1 AND country=$2 AND vendor_identity_id=$3`, actor.TenantID, actor.Country, actor.Subject).Scan(&result.OpenWorkItems, &result.Sales.AmountMinor); err != nil {
 		return Dashboard{}, err
 	}
 	if result.LowStockItems > 0 {
@@ -537,6 +745,12 @@ func (service *PostgresService) Dashboard(actor Actor) (Dashboard, error) {
 	}
 	if result.CatalogItems == 0 {
 		result.Recommendations = append(result.Recommendations, "Add the first approved catalog item.")
+	}
+	if err = lockVendorSession(ctx, tx, actor); err != nil {
+		return Dashboard{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Dashboard{}, err
 	}
 	return result, nil
 }
@@ -549,21 +763,55 @@ func (service *PostgresService) mutateApplication(actor Actor, vendorID, key str
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), supplyOperationTimeout)
 	defer cancel()
-	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return Application{}, false, fmt.Errorf("begin vendor application mutation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	privileged := operation == "transition" || operation == "checkin" || operation == "bank-verify"
+	reviewLock := lockApplicationReviewer
+	if transition, ok := input.(TransitionRequest); operation == "transition" && ok && transition.Status == StatusRejected {
+		reviewLock = lockScopedApplicationReviewer
+	}
+	if operation == "checkin" {
+		reviewLock = lockFieldApplicationReviewer
+	}
+	if privileged {
+		if err := reviewLock(ctx, tx, actor, vendorID); err != nil {
+			return Application{}, false, err
+		}
+	}
+	if hasRole(actor, "VENDOR") && vendorID == actor.Subject {
+		if err := lockVendorSession(ctx, tx, actor); err != nil {
+			return Application{}, false, err
+		}
+	}
 	commandOperation := operation + ":" + vendorID
 	if err := supplyCommandLock(ctx, tx, actor, commandOperation, key); err != nil {
 		return Application{}, false, err
 	}
 	fingerprint := digest(input)
+	if privileged || operation == "resubmit" {
+		fingerprint = digest(struct {
+			Revision int64
+			Input    any
+		}{revision, input})
+	}
 	var replay Application
 	if found, err := loadSupplyReplay(ctx, tx, actor, commandOperation, key, fingerprint, &replay); err != nil {
 		return Application{}, false, err
 	} else if found {
 		replay.tenantID, replay.country = actor.TenantID, actor.Country
+		if operation == "resubmit" {
+			if err := lockVendorSession(ctx, tx, actor); err != nil {
+				return Application{}, false, err
+			}
+		}
+		if privileged {
+			if err := reviewLock(ctx, tx, actor, vendorID); err != nil {
+				return Application{}, false, err
+			}
+		}
 		return roleApplication(actor, replay), true, nil
 	}
 	value, err := service.loadApplicationByVendor(ctx, tx, actor.TenantID, actor.Country, vendorID, true)
@@ -573,19 +821,46 @@ func (service *PostgresService) mutateApplication(actor Actor, vendorID, key str
 	if err != nil {
 		return Application{}, false, err
 	}
-	if !hasAnyRole(actor, "OPS_ADMIN", "SUPER_ADMIN", "FIELD_OFFICER", "FINANCE") && value.VendorID != actor.Subject {
+	if !hasAnyRole(actor, "OPS_ADMIN", "SUPER_ADMIN", "FIELD_OFFICER", "FINANCE", "REGIONAL_ADMIN") && value.VendorID != actor.Subject {
 		return Application{}, false, ErrForbidden
 	}
 	if value.Revision != revision {
 		return Application{}, false, ErrConflict
 	}
 	previousStatus, previousTimelineLength := value.Status, len(value.Timeline)
+	if operation == "resubmit" {
+		documents, err := json.Marshal(value.Documents)
+		if err != nil {
+			return Application{}, false, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO supply.application_submissions(application_id,revision,documents,submitted_by,submitted_at,business_name,business_type,contact_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`, value.ID, value.Revision, documents, value.VendorID, value.UpdatedAt, value.BusinessName, value.BusinessType, value.ContactName); err != nil {
+			return Application{}, false, err
+		}
+	}
 	if err := mutation(&value); err != nil {
 		return Application{}, false, err
+	}
+	if operation == "documents" || operation == "resubmit" {
+		ids := make([]string, len(value.Documents))
+		for index, document := range value.Documents {
+			ids[index] = document.AssetID
+		}
+		if err := privateevidence.Claim(ctx, tx, privateevidence.Scope{TenantID: actor.TenantID, Country: actor.Country, OwnerID: value.VendorID}, "VENDOR_APPLICATION", value.ID, ids); err != nil {
+			return Application{}, false, err
+		}
 	}
 	value.Revision++
 	value.UpdatedAt = service.Now()
 	value.AllowedActions = applicationActions(value)
+	if operation == "resubmit" {
+		documents, err := json.Marshal(value.Documents)
+		if err != nil {
+			return Application{}, false, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO supply.application_submissions(application_id,revision,documents,submitted_by,submitted_at,business_name,business_type,contact_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, value.ID, value.Revision, documents, actor.Subject, value.UpdatedAt, value.BusinessName, value.BusinessType, value.ContactName); err != nil {
+			return Application{}, false, err
+		}
+	}
 	if value.Status != previousStatus {
 		reason := ""
 		if transition, ok := input.(TransitionRequest); ok {
@@ -602,6 +877,16 @@ func (service *PostgresService) mutateApplication(actor Actor, vendorID, key str
 	response := roleApplication(actor, value)
 	if err := storeSupplyReplay(ctx, tx, actor, commandOperation, key, fingerprint, response, value.UpdatedAt); err != nil {
 		return Application{}, false, err
+	}
+	if operation == "resubmit" {
+		if err := lockVendorSession(ctx, tx, actor); err != nil {
+			return Application{}, false, err
+		}
+	}
+	if privileged {
+		if err := reviewLock(ctx, tx, actor, vendorID); err != nil {
+			return Application{}, false, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Application{}, false, mapSupplyError(err)
@@ -757,7 +1042,7 @@ func (service *PostgresService) saveApplication(ctx context.Context, tx pgx.Tx, 
 	if value.Bank != nil {
 		reference, holder, last4, ifsc, status = value.Bank.Reference, value.Bank.HolderName, value.Bank.Last4, value.Bank.IFSC, value.Bank.Status
 	}
-	if _, err := tx.Exec(ctx, `UPDATE supply.vendor_applications SET revision=$2,status=$3,bank_reference=$4,bank_holder_name=$5,bank_last4=$6,bank_ifsc=$7,bank_status=$8,verified=$9,updated_at=$10 WHERE id=$1`, value.ID, value.Revision, value.Status, reference, holder, last4, ifsc, status, value.Verified, value.UpdatedAt); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE supply.vendor_applications SET revision=$2,status=$3,bank_reference=$4,bank_holder_name=$5,bank_last4=$6,bank_ifsc=$7,bank_status=$8,verified=$9,updated_at=$10,business_name=$11,business_type=$12,contact_name=$13 WHERE id=$1`, value.ID, value.Revision, value.Status, reference, holder, last4, ifsc, status, value.Verified, value.UpdatedAt, value.BusinessName, value.BusinessType, value.ContactName); err != nil {
 		return fmt.Errorf("update vendor application: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM supply.vendor_documents WHERE application_id=$1`, value.ID); err != nil {

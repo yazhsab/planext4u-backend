@@ -45,6 +45,7 @@ type Config struct {
 	GuestLimiter     Limiter
 	PrincipalLimiter Limiter
 	Readiness        func(context.Context) error
+	AuthenticateLive func(context.Context, Principal) (Principal, error)
 }
 
 func DefaultConfig(upstream *url.URL) Config {
@@ -59,6 +60,8 @@ func DefaultConfig(upstream *url.URL) Config {
 		},
 		AnonymousRoutes: map[string]map[string]struct{}{
 			"/v1/auth/exchange": {http.MethodPost: {}},
+			"/v1/auth/enroll":   {http.MethodPost: {}},
+			"/v1/auth/recover":  {http.MethodPost: {}},
 			"/v1/auth/refresh":  {http.MethodPost: {}},
 			"/v1/auth/revoke":   {http.MethodPost: {}},
 		},
@@ -112,7 +115,7 @@ func NewHandler(config Config, verifier Verifier, logger *slog.Logger) (*Handler
 		}
 		clonedMethods := make(map[string]struct{}, len(methods))
 		for method := range methods {
-			if method != http.MethodPost {
+			if method != http.MethodPost && !(method == http.MethodGet && path == "/v1/startup") {
 				return nil, ErrInvalidConfiguration
 			}
 			clonedMethods[method] = struct{}{}
@@ -212,6 +215,17 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	} else {
 		if !handler.applyLimit(writer, request, handler.config.PrincipalLimiter, principalRateKey(request, principal)) {
 			return
+		}
+		if handler.config.AuthenticateLive != nil {
+			principal, err = handler.config.AuthenticateLive(request.Context(), principal)
+			if err != nil {
+				if errors.Is(err, ErrSessionAuthorityUnavailable) {
+					writeProblem(writer, request, 503, "AUTHORITY_UNAVAILABLE", "Session verification is temporarily unavailable.", true)
+				} else {
+					writeProblem(writer, request, 401, "AUTHENTICATION_INVALID", "This session is no longer active. Sign in again.", false)
+				}
+				return
+			}
 		}
 	}
 
@@ -460,6 +474,9 @@ func (writer *sanitizingResponseWriter) WriteHeader(status int) {
 	writer.wroteHeader = true
 	writer.Header().Del("Server")
 	writer.Header().Del("X-Powered-By")
+	// In-process owners cannot replace the authoritative edge policies.
+	writer.Header().Set("X-Content-Type-Options", "nosniff")
+	writer.Header().Set("Referrer-Policy", "no-referrer")
 	writer.ResponseWriter.WriteHeader(status)
 }
 
@@ -475,7 +492,11 @@ func (writer *sanitizingResponseWriter) Unwrap() http.ResponseWriter { return wr
 func (handler *Handler) modifyResponse(response *http.Response) error {
 	response.Header.Del("Server")
 	response.Header.Del("X-Powered-By")
-	response.Header.Set(correlationIDHeader, correlationIDFromContext(response.Request.Context()))
+	// ServeHTTP has already set the authoritative edge value on the writer.
+	// ReverseProxy appends response headers; copying another value duplicates it.
+	response.Header.Del(correlationIDHeader)
+	response.Header.Del("X-Content-Type-Options")
+	response.Header.Del("Referrer-Policy")
 	if response.StatusCode < http.StatusBadRequest {
 		return nil
 	}

@@ -4,6 +4,7 @@ package booking
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"sync"
@@ -170,6 +171,39 @@ func TestPostgresBookingCapacityReplayRestartLifecycleAndIsolation(t *testing.T)
 	if bookingCount != 1 || timelineCount != 9 || replayCount < 10 {
 		t.Fatalf("booking rows=%d timeline=%d replay=%d", bookingCount, timelineCount, replayCount)
 	}
+	// Verified provider routing resolves the booking owner and does not resurrect
+	// an expired booking. Use persisted bookings and the provider boundary fake.
+	for _, expired := range []bool{false, true} {
+		bookingID, paymentID := uuid.NewString(), uuid.NewString()
+		paymentValue := payment.Payment{ID: paymentID, OrderReference: bookingID, Method: payment.MethodRazorpay, Status: payment.StatusCaptured, Amount: payment.Money{AmountMinor: 50000, Currency: "INR"}, CreatedAt: now, UpdatedAt: now}
+		payments.values[paymentID] = paymentValue
+		encoded, _ := json.Marshal(paymentValue)
+		expiry := now.Add(time.Hour)
+		if expired {
+			expiry = now.Add(-time.Minute)
+		}
+		_, err := pool.Exec(ctx, `INSERT INTO booking.bookings SELECT (jsonb_populate_record(NULL::booking.bookings,to_jsonb(b) || jsonb_build_object('id',$2::text,'status','PENDING_PAYMENT','revision',1,'payment_id',$3::text,'payment_snapshot',$4::jsonb,'payment_expires_at',$5::timestamptz,'wallet_debit_entry_id',NULL,'start_otp_ciphertext',NULL,'start_otp_digest',NULL))).* FROM booking.bookings b WHERE b.id=$1`, created.ID, bookingID, paymentID, encoded, expiry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for attempt := 0; attempt < 2; attempt++ {
+			if found, err := restarted.HandlePayment(ctx, paymentID); err != nil || !found {
+				t.Fatalf("booking routing found=%t err=%v", found, err)
+			}
+		}
+		loaded, err := restarted.loadBooking(ctx, pool, bookingID, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := StatusRequested
+		if expired {
+			expected = StatusCancelled
+		}
+		if loaded.Status != expected {
+			t.Fatalf("booking status=%s expected=%s", loaded.Status, expected)
+		}
+	}
+
 }
 
 func seedPostgresBooking(t *testing.T, ctx context.Context, pool *pgxpool.Pool, now time.Time) {

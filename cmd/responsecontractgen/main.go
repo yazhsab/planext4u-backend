@@ -23,6 +23,7 @@ import (
 	"github.com/yazhsab/planext4u-backend/internal/governance"
 	"github.com/yazhsab/planext4u-backend/internal/localverticals"
 	"github.com/yazhsab/planext4u-backend/internal/order"
+	"github.com/yazhsab/planext4u-backend/internal/participantreview"
 	"github.com/yazhsab/planext4u-backend/internal/payment"
 	"github.com/yazhsab/planext4u-backend/internal/social"
 	"github.com/yazhsab/planext4u-backend/internal/supply"
@@ -334,7 +335,10 @@ func responseSpecs() map[string]responseSpec {
 	add(list[food.Order](), "listFoodOrders")
 	add(direct[food.Order](), "createFoodOrder", "getFoodOrder", "transitionRestaurantOrder", "transitionFoodDispatch")
 
-	add(direct[fulfillment.RiderProfile](), "registerRider", "getRiderProfile", "reviewRider")
+	add(direct[participantreview.Page](), "listVendorApplications", "listRiderApplications")
+	add(direct[fulfillment.RiderReviewDetail](), "getRiderReviewDetail")
+	add(direct[fulfillment.RiderReviewAccess](), "accessRiderReviewDocument")
+	add(direct[fulfillment.RiderProfile](), "registerRider", "getRiderProfile", "reviewRider", "resubmitRider")
 	add(direct[fulfillment.DutySession](), "startRiderDuty", "getRiderDuty", "endRiderDuty")
 	add(list[fulfillment.DeliveryTask](), "listRiderOffers", "listRiderTasks")
 	add(direct[fulfillment.DeliveryTask](), "acceptRiderOffer", "markRiderPickup", "completeRiderDelivery", "createDispatchTask", "offerDispatchTask", "reassignDispatchTask")
@@ -392,7 +396,9 @@ func responseSpecs() map[string]responseSpec {
 	add(list[social.Report](), "listModerationReports")
 	add(count("purged"), "purgeSocialRetention")
 
-	add(direct[supply.Application](), "registerVendor", "getVendorApplication", "submitVendorDocuments", "scheduleVendorFieldVisit", "setVendorZones", "submitVendorBank", "transitionVendorApplication", "checkInVendorFieldVisit", "verifyVendorBank")
+	add(direct[supply.Application](), "registerVendor", "getVendorApplication", "submitVendorDocuments", "resubmitVendorDocuments", "scheduleVendorFieldVisit", "setVendorZones", "submitVendorBank", "transitionVendorApplication", "checkInVendorFieldVisit", "verifyVendorBank")
+	add(direct[supply.VendorReviewDetail](), "getVendorReviewDetail")
+	add(direct[supply.VendorReviewAccess](), "accessVendorReviewDocument")
 	add(direct[supply.Dashboard](), "getVendorDashboard")
 	add(list[supply.CatalogItem](), "listVendorCatalog")
 	add(direct[supply.CatalogItem](), "createVendorCatalogItem", "updateVendorCatalogItem", "setVendorInventory", "setVendorSchedule", "approveVendorCatalog")
@@ -417,7 +423,7 @@ func rootsForContract(fileName string) []reflect.Type {
 		return []reflect.Type{typeOf[food.Restaurant](), typeOf[food.MenuItem](), typeOf[food.Cart](), typeOf[food.Order]()}
 	case "fulfillment.openapi.json":
 		return []reflect.Type{
-			typeOf[fulfillment.RiderProfile](), typeOf[fulfillment.DeliveryTask](), typeOf[fulfillment.Conversation](),
+			typeOf[fulfillment.RiderProfile](), typeOf[fulfillment.RiderReviewDetail](), typeOf[fulfillment.RiderReviewAccess](), typeOf[fulfillment.DeliveryTask](), typeOf[fulfillment.Conversation](),
 			typeOf[fulfillment.ChatMessage](), typeOf[fulfillment.LedgerEntry](), typeOf[fulfillment.Payout](),
 		}
 	case "governance.openapi.json":
@@ -431,7 +437,7 @@ func rootsForContract(fileName string) []reflect.Type {
 			typeOf[social.Conversation](), typeOf[social.DirectMessage](),
 		}
 	case "supply.openapi.json":
-		return []reflect.Type{typeOf[supply.Application](), typeOf[supply.Dashboard](), typeOf[supply.CatalogItem](), typeOf[supply.WorkItem](), typeOf[supply.Promotion]()}
+		return []reflect.Type{typeOf[supply.Application](), typeOf[supply.VendorReviewDetail](), typeOf[supply.VendorReviewAccess](), typeOf[supply.Dashboard](), typeOf[supply.CatalogItem](), typeOf[supply.WorkItem](), typeOf[supply.Promotion]()}
 	case "transaction.openapi.json":
 		return []reflect.Type{typeOf[checkout.DeliverySlot](), typeOf[checkout.Quote](), typeOf[checkout.PlaceResult](), typeOf[payment.Payment](), typeOf[order.Order]()}
 	default:

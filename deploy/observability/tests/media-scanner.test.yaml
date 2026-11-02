@@ -1,0 +1,66 @@
+rule_files:
+  - ../alerts/media-scanner.yaml
+evaluation_interval: 1m
+tests:
+  - name: healthy checks do not page
+    interval: 1m
+    input_series:
+      - series: 'planext4u_media_scanner_ready{service_name="planext4u-media",instance="media-1"}'
+        values: '1x10'
+      - series: 'planext4u_media_scanner_checked_at{service_name="planext4u-media",instance="media-1"}'
+        values: '0+60x10'
+    alert_rule_test:
+      - {eval_time: 10m, alertname: Planext4uMediaScannerUnhealthy, exp_alerts: []}
+      - {eval_time: 10m, alertname: Planext4uMediaScannerChecksMissing, exp_alerts: []}
+  - name: sustained engine failure pages after the hold
+    interval: 1m
+    input_series:
+      - series: 'planext4u_media_scanner_ready{service_name="planext4u-media",instance="media-1"}'
+        values: '0x5'
+      - series: 'planext4u_media_scanner_checked_at{service_name="planext4u-media",instance="media-1"}'
+        values: '0+60x5'
+    alert_rule_test:
+      - {eval_time: 1m, alertname: Planext4uMediaScannerUnhealthy, exp_alerts: []}
+      - eval_time: 3m
+        alertname: Planext4uMediaScannerUnhealthy
+        exp_alerts:
+          - exp_labels: {service_name: planext4u-media, instance: media-1, severity: page, dependency: malware-scanner}
+            exp_annotations:
+              summary: "Media scanner is unavailable, incompatible or has stale loaded signatures"
+              runbook_url: "https://github.com/yazhsab/planext4u-backend/blob/main/docs/runbooks/MEDIA_SCANNER.md"
+  - name: recovered engine clears its alert
+    interval: 1m
+    input_series:
+      - series: 'planext4u_media_scanner_ready{service_name="planext4u-media",instance="media-1"}'
+        values: '0x3 1x6'
+      - series: 'planext4u_media_scanner_checked_at{service_name="planext4u-media",instance="media-1"}'
+        values: '0+60x10'
+    alert_rule_test:
+      - {eval_time: 5m, alertname: Planext4uMediaScannerUnhealthy, exp_alerts: []}
+      - {eval_time: 5m, alertname: Planext4uMediaScannerChecksMissing, exp_alerts: []}
+  - name: missing telemetry pages
+    input_series: []
+    alert_rule_test:
+      - {eval_time: 4m, alertname: Planext4uMediaScannerChecksMissing, exp_alerts: []}
+      - eval_time: 6m
+        alertname: Planext4uMediaScannerChecksMissing
+        exp_alerts:
+          - exp_labels: {service_name: planext4u-media, severity: page, dependency: malware-scanner}
+            exp_annotations:
+              summary: "Media scanner readiness or telemetry checks have stopped"
+              runbook_url: "https://github.com/yazhsab/planext4u-backend/blob/main/docs/runbooks/MEDIA_SCANNER.md"
+  - name: stuck health timestamps cannot mask stopped checks
+    interval: 1m
+    input_series:
+      - series: 'planext4u_media_scanner_ready{service_name="planext4u-media",instance="media-1"}'
+        values: '1x10'
+      - series: 'planext4u_media_scanner_checked_at{service_name="planext4u-media",instance="media-1"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: Planext4uMediaScannerChecksMissing
+        exp_alerts:
+          - exp_labels: {service_name: planext4u-media, instance: media-1, severity: page, dependency: malware-scanner}
+            exp_annotations:
+              summary: "Media scanner readiness or telemetry checks have stopped"
+              runbook_url: "https://github.com/yazhsab/planext4u-backend/blob/main/docs/runbooks/MEDIA_SCANNER.md"

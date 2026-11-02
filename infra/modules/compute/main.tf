@@ -98,7 +98,17 @@ resource "aws_iam_role_policy" "task" {
     Version = "2012-10-17"
     Statement = concat(
       [{ Effect = "Allow", Action = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"], Resource = "*" }],
-      each.key == "media" ? [{ Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload"], Resource = "${var.media_bucket_arn}/*" }] : []
+      [for name in [each.key] : { Effect = "Allow", Action = ["s3:ListBucket"], Resource = var.media_bucket_arn } if name == "media"],
+      [for name in [each.key] : { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"], Resource = "${var.media_bucket_arn}/*" } if name == "media"],
+      [for name in [each.key] : {
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt", "kms:GenerateDataKey"]
+        Resource = var.data_kms_key_arn
+        Condition = {
+          StringEquals = { "kms:ViaService" = "s3.${var.region}.amazonaws.com" }
+          StringLike   = { "kms:EncryptionContext:aws:s3:arn" = [var.media_bucket_arn, "${var.media_bucket_arn}/*"] }
+        }
+      } if name == "media"]
     )
   })
 }

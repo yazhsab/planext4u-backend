@@ -39,8 +39,9 @@ type addressReplay struct {
 }
 
 type refillProcess struct {
-	scope Scope
-	offer wallet.RefillOffer
+	scope        Scope
+	offer        wallet.RefillOffer
+	creditExpiry time.Time
 }
 
 type refillReplay struct {
@@ -71,6 +72,9 @@ type Service struct {
 	addressReqs   map[string]addressReplay
 	refills       map[string]refillProcess
 	refillReqs    map[string]refillReplay
+	// Tests can interrupt immediately after a separately committed effect.
+	afterEffect   func(string) error
+	paymentOwners []func(context.Context, string) (bool, error)
 }
 
 func NewService(dependencies Dependencies, configuration Configuration, clock func() time.Time) (*Service, error) {
@@ -147,19 +151,16 @@ func (service *Service) CreateWalletRefill(ctx context.Context, scope Scope, ide
 	if !validScope(scope) || !safeID(idempotencyKey) || len(idempotencyKey) < 16 || !safeID(offerID) {
 		return WalletRefillResult{}, false, ErrInvalidRequest
 	}
+	if service.store != nil {
+		return service.createRefillDurably(ctx, scope, idempotencyKey, offerID, method)
+	}
 	offer, err := service.deps.Wallet.RefillOffer(wallet.Scope{TenantID: scope.TenantID, Country: scope.Country, CustomerID: scope.CustomerID}, offerID)
 	if err != nil || !containsString(offer.PaymentMethods, string(method)) {
 		return WalletRefillResult{}, false, ErrPaymentMethod
 	}
 	fingerprint := offerID + "\x00" + string(method)
 	requestKey := "wallet-refill\x00" + scopeKey(scope) + "\x00" + idempotencyKey
-	if service.store != nil {
-		if replay, found, err := service.store.LoadRefill(scope, idempotencyKey, fingerprint); err != nil {
-			return WalletRefillResult{}, false, err
-		} else if found {
-			return replay, true, nil
-		}
-	}
+
 	service.mu.Lock()
 	if replay, exists := service.refillReqs[requestKey]; exists {
 		service.mu.Unlock()
@@ -184,9 +185,7 @@ func (service *Service) CreateWalletRefill(ctx context.Context, scope Scope, ide
 		return WalletRefillResult{}, false, err
 	}
 	value := WalletRefillResult{Offer: offer, Payment: paymentValue}
-	if service.store != nil {
-		return service.store.SaveRefill(scope, idempotencyKey, fingerprint, value, refillProcess{scope: scope, offer: offer})
-	}
+
 	service.mu.Lock()
 	if replay, exists := service.refillReqs[requestKey]; exists {
 		service.mu.Unlock()
@@ -228,7 +227,31 @@ func (service *Service) FinalizeProviderWalletRefill(paymentID string) (wallet.L
 		return wallet.LedgerEntry{}, false, payment.ErrReconciliation
 	}
 	points := value.offer.Points + value.offer.BonusPoints
-	return service.deps.Wallet.Credit(wallet.Scope{TenantID: value.scope.TenantID, Country: value.scope.Country, CustomerID: value.scope.CustomerID}, "wallet-refill-credit-"+paymentID, "WALLET_REFILL", paymentID, points, service.clock().UTC().Add(value.offer.ExpiresAfter))
+	if value.offer.ExpiresAfter <= 0 {
+		return wallet.LedgerEntry{}, false, ErrCommercialTerms
+	}
+	expiry := service.clock().UTC().Add(value.offer.ExpiresAfter)
+	if service.store != nil {
+		var err error
+		expiry, err = service.store.FreezeRefillCreditExpiry(paymentID, expiry)
+		if err != nil {
+			return wallet.LedgerEntry{}, false, err
+		}
+	} else {
+		service.mu.Lock()
+		stored := service.refills[paymentID]
+		if stored.creditExpiry.IsZero() {
+			stored.creditExpiry = expiry
+			service.refills[paymentID] = stored
+		}
+		expiry = stored.creditExpiry
+		service.mu.Unlock()
+	}
+	entry, replayed, err := service.deps.Wallet.Credit(wallet.Scope{TenantID: value.scope.TenantID, Country: value.scope.Country, CustomerID: value.scope.CustomerID}, "wallet-refill-credit-"+paymentID, "WALLET_REFILL", paymentID, points, expiry)
+	if err == nil {
+		err = service.effect("refill-credited")
+	}
+	return entry, replayed, err
 }
 
 func (service *Service) Addresses(scope Scope) ([]Address, error) {
@@ -269,9 +292,12 @@ func (service *Service) CreateAddress(scope Scope, idempotencyKey string, input 
 			Label: strings.TrimSpace(input.Label), Line1: strings.TrimSpace(input.Line1), Line2: strings.TrimSpace(input.Line2),
 			PostalCode: strings.ToUpper(strings.TrimSpace(input.PostalCode)), Locality: strings.TrimSpace(input.Locality),
 			Latitude: input.Latitude, Longitude: input.Longitude, Default: input.Default,
-			Serviceable: serviceable,
+			Serviceable: serviceable, requestedGeographyID: input.GeographyAreaID,
 		}
 		return service.store.CreateAddress(scope, idempotencyKey, fingerprint, value)
+	}
+	if input.GeographyAreaID != "" {
+		return Address{}, false, ErrGeographyUnavailable
 	}
 	requestKey := "address-create\x00" + scopeKey(scope) + "\x00" + idempotencyKey
 	service.mu.Lock()
@@ -315,9 +341,12 @@ func (service *Service) UpdateAddress(scope Scope, idempotencyKey, addressID str
 			Label: strings.TrimSpace(input.Label), Line1: strings.TrimSpace(input.Line1), Line2: strings.TrimSpace(input.Line2),
 			PostalCode: strings.ToUpper(strings.TrimSpace(input.PostalCode)), Locality: strings.TrimSpace(input.Locality),
 			Latitude: input.Latitude, Longitude: input.Longitude, Default: input.Default,
-			Serviceable: serviceable,
+			Serviceable: serviceable, requestedGeographyID: input.GeographyAreaID,
 		}
 		return service.store.UpdateAddress(scope, idempotencyKey, fingerprint, addressID, expectedRevision, value)
+	}
+	if input.GeographyAreaID != "" {
+		return Address{}, false, ErrGeographyUnavailable
 	}
 	requestKey := "address-update\x00" + scopeKey(scope) + "\x00" + idempotencyKey
 	service.mu.Lock()
@@ -454,16 +483,7 @@ func (service *Service) Place(ctx context.Context, scope Scope, idempotencyKey, 
 		} else if found {
 			return replay, true, nil
 		}
-		value, err := service.place(ctx, scope, idempotencyKey, quoteID, method)
-		if err != nil {
-			return PlaceResult{}, false, err
-		}
-		walletDebitID := ""
-		if value.WalletDebit != nil {
-			walletDebitID = value.WalletDebit.ID
-		}
-		checkoutProcess := process{scope: scope, reservationID: value.Reservation.ID, orderID: value.Order.ID, walletDebitID: walletDebitID}
-		return service.store.SavePlace(scope, idempotencyKey, fingerprint, value, checkoutProcess)
+		return service.placeDurably(ctx, scope, idempotencyKey, quoteID, method)
 	}
 	requestKey := scopeKey(scope) + "\x00" + idempotencyKey
 	for {
@@ -611,17 +631,30 @@ func (service *Service) FinalizeCapturedPayment(scope Scope, idempotencyKey, pay
 	if err != nil || (paymentValue.Status != payment.StatusCaptured && paymentValue.Status != payment.StatusReconciled) {
 		return order.Order{}, false, payment.ErrReconciliation
 	}
-	if _, err := service.deps.Inventory.Commit(inventory.Scope{TenantID: scope.TenantID, Country: scope.Country}, value.reservationID); err != nil {
-		return order.Order{}, false, err
-	}
-	orderScope := order.Scope{TenantID: scope.TenantID, Country: scope.Country, CustomerID: scope.CustomerID}
-	current, err := service.deps.Orders.Get(orderScope, value.orderID)
+	orderValueScope := order.Scope{TenantID: scope.TenantID, Country: scope.Country, CustomerID: scope.CustomerID}
+	current, err := service.deps.Orders.Get(orderValueScope, value.orderID)
 	if err != nil {
 		return order.Order{}, false, err
 	}
-	if current.Status == order.StatusPlaced {
+	if current.Status == order.StatusCancelled {
+		_, err := service.deps.Payment.RequestRefundWithProvider(context.Background(), paymentScope, paymentID, paymentValue.Amount, "Payment captured after cancellation")
+		return current, true, err
+	}
+	if current.Status != order.StatusPendingPayment {
 		return current, true, nil
 	}
+	if _, err := service.deps.Inventory.Commit(inventory.Scope{TenantID: scope.TenantID, Country: scope.Country}, value.reservationID); err != nil {
+		if !errors.Is(err, inventory.ErrInvalidTransition) {
+			return order.Order{}, false, err
+		}
+		requested, _, err := service.deps.Orders.Transition(orderValueScope, "expiry-request-"+paymentID, current.ID, current.Revision, order.StatusCancelRequested, "CUSTOMER", "Reservation expired before payment finalization")
+		if err != nil {
+			return order.Order{}, false, err
+		}
+		cancelled, _, err := service.FinalizeCancellation(context.Background(), scope, "expiry-cancel-"+paymentID, current.ID, requested.Revision, "Reservation expired before payment finalization")
+		return cancelled.Order, false, err
+	}
+	orderScope := orderValueScope
 	placed, replayed, err := service.deps.Orders.Transition(orderScope, idempotencyKey, current.ID, current.Revision, order.StatusPlaced, "PLATFORM", "Payment captured")
 	if err == nil {
 		_, _ = service.deps.Wallet.ActivateReferral(wallet.Scope{TenantID: scope.TenantID, Country: scope.Country, CustomerID: scope.CustomerID}, paymentID)
@@ -828,6 +861,8 @@ func (service *Service) FinalizeCancellation(ctx context.Context, scope Scope, i
 		if err != nil {
 			return CancellationResult{Order: current, Payment: paymentValue, RefundPending: true}, false, err
 		}
+		refundPending = paymentValue.Status != payment.StatusRefunded
+	case payment.StatusRefundSubmitted, payment.StatusRefunded:
 		refundPending = paymentValue.Status != payment.StatusRefunded
 	default:
 		paymentValue, err = service.deps.Payment.CancelUncaptured(paymentScope, paymentValue.ID)
@@ -1242,15 +1277,17 @@ func checkoutPromotion(configuration Configuration, country, code string) (Promo
 }
 
 func validAddressInput(value AddressInput) bool {
-	return len(strings.TrimSpace(value.Label)) >= 1 && len(strings.TrimSpace(value.Label)) <= 60 &&
-		len(strings.TrimSpace(value.Line1)) >= 3 && len(strings.TrimSpace(value.Line1)) <= 240 &&
-		len(strings.TrimSpace(value.Line2)) <= 240 && len(strings.TrimSpace(value.PostalCode)) >= 3 && len(strings.TrimSpace(value.PostalCode)) <= 12 &&
-		len(strings.TrimSpace(value.Locality)) >= 2 && len(strings.TrimSpace(value.Locality)) <= 100 &&
+	return (value.GeographyAreaID == "" || checkoutUUID(value.GeographyAreaID)) && validAddressText(value.Label, 1, 60) &&
+		validAddressText(value.Line1, 3, 240) && validAddressText(value.Line2, 0, 240) && validAddressText(value.PostalCode, 3, 12) && validAddressText(value.Locality, 2, 100) &&
 		!math.IsNaN(value.Latitude) && !math.IsNaN(value.Longitude) && value.Latitude >= -90 && value.Latitude <= 90 && value.Longitude >= -180 && value.Longitude <= 180
 }
 
 func addressFingerprint(value AddressInput) string {
-	digest := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%.6f\x00%.6f\x00%t", strings.TrimSpace(value.Label), strings.TrimSpace(value.Line1), strings.TrimSpace(value.Line2), strings.ToUpper(strings.TrimSpace(value.PostalCode)), strings.TrimSpace(value.Locality), value.Latitude, value.Longitude, value.Default)))
+	payload := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%.6f\x00%.6f\x00%t", strings.TrimSpace(value.Label), strings.TrimSpace(value.Line1), strings.TrimSpace(value.Line2), strings.ToUpper(strings.TrimSpace(value.PostalCode)), strings.TrimSpace(value.Locality), value.Latitude, value.Longitude, value.Default)
+	if value.GeographyAreaID != "" {
+		payload += "\x00geography:" + value.GeographyAreaID
+	}
+	digest := sha256.Sum256([]byte(payload))
 	return hex.EncodeToString(digest[:])
 }
 
@@ -1329,6 +1366,11 @@ func (service *Service) configurationFor(ctx context.Context, scope Scope) (Conf
 }
 
 func (service *Service) addressIsServiceable(scope Scope, postalCode, locality string) (bool, error) {
+	if directory, ok := service.store.(interface {
+		AddressServiceability(Scope, string, string) (bool, error)
+	}); ok {
+		return directory.AddressServiceability(scope, postalCode, locality)
+	}
 	configuration, err := service.configurationFor(context.Background(), scope)
 	if err != nil {
 		return false, err

@@ -13,6 +13,27 @@ func TestFileSecretsOnlyAcceptsExplicitNonEmptyFileValues(t *testing.T) {
 	}
 }
 
+func TestSupplementaryGroupsRequireExplicitBoundedNonRootConfiguration(t *testing.T) {
+	for _, environment := range [][]string{nil, {"OTHER=101"}} {
+		groups, err := supplementaryGroups(environment)
+		if err != nil || len(groups) != 0 {
+			t.Fatalf("inherited group authorization: %v %v", groups, err)
+		}
+	}
+	groups, err := supplementaryGroups([]string{"PLANEXT4U_SUPPLEMENTARY_GROUPS=101,102"})
+	if err != nil || !reflect.DeepEqual(groups, []int{101, 102}) {
+		t.Fatalf("groups=%v %v", groups, err)
+	}
+	for _, value := range []string{"", "0", "-1", "65536", "65532", "101,101", " 101", "0101", "+101", "root", "1,2,3,4,5,6,7,8,9"} {
+		if _, err := supplementaryGroups([]string{"PLANEXT4U_SUPPLEMENTARY_GROUPS=" + value}); err == nil {
+			t.Fatalf("unsafe group config accepted: %q", value)
+		}
+	}
+	if _, err := supplementaryGroups([]string{"PLANEXT4U_SUPPLEMENTARY_GROUPS=101", "PLANEXT4U_SUPPLEMENTARY_GROUPS=102"}); err == nil {
+		t.Fatal("ambiguous groups accepted")
+	}
+}
+
 func TestRunMaterializesSecretWithRestrictedModeAndExecutesService(t *testing.T) {
 	var target, contents string
 	var mode os.FileMode

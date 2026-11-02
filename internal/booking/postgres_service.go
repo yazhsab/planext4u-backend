@@ -366,6 +366,9 @@ func (service *PostgresService) ConfirmPayment(scope Scope, idempotencyKey, book
 		if err != nil || !paymentCaptured(paymentValue.Status) {
 			return ErrPolicyDenied
 		}
+		if !value.paymentExpiresAt.After(service.Now()) {
+			return ErrPolicyDenied
+		}
 		value.Payment = paymentValue
 		service.transition(value, StatusRequested, "PAYMENT", "")
 		return nil
@@ -432,6 +435,10 @@ func (service *PostgresService) Cancel(scope Scope, idempotencyKey, bookingID st
 		}
 		service.transition(value, StatusCancelRequested, "CUSTOMER", reason)
 		paymentScope := payment.Scope{TenantID: scope.TenantID, Country: scope.Country, CustomerID: scope.CustomerID}
+		value.Payment, err = service.payments.Get(paymentScope, value.Payment.ID)
+		if err != nil {
+			return err
+		}
 		if value.walletDebit != nil {
 			if service.wallet == nil {
 				return ErrPolicyDenied
@@ -563,7 +570,7 @@ func (service *PostgresService) Get(actor Actor, bookingID string) (Booking, err
 	ctx, cancel := context.WithTimeout(context.Background(), bookingOperationTimeout)
 	defer cancel()
 	value, err := service.loadBooking(ctx, service.pool, bookingID, false)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && (!customerOwns(actor, value) && !providerOwns(actor, value) && !hasRole(actor, "ADMIN")) {
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && (!customerOwns(actor, value) && !providerOwns(actor, value) && !(hasRole(actor, "ADMIN") && value.scope.TenantID == actor.TenantID && value.scope.Country == actor.Country)) {
 		return Booking{}, ErrBookingNotFound
 	}
 	if err != nil {

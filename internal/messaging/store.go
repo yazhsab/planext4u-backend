@@ -22,8 +22,8 @@ type OutboxStore interface {
 	Claim(context.Context, string, time.Time, time.Duration, int) ([]OutboxRecord, error)
 	MarkPublished(context.Context, string, string, time.Time) error
 	MarkFailed(context.Context, string, string, time.Time, time.Time, string, int) (OutboxState, error)
-	DeadLetters(context.Context, string, int) ([]OutboxRecord, error)
-	Replay(context.Context, string, string, time.Time) error
+	DeadLetters(context.Context, string, string, int) ([]OutboxRecord, error)
+	Replay(context.Context, string, string, string, time.Time) error
 }
 
 type InboxStore interface {
@@ -123,12 +123,12 @@ func (store *MemoryStore) MarkFailed(_ context.Context, id, worker string, now, 
 	return record.State, nil
 }
 
-func (store *MemoryStore) DeadLetters(_ context.Context, tenantID string, limit int) ([]OutboxRecord, error) {
+func (store *MemoryStore) DeadLetters(_ context.Context, tenantID, country string, limit int) ([]OutboxRecord, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	result := make([]OutboxRecord, 0)
 	for _, record := range store.outbox {
-		if record.State == OutboxDead && record.Message.TenantID == tenantID {
+		if record.State == OutboxDead && record.Message.TenantID == tenantID && record.Message.Country == country {
 			result = append(result, cloneRecord(record))
 		}
 	}
@@ -139,11 +139,11 @@ func (store *MemoryStore) DeadLetters(_ context.Context, tenantID string, limit 
 	return result, nil
 }
 
-func (store *MemoryStore) Replay(_ context.Context, tenantID, id string, now time.Time) error {
+func (store *MemoryStore) Replay(_ context.Context, tenantID, country, id string, now time.Time) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	record, exists := store.outbox[id]
-	if !exists || record.Message.TenantID != tenantID {
+	if !exists || record.Message.TenantID != tenantID || record.Message.Country != country {
 		return ErrNotFound
 	}
 	if record.State != OutboxDead {

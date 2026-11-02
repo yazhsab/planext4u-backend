@@ -38,6 +38,8 @@ func TestPostgresAdminSessionsAreOpaqueDurableScopedAndExpiring(t *testing.T) {
 		"../../migrations/platform/000001_service_roles.up.sql",
 		"../../migrations/platform/000008_admin_roles.up.sql",
 		"../../migrations/admin/000001_admin_control_plane.up.sql",
+		"../../migrations/admin/000004_operator_accounts.up.sql",
+		"../../migrations/admin/000005_operator_administration.up.sql",
 	} {
 		migration, readErr := os.ReadFile(path)
 		if readErr != nil {

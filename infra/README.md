@@ -13,6 +13,8 @@ This tree defines a greenfield multi-account AWS baseline. It does not contain a
 - `modules/delivery_identity` binds short-lived GitHub OIDC identities to the exact repository and protected environment. No static AWS access keys are accepted.
 - `environments/development`, `environments/staging`, and `environments/production` provide isolated sizing and deletion-protection settings. Production uses three database instances, multi-AZ networking, 35-day backups, and deletion protection.
 
+The media task role has bucket-level `s3:ListBucket` for startup `HeadBucket`, object-level get/put/delete for the current adapter, and decrypt/data-key use of only the data KMS key configured for the media bucket through S3. The media bucket is versioned: the adapter's unversioned `DeleteObject` creates a delete marker and does not prove physical erasure of prior versions. Media owner deletion therefore remains a logical access fence with separately governed version, backup and legal-hold cleanup; it must not produce a terminal erasure receipt on this basis alone.
+
 ## Controlled bootstrap
 
 Applying these files creates billable cloud resources and AWS accounts. A platform owner must supply an authorized Organizations/AWS session, unique account emails, account IDs, ACM certificates, permissions boundaries and an encrypted state bucket. Do not apply examples unchanged.

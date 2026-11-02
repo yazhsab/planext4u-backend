@@ -41,6 +41,7 @@ func TestPostgresFoodPricingPaymentReplayRestartLifecycleAndIsolation(t *testing
 		"../../migrations/platform/000005_phase4_roles.up.sql",
 		"../../migrations/food/000001_food.up.sql",
 		"../../migrations/food/000002_durable_order_runtime.up.sql",
+		"../../migrations/food/000004_checkout_workflows.up.sql",
 	} {
 		migration, readErr := os.ReadFile(path)
 		if readErr != nil {
@@ -202,3 +203,13 @@ const (
 	foodOptionOne     = "632352bc-1db5-450b-84d5-adf057fe7aaa"
 	foodAssetOne      = "4c6dc348-1753-497f-8b19-f2404db47ab3"
 )
+
+func (fake *foodPaymentFake) Get(_ pay.Scope, id string) (pay.Payment, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	value, found := fake.values[id]
+	if !found {
+		return pay.Payment{}, pay.ErrPaymentNotFound
+	}
+	return value, nil
+}

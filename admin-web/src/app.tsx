@@ -1,7 +1,7 @@
 import { lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, LockKeyhole, ShieldX } from "lucide-react";
-import { Navigate, Route, Routes } from "react-router";
+import { Navigate, Route, Routes, useLocation } from "react-router";
 
 import { APIError, getSession, setCountry } from "./api/client";
 import { AppShell } from "./components/app-shell";
@@ -11,12 +11,24 @@ import { WorkspacePage } from "./pages/workspace-page";
 const AuditPage = lazy(() => import("./pages/audit-page").then((module) => ({default: module.AuditPage})));
 const CMSPage = lazy(() => import("./pages/cms-page").then((module) => ({default: module.CMSPage})));
 const GovernancePage = lazy(() => import("./pages/governance-page").then((module) => ({default: module.GovernancePage})));
+const PrivacyPage = lazy(() => import("./pages/privacy-page").then((module) => ({default: module.PrivacyPage})));
 const OperationsPage = lazy(() => import("./pages/operations-page").then((module) => ({default: module.OperationsPage})));
 const ReportsPage = lazy(() => import("./pages/reports-page").then((module) => ({default: module.ReportsPage})));
 const ReportDetailPage = lazy(() => import("./pages/report-detail-page").then((module) => ({default: module.ReportDetailPage})));
 const SupportPage = lazy(() => import("./pages/support-page").then((module) => ({default: module.SupportPage})));
+const OrganizationPage = lazy(() => import("./pages/organization-page").then((module) => ({default: module.OrganizationPage})));
+const OperatorsPage = lazy(() => import("./pages/operators-page").then((module) => ({default: module.OperatorsPage})));
+const ParticipantsPage = lazy(() => import("./pages/participants-page").then((module) => ({default: module.ParticipantsPage})));
+const MastersPage = lazy(() => import("./pages/masters-page").then((module) => ({default: module.MastersPage})));
+const LoginPage = lazy(() => import("./pages/login-page").then((module) => ({default: module.LoginPage})));
 
 export function App() {
+  const location = useLocation();
+  if (location.pathname === "/login") return <Suspense fallback={<RouteLoading />}><LoginPage /></Suspense>;
+  return <AuthenticatedApp />;
+}
+
+function AuthenticatedApp() {
   const queryClient = useQueryClient();
   const sessionQuery = useQuery({
     queryKey: ["admin", "session"],
@@ -44,11 +56,16 @@ export function App() {
           <Route index element={<WorkspacePage />} />
           <Route path="operations" element={<OperationsPage />} />
           <Route path="governance" element={<GovernancePage />} />
+          <Route path="privacy" element={<PrivacyPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="reports/:reportId" element={<ReportDetailPage />} />
           <Route path="support" element={<SupportPage />} />
           <Route path="cms" element={<CMSPage />} />
           <Route path="audit" element={<AuditPage />} />
+          <Route path="organization" element={<OrganizationPage />} />
+          <Route path="operators" element={<OperatorsPage />} />
+          <Route path="masters" element={<MastersPage />} />
+          <Route path="participants" element={<ParticipantsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

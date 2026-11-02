@@ -256,7 +256,7 @@ func (service *Service) applyProviderEvent(method Method, event ProviderEvent, d
 	}
 	value, found := service.payments[event.PaymentID]
 	expectedAmount := value.Amount
-	if (value.Status == StatusRefundRequested || value.Status == StatusRefundSubmitted || value.Status == StatusRefundFailed) && value.RefundAmount != nil {
+	if (event.Status == StatusRefunded || event.Status == StatusRefundFailed) && value.RefundAmount != nil {
 		expectedAmount = *value.RefundAmount
 	}
 	providerReferenceMatches := value.ProviderReference == event.ProviderReference
@@ -267,14 +267,16 @@ func (service *Service) applyProviderEvent(method Method, event ProviderEvent, d
 	if !found || value.Method != method || !providerReferenceMatches || !transactionReferenceMatches || expectedAmount.AmountMinor != event.AmountMinor || expectedAmount.Currency != event.Currency {
 		return Payment{}, false, ErrReconciliation
 	}
-	if !validProviderTransition(value.Status, event.Status) {
+	if !validProviderTransition(value.Status, event.Status) && !obsoleteProviderEvent(value.Status, event.Status) {
 		return Payment{}, false, ErrInvalidTransition
 	}
-	value.Status = event.Status
+	if !obsoleteProviderEvent(value.Status, event.Status) {
+		value.Status = event.Status
+	}
 	if event.ProviderTransactionReference != "" {
 		value.ProviderTransactionReference = event.ProviderTransactionReference
 	}
-	value.AllowedActions = allowedActions(event.Status)
+	value.AllowedActions = allowedActions(value.Status)
 	value.UpdatedAt = service.clock().UTC()
 	service.payments[value.ID] = value
 	service.events[string(method)+"\x00"+event.EventID] = eventRecord{digest: digest, value: clonePayment(value)}
@@ -498,15 +500,18 @@ func (service *Service) supported(country string, method Method) bool {
 }
 
 func validProviderTransition(current, target Status) bool {
+	if current == target {
+		return true
+	}
 	switch target {
 	case StatusAuthorised:
 		return current == StatusProviderOrderCreated || current == StatusAuthorisationPending
 	case StatusCaptured:
-		return current == StatusProviderOrderCreated || current == StatusAuthorised || current == StatusFailedRetryable
+		return current == StatusProviderOrderCreated || current == StatusAuthorised || current == StatusAuthorisationPending || current == StatusFailedRetryable || current == StatusFailedFinal || current == StatusCancelled
 	case StatusFailedRetryable, StatusFailedFinal:
 		return current == StatusProviderOrderCreated || current == StatusAuthorisationPending || current == StatusAuthorised
 	case StatusRefunded, StatusRefundFailed:
-		return current == StatusRefundRequested || current == StatusRefundSubmitted
+		return current == StatusRefundRequested || current == StatusRefundSubmitted || current == StatusRefundFailed
 	default:
 		return false
 	}
@@ -612,4 +617,21 @@ func Sign(secret, body []byte) string {
 	mac := hmac.New(sha256.New, secret)
 	_, _ = mac.Write(body)
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// A verified old failure/authorization must not roll back an acknowledged
+// capture or refund. Retain the event receipt while keeping the terminal state.
+func obsoleteProviderEvent(current, target Status) bool {
+	switch current {
+	case StatusCaptured, StatusReconciled, StatusRefundRequested, StatusRefundSubmitted, StatusRefundFailed, StatusRefunded:
+		if target == StatusAuthorised || target == StatusFailedRetryable || target == StatusFailedFinal {
+			return true
+		}
+		if target == StatusCaptured && current != StatusCaptured {
+			return true
+		}
+	case StatusCancelled:
+		return target == StatusAuthorised || target == StatusFailedRetryable || target == StatusFailedFinal
+	}
+	return false
 }

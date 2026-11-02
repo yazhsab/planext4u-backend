@@ -25,7 +25,9 @@ func NewHTTPMalwareScanner(endpoint *url.URL, client *http.Client, token string)
 		return nil, ErrInvalidRequest
 	}
 	copyURL := *endpoint
-	return &HTTPMalwareScanner{endpoint: &copyURL, client: client, token: token}, nil
+	copyClient := *client
+	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &HTTPMalwareScanner{endpoint: &copyURL, client: &copyClient, token: token}, nil
 }
 
 func (scanner *HTTPMalwareScanner) Scan(ctx context.Context, objectKey string) (ScanResult, error) {

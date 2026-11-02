@@ -146,7 +146,7 @@ func (handler *Handler) addresses(writer http.ResponseWriter, request *http.Requ
 	}
 	value, err := handler.service.Addresses(scope)
 	if err != nil {
-		writeProblem(writer, request, http.StatusUnprocessableEntity, "CHECKOUT_REQUEST_INVALID", "The checkout request is invalid.")
+		handler.writeError(writer, request, err)
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"items": value}, false)
@@ -238,24 +238,10 @@ func (handler *Handler) webhook(writer http.ResponseWriter, request *http.Reques
 		writeProblem(writer, request, status, "PAYMENT_WEBHOOK_REJECTED", "The payment event could not be accepted.")
 		return
 	}
-	if value.Status == payment.StatusCaptured || value.Status == payment.StatusReconciled {
-		digest := sha256.Sum256(body)
-		if handler.service.HasWalletRefill(value.ID) {
-			_, _, err = handler.service.FinalizeProviderWalletRefill(value.ID)
-		} else {
-			_, _, err = handler.service.FinalizeProviderPayment("webhook-"+hex.EncodeToString(digest[:8]), value.ID)
-		}
-		if err != nil {
-			writeProblem(writer, request, http.StatusConflict, "PAYMENT_FINALIZATION_PENDING", "Payment was accepted and order finalization will be retried.")
-			return
-		}
-	}
-	if value.Status == payment.StatusRefunded {
-		digest := sha256.Sum256(body)
-		if _, _, err = handler.service.FinalizeProviderRefund("refund-webhook-"+hex.EncodeToString(digest[:8]), value.ID); err != nil {
-			writeProblem(writer, request, http.StatusConflict, "REFUND_FINALIZATION_PENDING", "Refund was accepted and order finalization will be retried.")
-			return
-		}
+	digest := sha256.Sum256(body)
+	if err = handler.service.ApplyPayment(request.Context(), "webhook-"+hex.EncodeToString(digest[:8]), value); err != nil {
+		writeProblem(writer, request, http.StatusConflict, "PAYMENT_FINALIZATION_PENDING", "Payment was accepted and finalization will be retried.")
+		return
 	}
 	writeJSON(writer, http.StatusOK, value, replayed)
 }
@@ -447,6 +433,10 @@ func (handler *Handler) createWalletRefill(writer http.ResponseWriter, request *
 
 func (handler *Handler) writeError(writer http.ResponseWriter, request *http.Request, err error) {
 	switch {
+	case errors.Is(err, ErrAddressSession):
+		writeProblem(writer, request, http.StatusUnauthorized, "CUSTOMER_SESSION_INVALID", "Sign in again to manage addresses.")
+	case errors.Is(err, ErrGeographyUnavailable):
+		writeProblem(writer, request, http.StatusServiceUnavailable, "GEOGRAPHY_UNAVAILABLE", "Geography is temporarily unavailable. Try again.")
 	case errors.Is(err, ErrQuoteNotFound), errors.Is(err, ErrAddressNotFound), errors.Is(err, order.ErrOrderNotFound), errors.Is(err, payment.ErrPaymentNotFound):
 		writeProblem(writer, request, http.StatusNotFound, "RESOURCE_NOT_FOUND", "The requested resource was not found.")
 	case errors.Is(err, ErrIdempotencyConflict), errors.Is(err, order.ErrIdempotencyConflict), errors.Is(err, payment.ErrIdempotencyConflict):
@@ -465,7 +455,7 @@ func (handler *Handler) writeError(writer http.ResponseWriter, request *http.Req
 }
 
 func customerScope(writer http.ResponseWriter, request *http.Request) (Scope, bool) {
-	scope := Scope{TenantID: strings.TrimSpace(request.Header.Get("X-Planext4u-Tenant")), Country: strings.TrimSpace(request.Header.Get("X-Planext4u-Country")), CustomerID: strings.TrimSpace(request.Header.Get("X-Planext4u-Subject"))}
+	scope := Scope{TenantID: strings.TrimSpace(request.Header.Get("X-Planext4u-Tenant")), Country: strings.TrimSpace(request.Header.Get("X-Planext4u-Country")), CustomerID: strings.TrimSpace(request.Header.Get("X-Planext4u-Subject")), SourceSessionID: strings.TrimSpace(request.Header.Get("X-Planext4u-Session"))}
 	roles := strings.Split(request.Header.Get("X-Planext4u-Roles"), ",")
 	customer := false
 	for _, role := range roles {

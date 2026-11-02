@@ -29,6 +29,9 @@ type malwareScanRequest struct {
 // rejects non-synthetic recipients and never makes an outbound provider call.
 func NewHandler() http.Handler {
 	mux := http.NewServeMux()
+	registerSyntheticBank(mux)
+	registerSyntheticKYC(mux)
+	registerSyntheticOCR(mux)
 	mux.HandleFunc("GET /healthz", handleHealth)
 	mux.HandleFunc("POST /v1/identity/verify", handleIdentity)
 	mux.HandleFunc("POST /v1/notifications/send", handleNotification)
@@ -86,6 +89,12 @@ func handleIdentity(writer http.ResponseWriter, request *http.Request) {
 		},
 	}
 	identity, exists := identities[input.Token]
+	if input.Provider == "local" && strings.HasPrefix(input.Token, "synthetic-participant-") && len(input.Token) == len("synthetic-participant-")+36 {
+		// Isolated local enrollment journeys get a fresh provider UID per run.
+		// The identity owner still assigns all platform participation roles.
+		identity = map[string]string{"subject": input.Token, "role": "CUSTOMER"}
+		exists = true
+	}
 	if !exists || (input.Provider != "local" && input.Provider != "oidc") {
 		writeProblem(writer, http.StatusUnauthorized, "PROVIDER_TOKEN_INVALID")
 		return

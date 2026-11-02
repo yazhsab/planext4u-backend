@@ -68,11 +68,11 @@ createServer((request, response) => {
     return;
   }
   if (request.url === "/admin/api/v1/cms/pages") {
-    response.end(JSON.stringify(cmsPages));
+    response.end(JSON.stringify({...cmsPages, published_revision: 2}));
     return;
   }
   if (request.url === "/admin/api/v1/cms/workspace") {
-    response.end(JSON.stringify(cmsWorkspace));
+    response.end(JSON.stringify({...cmsWorkspace, published_revision: 2}));
     return;
   }
   if (request.url?.startsWith("/admin/api/v1/operations")) {

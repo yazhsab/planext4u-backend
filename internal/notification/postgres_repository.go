@@ -39,6 +39,14 @@ func (repository *PostgresRepository) Ready(ctx context.Context) error {
 		   AND EXISTS (
 		       SELECT 1 FROM information_schema.columns
 		       WHERE table_schema = 'notification' AND table_name = 'deliveries' AND column_name = 'claim_until'
+		   )
+		   AND EXISTS (
+		       SELECT 1 FROM information_schema.columns
+		       WHERE table_schema = 'messaging' AND table_name = 'outbox' AND column_name = 'privacy_subject_id'
+		   )
+		   AND EXISTS (
+		       SELECT 1 FROM pg_trigger
+		       WHERE tgrelid = to_regclass('messaging.outbox') AND tgname = 'outbox_privacy_scope_guard' AND tgenabled IN ('O', 'A')
 		   )`).Scan(&ready); err != nil {
 		return fmt.Errorf("check notification schema readiness: %w", err)
 	}
@@ -159,6 +167,12 @@ func (repository *PostgresRepository) PublishTemplate(ctx context.Context, value
 }
 
 func (repository *PostgresRepository) Queue(ctx context.Context, delivery Delivery, message messaging.Message, idempotencyKey string) (Delivery, bool, error) {
+	if message.TenantID != delivery.TenantID || message.Country != delivery.Country ||
+		message.Producer != "notification-service" || message.EventType != "planext4u.notification.delivery.requested.v1" ||
+		message.AggregateType != "notification-delivery" || message.AggregateID != delivery.ID ||
+		message.Data["delivery_id"] != delivery.ID || delivery.SubjectID == "" {
+		return Delivery{}, false, ErrInvalidRequest
+	}
 	transaction, err := repository.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return Delivery{}, false, fmt.Errorf("begin notification queue: %w", err)
@@ -201,10 +215,11 @@ func (repository *PostgresRepository) Queue(ctx context.Context, delivery Delive
 		_, err = transaction.Exec(ctx, `
 			INSERT INTO messaging.outbox
 				(event_id, tenant_id, aggregate_type, aggregate_id, aggregate_version,
-				 envelope, state, attempts, next_attempt_at, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'PENDING', 0, $7, $7)`, message.ID,
+				 envelope, state, attempts, next_attempt_at, created_at,
+				 privacy_country, privacy_subject_id)
+			VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'PENDING', 0, $7, $7, $8, $9)`, message.ID,
 			message.TenantID, message.AggregateType, message.AggregateID, message.AggregateVersion,
-			string(envelope), delivery.CreatedAt)
+			string(envelope), delivery.CreatedAt, delivery.Country, delivery.SubjectID)
 		if err != nil {
 			if notificationConflict(err) {
 				return Delivery{}, false, ErrConflict

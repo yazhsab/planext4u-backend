@@ -105,7 +105,7 @@ func TestHandlerProfileConsentSessionsAndTrustedContext(t *testing.T) {
 		t.Fatalf("stale update = %d %s", stale.Code, stale.Body.String())
 	}
 
-	consent := identityRequest(handler, http.MethodPut, "/v1/me/consents/ANALYTICS", `{"granted":true,"policy_version":"privacy-2026-04"}`, headers)
+	consent := identityRequest(handler, http.MethodPut, "/v1/me/consents/ANALYTICS", `{"granted":true,"policy_version":"privacy-2026-04","expected_version":0}`, headers)
 	if consent.Code != http.StatusOK || !strings.Contains(consent.Body.String(), `"granted":true`) {
 		t.Fatalf("consent response = %d %s", consent.Code, consent.Body.String())
 	}
@@ -125,6 +125,33 @@ func TestHandlerProfileConsentSessionsAndTrustedContext(t *testing.T) {
 	if exported.Code != http.StatusOK || !strings.Contains(exported.Body.String(), `"identity_id":"`+first.IdentityID+`"`) || !strings.Contains(exported.Body.String(), `"consents"`) || strings.Contains(exported.Body.String(), "provider-http-profile") {
 		t.Fatalf("data export = %d %s", exported.Code, exported.Body.String())
 	}
+	if exported.Header().Get("Cache-Control") != "no-store" || !strings.Contains(exported.Body.String(), `"schema_version":1`) || !strings.Contains(exported.Body.String(), `"consent_history"`) || !strings.Contains(exported.Body.String(), `"excluded"`) {
+		t.Fatalf("export lacks no-store/version/history/coverage: %d %s", exported.Code, exported.Body.String())
+	}
+	if strings.Contains(exported.Body.String(), `"contact_snapshots"`) {
+		t.Fatal("legacy export unexpectedly added a section")
+	}
+	v2 := identityRequest(handler, http.MethodGet, "/v1/me/data-export?schema=2", "", headers)
+	if v2.Code != http.StatusOK || !strings.Contains(v2.Body.String(), `"schema_version":2`) || !strings.Contains(v2.Body.String(), `"contact_snapshots":[]`) {
+		t.Fatalf("versioned contact metadata export = %d %s", v2.Code, v2.Body.String())
+	}
+	if strings.Contains(v2.Body.String(), `"deletion_history":[`) {
+		t.Fatal("schema 2 unexpectedly added deletion history")
+	}
+	v3 := identityRequest(handler, http.MethodGet, "/v1/me/data-export?schema=3", "", headers)
+	if v3.Code != http.StatusOK || !strings.Contains(v3.Body.String(), `"schema_version":3`) || !strings.Contains(v3.Body.String(), `"deletion_history":[]`) {
+		t.Fatalf("versioned lifecycle export = %d %s", v3.Code, v3.Body.String())
+	}
+	v4 := identityRequest(handler, http.MethodGet, "/v1/me/data-export?schema=4", "", headers)
+	if v4.Code != http.StatusOK || !strings.Contains(v4.Body.String(), `"schema_version":4`) || !strings.Contains(v4.Body.String(), `"vendor_applications":[]`) || !strings.Contains(v4.Body.String(), `"rider_profiles":[]`) {
+		t.Fatalf("versioned owner metadata export = %d %s", v4.Code, v4.Body.String())
+	}
+	for _, path := range []string{"/v1/me/data-export?schema=5", "/v1/me/data-export?schema=2&schema=2", "/v1/me/data-export?owner=other"} {
+		invalid := identityRequest(handler, http.MethodGet, path, "", headers)
+		if invalid.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("unbounded export selector accepted: %s = %d", path, invalid.Code)
+		}
+	}
 	invalidDeletion := identityRequest(handler, http.MethodPost, "/v1/me/deletion-requests", `{"confirmation":"delete"}`, headers)
 	if invalidDeletion.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid deletion = %d %s", invalidDeletion.Code, invalidDeletion.Body.String())
@@ -132,6 +159,10 @@ func TestHandlerProfileConsentSessionsAndTrustedContext(t *testing.T) {
 	deletion := identityRequest(handler, http.MethodPost, "/v1/me/deletion-requests", `{"confirmation":"DELETE MY ACCOUNT","reason":"Customer requested erasure"}`, headers)
 	if deletion.Code != http.StatusAccepted || !strings.Contains(deletion.Body.String(), `"status":"SCHEDULED"`) {
 		t.Fatalf("deletion request = %d %s", deletion.Code, deletion.Body.String())
+	}
+	v3 = identityRequest(handler, http.MethodGet, "/v1/me/data-export?schema=3", "", headers)
+	if v3.Code != http.StatusOK || !strings.Contains(v3.Body.String(), `"reason":"Customer requested erasure"`) || !strings.Contains(v3.Body.String(), `"status":"SCHEDULED"`) {
+		t.Fatalf("lifecycle history not exported = %d %s", v3.Code, v3.Body.String())
 	}
 }
 

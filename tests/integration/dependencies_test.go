@@ -13,12 +13,13 @@ import (
 )
 
 func TestPlatformDependenciesStartInIsolation(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
 	tests := []struct {
 		name        string
 		image       string
+		dockerfile  *testcontainers.FromDockerfile
 		ports       []string
 		environment map[string]string
 		command     []string
@@ -51,8 +52,11 @@ func TestPlatformDependenciesStartInIsolation(t *testing.T) {
 			waitingFor: wait.ForHTTP("/healthz").WithPort("8222/tcp").WithStartupTimeout(2 * time.Minute),
 		},
 		{
-			name:  "object-store",
-			image: "minio/minio:RELEASE.2025-09-07T16-13-09Z",
+			name: "object-store",
+			dockerfile: &testcontainers.FromDockerfile{
+				Context: "../../deploy/local", Dockerfile: "minio.Dockerfile",
+				Repo: "planext4u-local-minio", Tag: "9e49d5e7a648", KeepImage: true,
+			},
 			ports: []string{"9000/tcp"},
 			environment: map[string]string{
 				"MINIO_ROOT_USER":     "planext4u-test",
@@ -69,14 +73,16 @@ func TestPlatformDependenciesStartInIsolation(t *testing.T) {
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			container, err := testcontainers.Run(
-				ctx,
-				test.image,
+			options := []testcontainers.ContainerCustomizer{
 				testcontainers.WithExposedPorts(test.ports...),
 				testcontainers.WithEnv(test.environment),
 				testcontainers.WithCmd(test.command...),
 				testcontainers.WithWaitStrategy(test.waitingFor),
-			)
+			}
+			if test.dockerfile != nil {
+				options = append(options, testcontainers.WithDockerfile(*test.dockerfile))
+			}
+			container, err := testcontainers.Run(ctx, test.image, options...)
 			if container != nil {
 				testcontainers.CleanupContainer(t, container)
 			}

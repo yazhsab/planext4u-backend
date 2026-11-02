@@ -194,6 +194,11 @@ func (repository *PostgresRepository) PublishWithAudit(ctx context.Context, snap
 		return fmt.Errorf("begin configuration publication: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
+	// Location processing holds the shared counterpart until commit; changing
+	// the published policy cannot race an accepted location under the old one.
+	if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "delivery-policy:"+snapshot.TenantID+":"+snapshot.Country); err != nil {
+		return fmt.Errorf("lock delivery policy publication: %w", err)
+	}
 	var currentRevision int64
 	err = transaction.QueryRow(ctx, `
 		SELECT revision FROM configuration.snapshots

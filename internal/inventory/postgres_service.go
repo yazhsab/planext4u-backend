@@ -81,7 +81,11 @@ func (service *PostgresService) Get(scope Scope, reservationID string) (Reservat
 
 func (service *PostgresService) Reserve(scope Scope, idempotencyKey, orderReference string, lines []Line, expiresAt time.Time) (Reservation, bool, error) {
 	now := service.clock().UTC()
-	normalized, fingerprint, err := normalizeRequest(scope, idempotencyKey, orderReference, lines, expiresAt, now)
+	validationTime := now
+	if !expiresAt.After(now) {
+		validationTime = expiresAt.Add(-time.Nanosecond)
+	}
+	normalized, fingerprint, err := normalizeRequest(scope, idempotencyKey, orderReference, lines, expiresAt, validationTime)
 	if err != nil || !postgresInventoryScope(scope) {
 		return Reservation{}, false, ErrInvalidRequest
 	}
@@ -106,6 +110,10 @@ func (service *PostgresService) Reserve(scope Scope, idempotencyKey, orderRefere
 	} else if found {
 		return replay, true, nil
 	}
+	if !expiresAt.After(now) {
+		return Reservation{}, false, ErrInvalidRequest
+	}
+
 	for _, line := range normalized {
 		var available int
 		err := tx.QueryRow(ctx, `

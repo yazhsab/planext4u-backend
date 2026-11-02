@@ -11,6 +11,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/yazhsab/planext4u-backend/internal/bankverification"
+	"github.com/yazhsab/planext4u-backend/internal/kycattestation"
+	"github.com/yazhsab/planext4u-backend/internal/privateevidence"
+	"github.com/yazhsab/planext4u-backend/internal/testsupport"
 )
 
 const (
@@ -57,9 +61,12 @@ func TestPostgresFulfillmentConcurrentAcceptanceRestartLifecycleAndControls(t *t
 	})
 	for _, path := range []string{
 		"../../migrations/platform/000005_phase4_roles.up.sql",
+		"../../migrations/platform/000008_admin_roles.up.sql",
 		"../../migrations/fulfillment/000001_fulfillment.up.sql",
 		"../../migrations/fulfillment/000002_durable_driver_runtime.up.sql",
 		"../../migrations/fulfillment/000004_offer_declines.up.sql",
+		"../../migrations/fulfillment/000005_scoped_recovery.up.sql",
+		"../../migrations/fulfillment/000008_rider_rework.up.sql",
 	} {
 		migration, readErr := os.ReadFile(path)
 		if readErr != nil {
@@ -71,7 +78,59 @@ func TestPostgresFulfillmentConcurrentAcceptanceRestartLifecycleAndControls(t *t
 	}
 	now := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
 	seedPostgresFulfillment(t, ctx, pool, now)
-	service, err := NewPostgresService(pool, func() time.Time { return now })
+	prepareDeliveryConsents(t, ctx, pool, now)
+	testsupport.PrivateIdentityMedia(t, ctx, pool, fulfillmentTenantOne, fulfillmentRiderOne, []string{fulfillmentDocumentOne, fulfillmentDocumentTwo, "a0000000-0000-4000-8000-000000000006", "a0000000-0000-4000-8000-000000000007"})
+	testsupport.AddPrivateIdentityMedia(t, ctx, pool, fulfillmentTenantOne, fulfillmentRiderTwo, []string{"a0000000-0000-4000-8000-000000000004", "a0000000-0000-4000-8000-000000000005", "a0000000-0000-4000-8000-000000000008", "a0000000-0000-4000-8000-000000000009"})
+	owned := map[string][]RiderDocument{
+		fulfillmentRiderOne: {{Kind: "IDENTITY", AssetID: fulfillmentDocumentOne}, {Kind: "DRIVER_LICENSE", AssetID: fulfillmentDocumentTwo}, {Kind: "VEHICLE_REGISTRATION", AssetID: "a0000000-0000-4000-8000-000000000006"}, {Kind: "INSURANCE", AssetID: "a0000000-0000-4000-8000-000000000007"}},
+		fulfillmentRiderTwo: {{Kind: "IDENTITY", AssetID: "a0000000-0000-4000-8000-000000000004"}, {Kind: "DRIVER_LICENSE", AssetID: "a0000000-0000-4000-8000-000000000005"}, {Kind: "VEHICLE_REGISTRATION", AssetID: "a0000000-0000-4000-8000-000000000008"}, {Kind: "INSURANCE", AssetID: "a0000000-0000-4000-8000-000000000009"}},
+	}
+	denyEvidence := false
+	evidence := privateevidence.VerifyFunc(func(_ context.Context, scope privateevidence.Scope, ids []string) error {
+		if denyEvidence {
+			return privateevidence.ErrRejected
+		}
+		if scope.TenantID != fulfillmentTenantOne || scope.Country != "IN" {
+			return privateevidence.ErrRejected
+		}
+		expected := owned[scope.OwnerID]
+		if len(expected) != len(ids) {
+			return privateevidence.ErrRejected
+		}
+		for _, id := range ids {
+			found := false
+			for _, doc := range expected {
+				if id == doc.AssetID {
+					found = true
+				}
+			}
+			if !found {
+				return privateevidence.ErrRejected
+			}
+		}
+		return nil
+	})
+	denyBank := false
+	bank := bankverification.VerifyFunc(func(_ context.Context, scope bankverification.Scope, account bankverification.Account) (string, error) {
+		if denyBank || scope.TenantID != fulfillmentTenantOne || scope.Country != "IN" || owned[scope.OwnerID] == nil || account.Reference != "bankref_"+scope.OwnerID {
+			return "", bankverification.ErrRejected
+		}
+		return "synthetic_bank_verification_01", nil
+	})
+	denyKYC := false
+	kyc := kycattestation.VerifyFunc(func(_ context.Context, scope kycattestation.Scope, documents []kycattestation.Document) (string, error) {
+		expected := owned[scope.OwnerID]
+		if denyKYC || scope.TenantID != fulfillmentTenantOne || scope.Country != "IN" || len(expected) == 0 || len(documents) != len(expected) {
+			return "", kycattestation.ErrRejected
+		}
+		for index, document := range documents {
+			if document.Kind != expected[index].Kind || document.AssetID != expected[index].AssetID {
+				return "", kycattestation.ErrRejected
+			}
+		}
+		return "synthetic_kyc_attestation_01", nil
+	})
+	service, err := NewPostgresServiceWithProviders(pool, func() time.Time { return now }, evidence, bank, kyc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,24 +139,84 @@ func TestPostgresFulfillmentConcurrentAcceptanceRestartLifecycleAndControls(t *t
 	}
 
 	admin := Actor{TenantID: fulfillmentTenantOne, Country: "IN", Subject: fulfillmentAdmin, Roles: []string{"OPS_ADMIN"}, MFAVerified: true}
+	admin.OperatorRevision = 1
+	admin.OperatorSessionID = testsupport.ParticipantReviewer(t, ctx, pool, fulfillmentTenantOne, fulfillmentAdmin)
 	riders := []Actor{
 		{TenantID: fulfillmentTenantOne, Country: "IN", Subject: fulfillmentRiderOne, Roles: []string{"RIDER"}},
 		{TenantID: fulfillmentTenantOne, Country: "IN", Subject: fulfillmentRiderTwo, Roles: []string{"RIDER"}},
 	}
+	for index := range riders {
+		riders[index].SourceSessionID = testsupport.ParticipantSession(t, ctx, pool, riders[index].TenantID, riders[index].Subject, "RIDER")
+	}
+	withoutSource := riders[0]
+	withoutSource.SourceSessionID = ""
+	if _, _, err := service.RegisterRider(withoutSource, "no-source-rider-register-01", RiderRegistrationRequest{FullName: "Fresh rider", PhoneMasked: "****1234", VehicleType: "BIKE", VehicleNumber: "TN01AB1234", Documents: owned[withoutSource.Subject], BankReference: "bankref_production001", Zones: []string{"600001"}}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("rider registration without current source session: %v", err)
+	}
+	unconfigured, _ := NewPostgresService(pool, func() time.Time { return now })
+	request := RiderRegistrationRequest{FullName: "Fresh rider", PhoneMasked: "****1234", VehicleType: "BIKE", VehicleNumber: "TN01AB1234", Documents: owned[fulfillmentRiderOne], BankReference: "bankref_production001", Zones: []string{"600001"}}
+	if _, _, err := unconfigured.RegisterRider(riders[0], "no-verifier-register-pg1", request); !errors.Is(err, privateevidence.ErrUnavailable) {
+		t.Fatalf("missing verifier accepted: %v", err)
+	}
+	if _, _, err := service.RegisterRider(riders[1], "foreign-docs-register-pg1", request); !errors.Is(err, privateevidence.ErrRejected) {
+		t.Fatalf("cross-owner documents accepted: %v", err)
+	}
+	if _, err := service.Rider(riders[1]); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("failed evidence created rider: %v", err)
+	}
 	for index, rider := range riders {
-		profile, replay, err := service.RegisterRider(rider, "rider-registration-postgres-000"+string(rune('1'+index)), RiderRegistrationRequest{FullName: "Production Rider", PhoneMasked: "****1234", VehicleType: "BIKE", VehicleNumber: "TN01AB1234", Documents: []RiderDocument{{Kind: "IDENTITY", AssetID: fulfillmentDocumentOne}, {Kind: "LICENSE", AssetID: fulfillmentDocumentTwo}}, BankReference: "bankref_production001", Zones: []string{"600001"}})
+		profile, replay, err := service.RegisterRider(rider, "rider-registration-postgres-000"+string(rune('1'+index)), RiderRegistrationRequest{FullName: "Production Rider", PhoneMasked: "****1234", VehicleType: "BIKE", VehicleNumber: "TN01AB1234", Documents: owned[rider.Subject], BankReference: "bankref_" + rider.Subject, Zones: []string{"600001"}})
 		if err != nil || replay || profile.Status != RiderKYCReview {
 			t.Fatalf("register rider %d value=%#v replay=%t err=%v", index, profile, replay, err)
 		}
+		denyEvidence = true
+		if _, _, err := service.ReviewRider(admin, "rider-recheck-rejected-pg"+string(rune('1'+index)), rider.Subject, profile.Revision, true, "Document no longer available at review"); !errors.Is(err, privateevidence.ErrRejected) {
+			t.Fatalf("rider approval skipped evidence: %v", err)
+		}
+		if unchanged, err := service.Rider(rider); err != nil || unchanged.Status != RiderKYCReview || unchanged.Revision != profile.Revision {
+			t.Fatalf("failed review mutated rider: %+v %v", unchanged, err)
+		}
+		denyEvidence = false
+		withoutKYC, _ := NewPostgresServiceWithProviders(pool, func() time.Time { return now }, evidence, bank)
+		if _, _, err := withoutKYC.ReviewRider(admin, "rider-no-kyc-provider-pg"+string(rune('1'+index)), rider.Subject, profile.Revision, true, "READY media is not identity attestation"); !errors.Is(err, kycattestation.ErrUnavailable) {
+			t.Fatalf("missing KYC proof approved rider: %v", err)
+		}
+		denyKYC = true
+		if _, _, err := service.ReviewRider(admin, "rider-denied-kyc-provider-pg"+string(rune('1'+index)), rider.Subject, profile.Revision, true, "Rejected KYC proof must not approve"); !errors.Is(err, kycattestation.ErrRejected) {
+			t.Fatalf("rejected KYC proof approved rider: %v", err)
+		}
+		if unchanged, err := service.Rider(rider); err != nil || unchanged.Revision != profile.Revision || unchanged.Status != RiderKYCReview || unchanged.Documents[0].OCRStatus == "VERIFIED" {
+			t.Fatalf("failed KYC proof mutated rider: %+v %v", unchanged, err)
+		}
+		denyKYC = false
+		noBank, _ := NewPostgresServiceWithProviders(pool, func() time.Time { return now }, evidence, bankverification.Unavailable(), kyc)
+		if _, _, err := noBank.ReviewRider(admin, "rider-no-bank-provider-pg"+string(rune('1'+index)), rider.Subject, profile.Revision, true, "Missing bank provider must not approve"); !errors.Is(err, bankverification.ErrUnavailable) {
+			t.Fatalf("missing bank proof approved rider: %v", err)
+		}
+		denyBank = true
+		if _, _, err := service.ReviewRider(admin, "rider-denied-bank-provider-pg"+string(rune('1'+index)), rider.Subject, profile.Revision, true, "Rejected bank proof must not approve"); !errors.Is(err, bankverification.ErrRejected) {
+			t.Fatalf("rejected bank approved rider: %v", err)
+		}
+		if unchanged, err := service.Rider(rider); err != nil || unchanged.Revision != profile.Revision || unchanged.Status != RiderKYCReview || unchanged.BankStatus != "PENDING_VERIFICATION" {
+			t.Fatalf("failed bank proof mutated rider: %+v %v", unchanged, err)
+		}
+		denyBank = false
 		profile, replay, err = service.ReviewRider(admin, "rider-review-postgres-000000"+string(rune('1'+index)), rider.Subject, profile.Revision, true, "Verified production onboarding evidence")
 		if err != nil || replay || profile.Status != RiderApproved || profile.BankStatus != "VERIFIED" {
 			t.Fatalf("review rider %d value=%#v replay=%t err=%v", index, profile, replay, err)
+		}
+		var kycAudit int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM fulfillment.audit_events WHERE resource_id=$1 AND action='RIDER_REVIEW' AND position($2 in reason)>0`, rider.Subject, "synthetic_kyc_attestation_01").Scan(&kycAudit); err != nil || kycAudit != 1 {
+			t.Fatalf("missing committed rider KYC attestation evidence: count=%d err=%v", kycAudit, err)
 		}
 		duty, replay, err := service.StartDuty(rider, "rider-duty-start-postgres-000"+string(rune('1'+index)), "600001")
 		if err != nil || replay || duty.Status != "ACTIVE" {
 			t.Fatalf("start duty %d value=%#v replay=%t err=%v", index, duty, replay, err)
 		}
 	}
+
+	admin = verifyRiderParticipantReviewAuthority(t, ctx, pool, databaseURL, admin)
+	financeOne, financeTwo := prepareFinanceOperatorAuthority(t, ctx, pool)
 
 	dispatch := Actor{TenantID: fulfillmentTenantOne, Country: "IN", Subject: fulfillmentDispatch, Roles: []string{"DISPATCH"}, MFAVerified: true}
 	task, err := service.SeedTask(dispatch, TaskSeed{ID: fulfillmentTask, OrderID: fulfillmentOrder, OrderType: "PRODUCT", RegionID: "CHENNAI", TerritoryID: fulfillmentTerritory, ZoneID: "600001", Pickup: Stop{Label: "Vendor", AddressToken: "pickup_token", Point: Point{Latitude: 13.0827, Longitude: 80.2707}}, Dropoff: Stop{Label: "Customer", AddressToken: "dropoff_token", Point: Point{Latitude: 13.083, Longitude: 80.271}}, DistanceMeters: 1200, Earning: Money{AmountMinor: 15000, Currency: "INR"}, DeliveryOTP: "123456", CustomerID: fulfillmentCustomer, CounterpartyID: fulfillmentVendor})
@@ -143,7 +262,7 @@ func TestPostgresFulfillmentConcurrentAcceptanceRestartLifecycleAndControls(t *t
 		t.Fatalf("accept race succeeded=%d conflicted=%d assigned=%#v", succeeded, conflicted, assigned)
 	}
 
-	restarted, err := NewPostgresService(pool, func() time.Time { return now })
+	restarted, err := NewPostgresServiceWithProviders(pool, func() time.Time { return now }, evidence, bank)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,13 +278,63 @@ func TestPostgresFulfillmentConcurrentAcceptanceRestartLifecycleAndControls(t *t
 	if err != nil || replay || location.Sequence != 1 {
 		t.Fatalf("location=%#v replay=%t err=%v", location, replay, err)
 	}
+	trackingCustomer := Actor{TenantID: fulfillmentTenantOne, Country: "IN", Subject: fulfillmentCustomer, Roles: []string{"CUSTOMER"}}
+	if _, err := restarted.Location(trackingCustomer, winner.Subject); err != nil {
+		t.Fatalf("order party tracking=%v", err)
+	}
+	for _, subject := range []string{fulfillmentRiderOne, fulfillmentRiderTwo} {
+		unrelated := trackingCustomer
+		unrelated.Subject = subject
+		if _, err := restarted.Location(unrelated, winner.Subject); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("unrelated or chat-history tracking=%v", err)
+		}
+	}
+	// Acknowledged sequence watermarks survive both an empty client queue
+	// and an independent service restart. Another rider remains at sequence zero.
+	offline := OfflineCommand{DeviceSequence: 1, CommandID: "offline-location-postgres-001", Kind: "LOCATION", Payload: map[string]any{"latitude": 13.0828, "longitude": 80.2708, "accuracy_m": 8, "captured_at": now.Format(time.RFC3339)}}
+	if results, err := restarted.RecoverOffline(winner, []OfflineCommand{offline}); err != nil || len(results) != 1 {
+		t.Fatalf("offline results=%#v err=%v", results, err)
+	}
+	if _, err := restarted.RecoverOffline(winner, []OfflineCommand{offline}); err != nil {
+		t.Fatal(err)
+	}
+	nextOffline := offline
+	nextOffline.DeviceSequence = 2
+	nextOffline.CommandID = "offline-location-postgres-002"
+	if results, err := restarted.RecoverOffline(winner, []OfflineCommand{offline, nextOffline}); err != nil || len(results) != 2 {
+		t.Fatalf("partially acknowledged replay=%#v err=%v", results, err)
+	}
+	negotiated, _ := NewPostgresServiceWithProviders(pool, func() time.Time { return now }, evidence, bank)
+	profile, err := negotiated.Rider(winner)
+	if err != nil || profile.LastCommandSequence != 2 || profile.LastLocationSequence != 3 {
+		t.Fatalf("watermarks=%#v err=%v", profile, err)
+	}
+	other := riders[1-winnerIndex]
+	otherProfile, err := negotiated.Rider(other)
+	if err != nil || otherProfile.LastCommandSequence != 0 || otherProfile.LastLocationSequence != 0 {
+		t.Fatalf("other watermarks=%#v err=%v", otherProfile, err)
+	}
+	if _, _, err := negotiated.UpdateLocation(winner, "location-after-restart-001", LocationUpdate{Sequence: profile.LastLocationSequence + 1, Point: Point{Latitude: 13.0828, Longitude: 80.2708}, AccuracyM: 8, CapturedAt: now}); err != nil {
+		t.Fatal(err)
+	}
 	pickedUp, _, err := restarted.MarkPickedUp(winner, "rider-pickup-postgres-00001", assigned.ID, assigned.Revision)
+	verifyDeliveryConsentEnforcement(t, ctx, pool, restarted, winner, now)
 	if err != nil || pickedUp.Status != "PICKED_UP" {
 		t.Fatalf("pickup=%#v err=%v", pickedUp, err)
+	}
+	unknownPickup := OfflineCommand{DeviceSequence: 3, CommandID: "offline-pickup-lost-response-001", Kind: "PICKUP", TaskID: assigned.ID, Revision: assigned.Revision}
+	if results, err := restarted.RecoverOffline(winner, []OfflineCommand{unknownPickup}); err != nil || len(results) != 1 || results[0].Status != "APPLIED" {
+		t.Fatalf("lost-response recovery=%#v err=%v", results, err)
+	}
+	if tasks, err := restarted.Tasks(winner); err != nil || len(tasks) != 1 || tasks[0].Revision != pickedUp.Revision {
+		t.Fatalf("recovery repeated pickup: %#v %v", tasks, err)
 	}
 	delivered, _, err := restarted.CompleteDelivery(winner, "rider-complete-postgres-0001", pickedUp.ID, pickedUp.Revision, CompletionRequest{OTP: "123456", BlurredPhotoAssetID: fulfillmentPhoto})
 	if err != nil || delivered.Status != "DELIVERED" {
 		t.Fatalf("delivered=%#v err=%v", delivered, err)
+	}
+	if _, err := restarted.Location(trackingCustomer, winner.Subject); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("tracking after completion=%v", err)
 	}
 	ledger, err := restarted.Ledger(winner, winner.Subject)
 	if err != nil || len(ledger) != 1 || ledger[0].Net.AmountMinor != 14213 {
@@ -190,12 +359,14 @@ func TestPostgresFulfillmentConcurrentAcceptanceRestartLifecycleAndControls(t *t
 	if err != nil || replay || payout.Status != "PENDING_REVIEW" {
 		t.Fatalf("payout=%#v replay=%t err=%v", payout, replay, err)
 	}
-	financeOne := Actor{TenantID: fulfillmentTenantOne, Country: "IN", Subject: fulfillmentFinanceOne, Roles: []string{"FINANCE"}, MFAVerified: true}
-	financeTwo := Actor{TenantID: fulfillmentTenantOne, Country: "IN", Subject: fulfillmentFinanceTwo, Roles: []string{"FINANCE"}, MFAVerified: true}
+	verifySelfSettlementAuthority(t, ctx, pool, restarted, winner, ledger[0].ID, payout.ID, now)
+	verifyFinanceReadAuthority(t, ctx, pool, restarted, financeOne, admin, winner.Subject, payout.ID, payout.Revision)
 	payout, _, err = restarted.ApprovePayout(financeOne, "payout-approve-postgres-001", payout.ID, payout.Revision, "First finance approval completed")
 	if err != nil || payout.Status != "FIRST_APPROVED" {
 		t.Fatalf("first approval=%#v err=%v", payout, err)
 	}
+	verifyFinanceRevokedReplay(t, ctx, pool, restarted, financeOne, payout.ID)
+	financeTwo = verifyFinanceQueuedRevocation(t, ctx, pool, restarted, financeTwo, payout.ID, payout.Revision)
 	payout, _, err = restarted.ApprovePayout(financeTwo, "payout-approve-postgres-002", payout.ID, payout.Revision, "Second finance approval completed")
 	if err != nil || payout.Status != "APPROVED" {
 		t.Fatalf("second approval=%#v err=%v", payout, err)
@@ -205,12 +376,14 @@ func TestPostgresFulfillmentConcurrentAcceptanceRestartLifecycleAndControls(t *t
 	if err != nil || payout.Status != "PAID" {
 		t.Fatalf("execute=%#v err=%v", payout, err)
 	}
-	reconciliation, err := restarted.Reconcile(financeOne, winner.Subject)
+	reconciliation, err := restarted.Reconcile(financeTwo, winner.Subject)
 	if err != nil || reconciliation.VarianceMinor != 0 || reconciliation.PaidMinor != ledger[0].Net.AmountMinor {
 		t.Fatalf("reconciliation=%#v err=%v", reconciliation, err)
 	}
 
-	field := Actor{TenantID: fulfillmentTenantOne, Country: "IN", Subject: fulfillmentField, Roles: []string{"FIELD_OFFICER"}}
+	verifyTerritoryAccessFoundation(t, ctx, pool, now, admin)
+
+	field := Actor{TenantID: fulfillmentTenantOne, Country: "IN", Subject: fulfillmentField, Roles: []string{"FIELD_OFFICER"}, MFAVerified: true, OperatorSessionID: fieldOperatorCurrentSession, OperatorRevision: 3}
 	checkIn, replay, err := restarted.FieldCheckIn(field, "field-checkin-postgres-0001", fulfillmentTerritory, Point{Latitude: 13.0827, Longitude: 80.2707})
 	if err != nil || replay || checkIn.DistanceM > 1 {
 		t.Fatalf("check-in=%#v replay=%t err=%v", checkIn, replay, err)
@@ -218,6 +391,10 @@ func TestPostgresFulfillmentConcurrentAcceptanceRestartLifecycleAndControls(t *t
 	attendance, err := restarted.Attendance(admin, fulfillmentField)
 	if err != nil || len(attendance) != 1 {
 		t.Fatalf("attendance=%#v err=%v", attendance, err)
+	}
+	visibleTerritories, err := restarted.Territories(admin)
+	if err != nil || len(visibleTerritories) != 1 {
+		t.Fatalf("current country operator territories=%+v err=%v", visibleTerritories, err)
 	}
 	dashboard, err := restarted.RegionalDashboard(admin, "CHENNAI")
 	if err != nil || dashboard.Territories != 1 || dashboard.CompletedToday != 1 || len(dashboard.RecentFieldCheckIns) != 1 {
@@ -249,7 +426,7 @@ func TestPostgresFulfillmentConcurrentAcceptanceRestartLifecycleAndControls(t *t
 	if err != nil || replay || declined.TaskID != declineTask.ID {
 		t.Fatalf("declined=%#v replay=%t err=%v", declined, replay, err)
 	}
-	afterDeclineRestart, _ := NewPostgresService(pool, func() time.Time { return now })
+	afterDeclineRestart, _ := NewPostgresServiceWithProviders(pool, func() time.Time { return now }, evidence, bank)
 	declinedAgain, replay, err := afterDeclineRestart.DeclineOffer(riders[0], "rider-decline-postgres-0001", declineTask.ID, declineTask.Revision, declineRequest)
 	if err != nil || !replay || declinedAgain.TaskID != declined.TaskID {
 		t.Fatalf("durable decline replay=%#v replay=%t err=%v", declinedAgain, replay, err)
@@ -270,7 +447,7 @@ func TestPostgresFulfillmentConcurrentAcceptanceRestartLifecycleAndControls(t *t
 
 	expiredTask, _ := restarted.SeedTask(dispatch, postgresFulfillmentTaskSeed("80000000-0000-4000-8000-000000000012", "90000000-0000-4000-8000-000000000012"))
 	expiredTask, _, _ = restarted.OfferTask(dispatch, "dispatch-expired-postgres-001", expiredTask.ID, expiredTask.Revision)
-	expiredService, _ := NewPostgresService(pool, func() time.Time { return now.Add(301 * time.Second) })
+	expiredService, _ := NewPostgresServiceWithProviders(pool, func() time.Time { return now.Add(301 * time.Second) }, evidence, bank)
 	if _, _, err := expiredService.DeclineOffer(riders[0], "rider-expired-postgres-0001", expiredTask.ID, expiredTask.Revision, OfferDeclineRequest{ReasonCode: "ENDING_DUTY"}); !errors.Is(err, ErrOfferExpired) {
 		t.Fatalf("expired postgres decline error=%v", err)
 	}

@@ -75,7 +75,18 @@ func TestBEVSlice001LoginLocationHomeAndCatalog(t *testing.T) {
 	assertVerticalResponse(t, location, http.StatusOK, `"serviceable":true`, `"locality":"Chennai"`)
 
 	bootstrap := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/bootstrap?platform=android&app_version=0.1.0&locale=en", "", authPayload.Tokens.AccessToken)
-	assertVerticalResponse(t, bootstrap, http.StatusOK, `"customer_home":true`, `"catalog_read":true`, `"id":"customer-home"`, `"id":"vendor-home"`, `"id":"rider-home"`)
+	assertVerticalResponse(t, bootstrap, http.StatusOK, `"customer_home":true`, `"catalog_read":true`, `"id":"customer-home"`)
+	var bootstrapPages struct {
+		Pages []struct {
+			ID string `json:"id"`
+		} `json:"pages"`
+	}
+	decodeVerticalJSON(t, bootstrap, &bootstrapPages)
+	for _, page := range bootstrapPages.Pages {
+		if page.ID == "vendor-home" || page.ID == "rider-home" {
+			t.Fatal("customer bootstrap exposed another role's page")
+		}
+	}
 
 	page := verticalRequest(t, client, http.MethodGet, server.URL+"/v1/pages/customer-home?locale=en", "", authPayload.Tokens.AccessToken)
 	assertVerticalResponse(t, page, http.StatusOK, `"id":"customer-home"`, `"kind":"HERO"`, `"kind":"PRODUCT_RAIL"`, `"kind":"SERVICE_RAIL"`)

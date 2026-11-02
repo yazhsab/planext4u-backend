@@ -100,6 +100,7 @@ func TestBEP3010ConcurrentCheckoutMeetsControlledSuccessAndLatencyBudget(t *test
 		t.Fatalf("controlled checkout success=%.2f, want >=0.97", controlledSuccess)
 	}
 	for name, latency := range map[string]time.Duration{"quote": percentile95(quoteLatencies), "place": percentile95(placeLatencies)} {
+		t.Logf("%s p95=%s (400ms budget)", name, latency)
 		if latency > 400*time.Millisecond {
 			t.Fatalf("%s p95=%s, want <=400ms", name, latency)
 		}

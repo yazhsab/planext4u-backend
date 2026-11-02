@@ -3,6 +3,46 @@
   "info": {"title": "Planext4u Secure Media API", "version": "1.1.0"},
   "security": [{"bearerAuth": []}],
   "paths": {
+  "/v1/media/{asset_id}/access": {
+    "post": {
+      "operationId": "mediaPrivateAccess",
+      "description": "Owner, tenant and country scoped access to ready private evidence. Download grants expire within two minutes.",
+      "parameters": [
+        {
+          "name": "asset_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Private download grant",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrivateMediaAccess"
+              }
+            }
+          }
+        },
+        "401": {
+          "$ref": "#/components/responses/Problem"
+        },
+        "404": {
+          "$ref": "#/components/responses/Problem"
+        },
+        "409": {
+          "$ref": "#/components/responses/Problem"
+        },
+        "503": {
+          "$ref": "#/components/responses/Problem"
+        }
+      }
+    }
+  },
     "/v1/media/uploads": {
       "post": {
         "operationId": "mediaCreateUpload",
@@ -47,6 +87,29 @@
     "parameters": {"AssetID": {"name": "asset_id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"}}},
     "responses": {"Problem": {"description": "Safe standard error", "content": {"application/json": {"schema": {"$ref": "./common.openapi.json#/components/schemas/ErrorEnvelope"}}}}},
     "schemas": {
+  "PrivateMediaAccess": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "asset_id",
+      "url",
+      "expires_at"
+    ],
+    "properties": {
+      "asset_id": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string",
+        "format": "uri",
+        "x-planext4u-sensitive": true
+      },
+      "expires_at": {
+        "type": "string",
+        "format": "date-time"
+      }
+    }
+  },
       "MediaPurpose": {"type": "string", "enum": ["AVATAR", "CATALOG_IMAGE", "COMPLETION_PROOF", "IDENTITY_DOCUMENT"]},
       "MediaState": {"type": "string", "enum": ["PENDING_UPLOAD", "PENDING_SCAN", "READY", "REJECTED", "EXPIRED", "DELETED"]},
       "PresignRequest": {

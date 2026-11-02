@@ -19,6 +19,7 @@ type MemoryRepository struct {
 	consumedRefresh    map[string]string
 	consents           map[string][]Consent
 	deletions          map[string]DeletionRequest
+	deletionHistory    []DeletionRequest
 	auditEvents        []AuditEvent
 }
 
@@ -43,7 +44,7 @@ func (repository *MemoryRepository) StartSession(_ context.Context, params Start
 	var account Identity
 	if exists {
 		account = repository.identities[identityID]
-		if account.DisabledAt != nil {
+		if account.DisabledAt != nil || repository.deletionDueLocked(account.ID, params.Now) {
 			return Identity{}, Session{}, ErrForbidden
 		}
 	} else {
@@ -73,6 +74,21 @@ func (repository *MemoryRepository) StartSession(_ context.Context, params Start
 	}
 	if _, duplicate := repository.sessions[params.SessionID]; duplicate {
 		return Identity{}, Session{}, ErrInvalidInput
+	}
+	if params.EnrollAs != "" {
+		if params.EnrollAs != RoleCustomer && params.EnrollAs != RoleVendor && params.EnrollAs != RoleRider {
+			return Identity{}, Session{}, ErrForbidden
+		}
+		found := false
+		for _, role := range account.Roles {
+			if role == params.EnrollAs {
+				found = true
+			}
+		}
+		if !found {
+			account.Roles = append(account.Roles, params.EnrollAs)
+			repository.identities[account.ID] = cloneIdentity(account)
+		}
 	}
 	if _, duplicate := repository.activeRefresh[params.RefreshDigest]; duplicate {
 		return Identity{}, Session{}, ErrInvalidInput
@@ -141,6 +157,10 @@ func (repository *MemoryRepository) RotateSession(_ context.Context, params Rota
 		repository.revokeLocked(session.ID, params.Now, "IDENTITY_DISABLED")
 		return Identity{}, Session{}, ErrForbidden
 	}
+	if repository.deletionDueLocked(account.ID, params.Now) {
+		repository.revokeLocked(session.ID, params.Now, "ACCOUNT_DELETION_EFFECTIVE")
+		return Identity{}, Session{}, ErrForbidden
+	}
 	repository.appendAudit(AuditEvent{
 		ID:         session.ID + "-refresh-" + stringID(session.Rotation),
 		Type:       "SESSION_REFRESHED",
@@ -180,10 +200,17 @@ func (repository *MemoryRepository) Authenticate(_ context.Context, trusted Trus
 		account.ID != trusted.Subject ||
 		account.TenantID != trusted.TenantID ||
 		session.TenantID != trusted.TenantID ||
-		session.Country != trusted.Country {
+		session.Country != trusted.Country || repository.deletionDueLocked(account.ID, now) {
 		return Identity{}, Session{}, ErrForbidden
 	}
 	return cloneIdentity(account), cloneSession(session), nil
+}
+
+// Call with repository.mu held. The scheduled request remains a hard access
+// barrier once effective, even when downstream erasure is still retrying.
+func (repository *MemoryRepository) deletionDueLocked(identityID string, now time.Time) bool {
+	request, exists := repository.deletions[identityID]
+	return exists && request.Status == "SCHEDULED" && !now.Before(request.EffectiveAt)
 }
 
 func (repository *MemoryRepository) ListSessions(_ context.Context, identityID string) ([]Session, error) {
@@ -252,7 +279,7 @@ func (repository *MemoryRepository) UpdateProfile(_ context.Context, identityID 
 	return account.Profile, nil
 }
 
-func (repository *MemoryRepository) ListConsents(_ context.Context, identityID string) ([]Consent, error) {
+func (repository *MemoryRepository) ListConsents(_ context.Context, identityID, country string) ([]Consent, error) {
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
 	if _, exists := repository.identities[identityID]; !exists {
@@ -261,6 +288,9 @@ func (repository *MemoryRepository) ListConsents(_ context.Context, identityID s
 	history := repository.consents[identityID]
 	current := make(map[ConsentPurpose]Consent)
 	for _, consent := range history {
+		if consent.Country != country {
+			continue
+		}
 		if latest, exists := current[consent.Purpose]; !exists || latest.Version < consent.Version {
 			current[consent.Purpose] = consent
 		}
@@ -281,10 +311,17 @@ func (repository *MemoryRepository) RecordConsent(_ context.Context, identityID 
 	}
 	history := repository.consents[identityID]
 	var version int64 = 1
+	var scopedVersion int64
 	for _, existing := range history {
+		if existing.Purpose == consent.Purpose && existing.Country == consent.Country && existing.Version > scopedVersion {
+			scopedVersion = existing.Version
+		}
 		if existing.Purpose == consent.Purpose && existing.Version >= version {
 			version = existing.Version + 1
 		}
+	}
+	if consent.Granted && (consent.ExpectedVersion == nil || *consent.ExpectedVersion != scopedVersion) {
+		return Consent{}, ErrConsentConflict
 	}
 	consent.Version = version
 	repository.consents[identityID] = append(history, consent)
@@ -300,17 +337,23 @@ func (repository *MemoryRepository) RecordConsent(_ context.Context, identityID 
 	return consent, nil
 }
 
-func (repository *MemoryRepository) CreateDeletionRequest(_ context.Context, request DeletionRequest) (DeletionRequest, error) {
+func (repository *MemoryRepository) CreateDeletionRequest(_ context.Context, trusted TrustedIdentity, request DeletionRequest) (DeletionRequest, error) {
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
-	if _, exists := repository.identities[request.IdentityID]; !exists {
-		return DeletionRequest{}, ErrNotFound
+	session, exists := repository.sessions[trusted.Session]
+	if !exists || session.RevokedAt != nil || !request.RequestedAt.Before(session.RefreshExpires) {
+		return DeletionRequest{}, ErrSessionInvalid
+	}
+	account, exists := repository.identities[trusted.Subject]
+	if !exists || account.DisabledAt != nil || account.ID != request.IdentityID || account.TenantID != trusted.TenantID || session.IdentityID != trusted.Subject || session.TenantID != trusted.TenantID || session.Country != trusted.Country {
+		return DeletionRequest{}, ErrForbidden
 	}
 	if existing, exists := repository.deletions[request.IdentityID]; exists && existing.Status == "SCHEDULED" {
 		return existing, nil
 	}
 	repository.deletions[request.IdentityID] = request
-	repository.appendAudit(AuditEvent{ID: request.ID, Type: "ACCOUNT_DELETION_REQUESTED", IdentityID: request.IdentityID, Outcome: "SCHEDULED", OccurredAt: request.RequestedAt, SecurityEvent: true})
+	repository.deletionHistory = append(repository.deletionHistory, request)
+	repository.appendAudit(AuditEvent{ID: request.ID, Type: "ACCOUNT_DELETION_REQUESTED", IdentityID: request.IdentityID, SessionID: trusted.Session, Outcome: "SCHEDULED", OccurredAt: request.RequestedAt, SecurityEvent: true})
 	return request, nil
 }
 

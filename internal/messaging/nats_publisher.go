@@ -20,6 +20,11 @@ type JetStreamPublisher struct {
 	subjectPrefix string
 }
 
+// The broker has its own durable copy of every published envelope. A stream
+// without a bounded age, or one that republishes the envelope elsewhere, is
+// outside the local privacy retention boundary.
+const maximumJetStreamMessageAge = 7 * 24 * time.Hour
+
 func NewJetStreamPublisher(connection *nats.Conn, streamName, subjectPrefix string) (*JetStreamPublisher, error) {
 	if connection == nil || connection.IsClosed() || !safeNATSName(streamName) || !safeSubjectPrefix(subjectPrefix) {
 		return nil, ErrInvalidRequest
@@ -43,7 +48,7 @@ func EnsureJetStream(ctx context.Context, connection *nats.Conn, streamName, sub
 	}
 	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name: streamName, Subjects: []string{subjectPrefix + ".>"}, Storage: jetstream.FileStorage,
-		Retention: jetstream.LimitsPolicy, Discard: jetstream.DiscardOld, MaxAge: 7 * 24 * time.Hour,
+		Retention: jetstream.LimitsPolicy, Discard: jetstream.DiscardOld, MaxAge: maximumJetStreamMessageAge,
 		Duplicates: 2 * time.Minute, Replicas: 1,
 	})
 	if err != nil {
@@ -53,14 +58,25 @@ func EnsureJetStream(ctx context.Context, connection *nats.Conn, streamName, sub
 }
 
 func (publisher *JetStreamPublisher) Ready(ctx context.Context) error {
+	return publisher.checkStreamPolicy(ctx)
+}
+
+func (publisher *JetStreamPublisher) checkStreamPolicy(ctx context.Context) error {
 	if publisher.connection.IsClosed() || !publisher.connection.IsConnected() {
 		return errors.New("NATS connection is unavailable")
 	}
-	if err := publisher.connection.FlushWithContext(ctx); err != nil {
-		return fmt.Errorf("flush NATS connection: %w", err)
-	}
-	if _, err := publisher.jetStream.Stream(ctx, publisher.streamName); err != nil {
+	// Stream fetches current server info. A previously cached handle would miss
+	// an operator changing retention after the last health probe.
+	stream, err := publisher.jetStream.Stream(ctx, publisher.streamName)
+	if err != nil {
 		return fmt.Errorf("resolve JetStream stream: %w", err)
+	}
+	info := stream.CachedInfo()
+	if info == nil {
+		return errors.New("JetStream stream policy is unavailable")
+	}
+	if err := validJetStreamStreamPolicy(info.Config, publisher.streamName, publisher.subjectPrefix); err != nil {
+		return err
 	}
 	return nil
 }
@@ -68,6 +84,11 @@ func (publisher *JetStreamPublisher) Ready(ctx context.Context) error {
 func (publisher *JetStreamPublisher) Publish(ctx context.Context, message Message) error {
 	if !validMessage(message) {
 		return ErrInvalidRequest
+	}
+	// A readiness check alone does not stop publishing after a broker operator
+	// changes a stream's retention or republish policy at runtime.
+	if err := publisher.checkStreamPolicy(ctx); err != nil {
+		return err
 	}
 	payload, err := json.Marshal(message)
 	if err != nil {
@@ -84,6 +105,17 @@ func (publisher *JetStreamPublisher) Publish(ctx context.Context, message Messag
 	}
 	if ack.Stream != publisher.streamName {
 		return errors.New("JetStream acknowledged an unexpected stream")
+	}
+	return nil
+}
+
+func validJetStreamStreamPolicy(config jetstream.StreamConfig, name, subjectPrefix string) error {
+	if config.Name != name || len(config.Subjects) != 1 || config.Subjects[0] != subjectPrefix+".>" ||
+		config.Retention != jetstream.LimitsPolicy || config.Discard != jetstream.DiscardOld ||
+		config.Storage != jetstream.FileStorage || config.MaxAge <= 0 || config.MaxAge > maximumJetStreamMessageAge ||
+		config.NoAck || config.Sealed || config.Mirror != nil || len(config.Sources) != 0 ||
+		config.SubjectTransform != nil || config.RePublish != nil || config.AllowDirect || config.MirrorDirect {
+		return errors.New("JetStream stream privacy retention policy is unavailable")
 	}
 	return nil
 }

@@ -3,9 +3,12 @@ package supply
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/yazhsab/planext4u-backend/internal/ocrattestation"
 )
 
 func TestBEP4005SupplyHTTPContractStrictBodyRevisionAndReplay(t *testing.T) {
@@ -61,6 +64,26 @@ func TestBEP4006SupplyHTTPRejectsCrossRole(t *testing.T) {
 	}
 }
 
+func TestSupplyHTTPMapsIndependentOCRFailuresWithoutLeakingProof(t *testing.T) {
+	for _, test := range []struct {
+		name, code string
+		err        error
+		status     int
+	}{
+		{"rejected", "SUPPLY_FORBIDDEN", fmt.Errorf("ocr_attestation_secret: %w", ocrattestation.ErrRejected), http.StatusForbidden},
+		{"unavailable", "SUPPLY_OCR_ATTESTATION_UNAVAILABLE", fmt.Errorf("ocr_attestation_secret: %w", ocrattestation.ErrUnavailable), http.StatusServiceUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := httptest.NewRecorder()
+			(&Handler{}).problem(result, httptest.NewRequest(http.MethodPost, "/v1/vendor/applications/vendor/transitions", nil), test.err)
+			if result.Code != test.status || !bytes.Contains(result.Body.Bytes(), []byte(test.code)) ||
+				bytes.Contains(result.Body.Bytes(), []byte("ocr_attestation_secret")) {
+				t.Fatalf("OCR problem status=%d body=%s", result.Code, result.Body.String())
+			}
+		})
+	}
+}
+
 func supplyRequest(method, target string, body []byte, subject, role string) *http.Request {
 	request := httptest.NewRequest(method, target, bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
@@ -68,6 +91,9 @@ func supplyRequest(method, target string, body []byte, subject, role string) *ht
 	request.Header.Set("X-Planext4u-Country", "IN")
 	request.Header.Set("X-Planext4u-Subject", subject)
 	request.Header.Set("X-Planext4u-Roles", role)
+	if role == "OPS_ADMIN" || role == "SUPER_ADMIN" || role == "FINANCE" || role == "FIELD_OFFICER" {
+		request.Header.Set("X-Planext4u-MFA", "verified")
+	}
 	request.Header.Set("X-Correlation-ID", "corr-synthetic-supply")
 	return request
 }

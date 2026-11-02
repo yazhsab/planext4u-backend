@@ -31,7 +31,12 @@ func NewPostgresSessionStore(pool *pgxpool.Pool, clock func() time.Time, tokenCi
 
 func (store *PostgresSessionStore) Ready(ctx context.Context) error {
 	var ready bool
-	if err := store.pool.QueryRow(ctx, `SELECT to_regclass('customer_web.sessions') IS NOT NULL`).Scan(&ready); err != nil {
+	if err := store.pool.QueryRow(ctx, `SELECT to_regclass('customer_web.sessions') IS NOT NULL
+		AND to_regclass('customer_web.privacy_session_scrub_runs') IS NOT NULL
+		AND to_regprocedure('customer_web.privacy_scrub_sessions(text)') IS NOT NULL
+		AND EXISTS(SELECT 1 FROM pg_trigger
+		           WHERE tgrelid=to_regclass('customer_web.sessions')
+		             AND tgname='privacy_session_reintroduction' AND tgenabled IN ('O','A'))`).Scan(&ready); err != nil {
 		return fmt.Errorf("check customer web session readiness: %w", err)
 	}
 	if !ready {

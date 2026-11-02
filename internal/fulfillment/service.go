@@ -121,7 +121,12 @@ func (service *Service) Rider(actor Actor) (RiderProfile, error) {
 	if value == nil || value.tenantID != actor.TenantID || value.country != actor.Country {
 		return RiderProfile{}, ErrNotFound
 	}
-	return cloneRider(*value), nil
+	result := cloneRider(*value)
+	result.LastCommandSequence = service.offlineSequence[actor.Subject]
+	if location := service.locations[actor.Subject]; location != nil && location.tenantID == actor.TenantID && location.country == actor.Country {
+		result.LastLocationSequence = location.Sequence
+	}
+	return result, nil
 }
 
 func (service *Service) ReviewRider(actor Actor, key, riderID string, revision int64, approved bool, reason string) (RiderProfile, bool, error) {
@@ -154,13 +159,16 @@ func (service *Service) ReviewRider(actor Actor, key, riderID string, revision i
 	if value.Revision != revision || value.Status != RiderKYCReview {
 		return RiderProfile{}, false, ErrConflict
 	}
+	if approved && !validRiderDocumentSet(value.VehicleType, value.Documents) {
+		return RiderProfile{}, false, ErrInvalidRequest
+	}
 	for index := range value.Documents {
 		value.Documents[index].OCRStatus = map[bool]string{true: "VERIFIED", false: "REJECTED"}[approved]
 	}
 	if approved {
 		value.Status, value.BankStatus, value.AllowedActions = RiderApproved, "VERIFIED", []string{"START_DUTY", "VIEW_EARNINGS"}
 	} else {
-		value.Status, value.AllowedActions = RiderSuspended, nil
+		value.Status, value.AllowedActions = RiderSuspended, []string{}
 	}
 	value.Revision++
 	value.UpdatedAt = service.clock().UTC()
@@ -461,6 +469,19 @@ func (service *Service) Location(actor Actor, riderID string) (RiderLocation, er
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	if !hasAnyRole(actor, "DISPATCH", "OPS_ADMIN", "SUPER_ADMIN") {
+		related := false
+		for id, task := range service.tasks {
+			parties := service.participants[id]
+			if task.tenantID == actor.TenantID && task.country == actor.Country && task.AssignedRiderID == riderID && (task.Status == "ASSIGNED" || task.Status == "PICKED_UP") && (parties.customerID == actor.Subject || parties.counterpartyID == actor.Subject) {
+				related = true
+				break
+			}
+		}
+		if !related {
+			return RiderLocation{}, ErrNotFound
+		}
+	}
 	value := service.locations[riderID]
 	if value == nil || value.tenantID != actor.TenantID || value.country != actor.Country {
 		return RiderLocation{}, ErrNotFound
@@ -633,7 +654,14 @@ func (service *Service) RecoverOffline(actor Actor, commands []OfflineCommand) (
 			result.ResourceStatus = "LOCATION_UPDATED"
 		case "PICKUP":
 			value := service.tasks[command.TaskID]
-			if value == nil || value.AssignedRiderID != actor.Subject || value.Revision != command.Revision || value.Status != "ASSIGNED" {
+			if value == nil || value.tenantID != actor.TenantID || value.country != actor.Country || value.AssignedRiderID != actor.Subject {
+				return nil, ErrConflict
+			}
+			if value.Revision > command.Revision && (value.Status == "PICKED_UP" || value.Status == "DELIVERED") {
+				result.ResourceStatus = value.Status
+				break
+			}
+			if value.Revision != command.Revision || value.Status != "ASSIGNED" {
 				return nil, ErrConflict
 			}
 			now := service.clock().UTC()
@@ -712,16 +740,54 @@ func (service *Service) recordAuditLocked(actor Actor, action, resourceType, res
 }
 
 func validRiderRegistration(value RiderRegistrationRequest) bool {
-	if len(strings.TrimSpace(value.FullName)) < 3 || !regexp.MustCompile(`^\*{2,8}[0-9]{4}$`).MatchString(value.PhoneMasked) || !regexp.MustCompile(`^[A-Z_]{3,24}$`).MatchString(value.VehicleType) || len(strings.TrimSpace(value.VehicleNumber)) < 5 || !regexp.MustCompile(`^bankref_[A-Za-z0-9_-]{8,100}$`).MatchString(value.BankReference) || len(value.Documents) < 2 || len(value.Zones) == 0 {
+	// The normal mobile draft has no provider-verified phone claim. A missing
+	// display mask is valid; it must never be fabricated or treated as contact proof.
+	if name := strings.TrimSpace(value.FullName); len(name) < 2 || len(name) > 120 {
 		return false
 	}
-	for _, document := range value.Documents {
-		if !regexp.MustCompile(`^[A-Z_]{2,40}$`).MatchString(document.Kind) || !safeID(document.AssetID) {
+	if value.PhoneMasked != "" && !riderPhoneMaskPattern.MatchString(value.PhoneMasked) || !riderVehicleNumberPattern.MatchString(value.VehicleNumber) || !riderBankReferencePattern.MatchString(value.BankReference) || len(value.Zones) == 0 || len(value.Zones) > 20 || !validRiderDocumentSet(value.VehicleType, value.Documents) {
+		return false
+	}
+	for _, zone := range value.Zones {
+		if !riderPostalPattern.MatchString(zone) {
 			return false
 		}
 	}
-	for _, zone := range value.Zones {
-		if !safeID(zone) {
+	return true
+}
+
+var (
+	riderPhoneMaskPattern     = regexp.MustCompile(`^\*{2,8}[0-9]{4}$`)
+	riderVehicleNumberPattern = regexp.MustCompile(`^[A-Z0-9 -]{4,20}$`)
+	riderBankReferencePattern = regexp.MustCompile(`^bankref_[A-Za-z0-9_-]{8,100}$`)
+	riderPostalPattern        = regexp.MustCompile(`^[0-9]{4,10}$`)
+)
+
+func validRiderDocumentSet(vehicle string, documents []RiderDocument) bool {
+	required := map[string]bool{"IDENTITY": true}
+	switch vehicle {
+	case "BICYCLE":
+	case "MOTORBIKE", "CAR", "VAN", "BIKE": // BIKE is a bounded legacy spelling, with the same requirements.
+		required["DRIVER_LICENSE"], required["VEHICLE_REGISTRATION"], required["INSURANCE"] = true, true, true
+	default:
+		return false
+	}
+	if len(documents) < len(required) || len(documents) > 4 {
+		return false
+	}
+	kinds, assets := map[string]bool{}, map[string]bool{}
+	for _, document := range documents {
+		kind := document.Kind
+		if kind == "LICENSE" {
+			kind = "DRIVER_LICENSE"
+		}
+		if (kind != "IDENTITY" && kind != "DRIVER_LICENSE" && kind != "VEHICLE_REGISTRATION" && kind != "INSURANCE") || kinds[kind] || assets[document.AssetID] || !safeID(document.AssetID) {
+			return false
+		}
+		kinds[kind], assets[document.AssetID] = true, true
+	}
+	for kind := range required {
+		if !kinds[kind] {
 			return false
 		}
 	}

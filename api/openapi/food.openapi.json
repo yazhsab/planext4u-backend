@@ -35,14 +35,6 @@
           "type": "string"
         }
       },
-      "RestaurantID": {
-        "in": "path",
-        "name": "restaurant_id",
-        "required": true,
-        "schema": {
-          "type": "string"
-        }
-      },
       "PostalCode": {
         "in": "query",
         "name": "postal_code",
@@ -50,6 +42,14 @@
         "schema": {
           "maxLength": 12,
           "minLength": 3,
+          "type": "string"
+        }
+      },
+      "RestaurantID": {
+        "in": "path",
+        "name": "restaurant_id",
+        "required": true,
+        "schema": {
           "type": "string"
         }
       }
@@ -93,6 +93,23 @@
         ],
         "type": "object"
       },
+      "DispatchTransitionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "RIDER_ASSIGNED",
+              "PICKED_UP",
+              "DELIVERED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
       "FoodCart": {
         "additionalProperties": false,
         "properties": {
@@ -112,6 +129,12 @@
           "lines": {
             "items": {
               "$ref": "#/components/schemas/CartLine"
+            },
+            "type": "array"
+          },
+          "payment_methods": {
+            "items": {
+              "type": "string"
             },
             "type": "array"
           },
@@ -154,7 +177,8 @@
           "pricing_version",
           "expires_at",
           "postal_code",
-          "updated_at"
+          "updated_at",
+          "payment_methods"
         ],
         "type": "object"
       },
@@ -340,6 +364,7 @@
       },
       "FoodOrderStatus": {
         "enum": [
+          "AWAITING_PAYMENT",
           "PENDING_RESTAURANT",
           "ACCEPTED",
           "PREPARING",
@@ -626,23 +651,6 @@
               "REJECTED",
               "PREPARING",
               "READY"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "DispatchTransitionRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "status": {
-            "enum": [
-              "RIDER_ASSIGNED",
-              "PICKED_UP",
-              "DELIVERED"
             ],
             "type": "string"
           }

@@ -1,0 +1,5 @@
+allowBuilds:
+  # Runtime configuration is explicit in VITE_FIREBASE_*; dependency
+  # postinstall auto-configuration/version warnings are unnecessary.
+  '@firebase/util': false
+  protobufjs: false

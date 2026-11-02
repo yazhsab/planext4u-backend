@@ -16,12 +16,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/yazhsab/planext4u-backend/internal/adminops"
 	"github.com/yazhsab/planext4u-backend/internal/adminshell"
 	"github.com/yazhsab/planext4u-backend/internal/audit"
 	"github.com/yazhsab/planext4u-backend/internal/configcms"
 	"github.com/yazhsab/planext4u-backend/internal/governance"
+	"github.com/yazhsab/planext4u-backend/internal/identity"
+	"github.com/yazhsab/planext4u-backend/internal/organization"
 	platformconfig "github.com/yazhsab/planext4u-backend/internal/platform/config"
 	"github.com/yazhsab/planext4u-backend/internal/platform/logging"
 	"github.com/yazhsab/planext4u-backend/internal/platform/server"
@@ -45,6 +48,11 @@ type runtimeConfig struct {
 	cleanupInterval     time.Duration
 	cacheTTL            time.Duration
 	requireMFA          bool
+	firebaseProject     string
+	firebaseAuthTenant  string
+	firebaseCredentials string
+	identityTenant      string
+	fulfillmentURL      *url.URL
 }
 
 func main() { os.Exit(run()) }
@@ -192,8 +200,41 @@ func run() int {
 		logger.Error("configure administrator support service", "error", err)
 		return 2
 	}
+	organizationService, err := organization.NewService(pool, time.Now)
+	if err != nil {
+		logger.Error("configure organization service", "error", err)
+		return 2
+	}
+	privacyGovernance, err := identity.NewPostgresRepository(pool)
+	if err != nil {
+		logger.Error("configure privacy governance", "error", err)
+		return 2
+	}
+	operatorAccounts, err := adminshell.NewOperatorAccounts(pool)
+	if err != nil {
+		logger.Error("configure operator accounts", "error", err)
+		return 2
+	}
+	var operatorVerifier adminshell.OperatorVerifier
+	if runtime.firebaseProject != "" {
+		operatorVerifier, err = identity.OpenFirebaseTenantVerifier(context.Background(), runtime.firebaseProject, runtime.firebaseCredentials, runtime.firebaseAuthTenant)
+		if err != nil {
+			logger.Error("configure operator identity", "error", "Firebase configuration is unavailable or invalid")
+			return 2
+		}
+	}
+	var fulfillmentReader adminshell.FulfillmentReader
+	if runtime.fulfillmentURL != nil {
+		fulfillmentReader, err = adminshell.NewHTTPFulfillmentReader(runtime.fulfillmentURL, &http.Client{Timeout: 5 * time.Second})
+		if err != nil {
+			logger.Error("configure fulfillment reads", "error", "Invalid owning service configuration")
+			return 2
+		}
+	}
 	adminHandler, err := adminshell.NewHandler(adminshell.Config{
-		Sessions: sessions, Audit: auditService, Operations: operations, CMS: authoring, CMSWorkspace: workspaceAuthoring, Governance: governanceService, Support: supportService, Reports: reportService, Clock: time.Now,
+		Fulfillment: fulfillmentReader, PrivacyGovernance: privacyGovernance,
+		Masters:  organizationService,
+		Sessions: adminshell.OperatorSessionResolver{SessionResolver: sessions, Accounts: operatorAccounts}, Audit: auditService, Operations: operations, CMS: authoring, CMSWorkspace: workspaceAuthoring, CMSPublished: configurationRepository, Governance: governanceService, Support: supportService, Reports: reportService, Organization: organizationService, OperatorAccounts: operatorAccounts, Clock: time.Now,
 		AllowedOrigins: runtime.allowedOrigins, RequireMFA: runtime.requireMFA,
 	})
 	if err != nil {
@@ -214,6 +255,14 @@ func run() int {
 		return 2
 	}
 	application := http.NewServeMux()
+	if runtime.identityTenant != "" {
+		login, loginErr := adminshell.NewOperatorLoginHandler(adminshell.OperatorLoginConfig{Verifier: operatorVerifier, Accounts: operatorAccounts, Sessions: sessions, TenantID: runtime.identityTenant, Origins: runtime.allowedOrigins, Clock: time.Now, SessionTTL: runtime.sessionTTL})
+		if loginErr != nil {
+			logger.Error("configure operator sign-in", "error", loginErr)
+			return 2
+		}
+		application.Handle("/admin/api/v1/login", login)
+	}
 	application.Handle("/internal/v1/admin-sessions", exchangeHandler)
 	application.Handle("/admin/", adminHandler)
 	application.Handle("/v1/governance/", governanceHandler)
@@ -221,7 +270,7 @@ func run() int {
 	dependenciesReady := func(ctx context.Context) error {
 		for _, check := range []func(context.Context) error{
 			pool.Ping, sessions.Ready, operations.Ready, domainExecutor.Ready, controlExecutor.Ready,
-			configurationRepository.Ready, auditRepository.Ready, governanceService.Ready, supportRepository.Ready, reportService.Ready,
+			configurationRepository.Ready, auditRepository.Ready, governanceService.Ready, supportRepository.Ready, reportService.Ready, organizationService.Ready, operatorAccounts.Ready,
 		} {
 			if err := check(ctx); err != nil {
 				return err
@@ -307,9 +356,15 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 	}
 	result := runtimeConfig{
 		service: base, databaseURLFile: requiredValue(lookup, "DATABASE_URL_FILE"), databaseURL: requiredValue(lookup, "DATABASE_URL"),
+		firebaseProject: requiredValue(lookup, "FIREBASE_PROJECT_ID"), firebaseCredentials: requiredValue(lookup, "FIREBASE_CREDENTIALS_FILE"), firebaseAuthTenant: requiredValue(lookup, "FIREBASE_AUTH_TENANT_ID"), identityTenant: requiredValue(lookup, "TENANT_ID"),
 		exchangeSecretFile: requiredValue(lookup, "ADMIN_EXCHANGE_SECRET_FILE"), allowedOrigins: splitCSV(requiredValue(lookup, "ADMIN_ALLOWED_ORIGINS")),
 		databaseMaxConns: 50, databaseMinConns: 5, databaseMaxLifetime: 30 * time.Minute,
 		sessionTTL: 8 * time.Hour, exchangeMaxSkew: time.Minute, cleanupInterval: 5 * time.Minute, cacheTTL: time.Minute, requireMFA: true,
+	}
+	if result.firebaseProject != "" && uuid.Validate(result.identityTenant) != nil ||
+		result.identityTenant != "" && uuid.Validate(result.identityTenant) != nil ||
+		result.firebaseProject == "" && (result.firebaseCredentials != "" || result.firebaseAuthTenant != "") {
+		return runtimeConfig{}, errors.New("Firebase operator sign-in requires a project and valid platform TENANT_ID; provider options require FIREBASE_PROJECT_ID")
 	}
 	for key, destination := range map[string]*time.Duration{
 		"DATABASE_MAX_LIFETIME": &result.databaseMaxLifetime, "ADMIN_SESSION_TTL": &result.sessionTTL,
@@ -338,6 +393,13 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 		if err != nil {
 			return runtimeConfig{}, errors.New("ADMIN_REQUIRE_MFA must be a boolean")
 		}
+	}
+	if raw := requiredValue(lookup, "FULFILLMENT_BASE_URL"); raw != "" {
+		parsed, parseErr := url.Parse(raw)
+		if parseErr != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") || (parsed.Scheme != "https" && !(base.Environment == platformconfig.EnvironmentDevelopment && parsed.Scheme == "http")) {
+			return runtimeConfig{}, errors.New("FULFILLMENT_BASE_URL must be a trusted service origin; HTTPS is required outside development")
+		}
+		result.fulfillmentURL = parsed
 	}
 	if (result.databaseURLFile == "") == (result.databaseURL == "") || result.exchangeSecretFile == "" || len(result.allowedOrigins) == 0 ||
 		result.databaseMaxConns < 1 || result.databaseMaxConns > 500 || result.databaseMinConns < 0 || result.databaseMinConns > result.databaseMaxConns ||

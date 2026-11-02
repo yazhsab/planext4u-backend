@@ -28,7 +28,7 @@ func TestPostgresCustomerSessionsAreDurableEncryptedRotatingAndExpiring(t *testi
 	defer pool.Close()
 	_, _ = pool.Exec(ctx, `DROP SCHEMA IF EXISTS customer_web CASCADE`)
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DROP SCHEMA IF EXISTS customer_web CASCADE`) })
-	for _, path := range []string{"../../migrations/platform/000019_customer_web_roles.up.sql", "../../migrations/customer_web/000001_customer_sessions.up.sql"} {
+	for _, path := range []string{"../../migrations/platform/000019_customer_web_roles.up.sql", "../../migrations/customer_web/000001_customer_sessions.up.sql", "../../migrations/customer_web/000002_privacy_session_scrub.up.sql"} {
 		migration, readErr := os.ReadFile(path)
 		if readErr != nil {
 			t.Fatal(readErr)

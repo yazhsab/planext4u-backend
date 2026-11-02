@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -28,6 +29,27 @@ func TestHTTPMalwareScannerAuthenticatesAndValidatesResponse(t *testing.T) {
 	result, err := scanner.Scan(t.Context(), "tenants/tenant/owners/owner/media/asset")
 	if err != nil || !result.Clean {
 		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
+func TestHTTPMalwareScannerNeverFollowsRedirectsWithPrivateScope(t *testing.T) {
+	var received atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		received.Add(1)
+		_, _ = writer.Write([]byte(`{"clean":true,"reason_code":""}`))
+	}))
+	defer target.Close()
+	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			http.Redirect(writer, request, target.URL, status)
+		}))
+		endpoint, _ := url.Parse(server.URL)
+		scanner, _ := NewHTTPMalwareScanner(endpoint, &http.Client{Timeout: time.Second}, "scanner-token-safe")
+		_, err := scanner.Scan(t.Context(), "tenants/tenant/owners/owner/media/asset")
+		server.Close()
+		if err == nil || received.Load() != 0 {
+			t.Fatalf("private scan followed redirect: count=%d err=%v", received.Load(), err)
+		}
 	}
 }
 

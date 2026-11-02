@@ -50,7 +50,7 @@ func (service *PostgresService) Now() time.Time { return service.clock().UTC() }
 
 func (service *PostgresService) Ready(ctx context.Context) error {
 	var ready bool
-	err := service.pool.QueryRow(ctx, `SELECT to_regclass('social.profiles') IS NOT NULL AND to_regclass('social.posts') IS NOT NULL AND to_regclass('social.policies') IS NOT NULL AND to_regclass('social.presence') IS NOT NULL AND to_regclass('social.reward_events') IS NOT NULL`).Scan(&ready)
+	err := service.pool.QueryRow(ctx, `SELECT to_regclass('social.profiles') IS NOT NULL AND to_regclass('social.posts') IS NOT NULL AND to_regclass('social.policies') IS NOT NULL AND to_regclass('social.presence') IS NOT NULL AND to_regclass('social.reward_events') IS NOT NULL AND to_regclass('social.privacy_ephemeral_erasure_runs') IS NOT NULL`).Scan(&ready)
 	if err != nil {
 		return fmt.Errorf("check social schema readiness: %w", err)
 	}

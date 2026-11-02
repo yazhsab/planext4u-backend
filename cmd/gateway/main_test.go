@@ -43,6 +43,17 @@ func TestLoadRuntimeConfigAcceptsSafeDevelopmentValues(t *testing.T) {
 	}
 }
 
+func TestAnonymousStartupConfigurationDoesNotBroadenOtherGETRoutes(t *testing.T) {
+	if routes, err := anonymousRoutes(`{"/v1/startup":["GET"]}`); err != nil || len(routes["/v1/startup"]) != 1 {
+		t.Fatalf("exact anonymous startup rejected: %v %v", routes, err)
+	}
+	for _, value := range []string{`{"/v1/bootstrap":["GET"]}`, `{"/v1/startup/extra":["GET"]}`, `{"/v1/startup":["DELETE"]}`, `{"/v1/startup/":["GET"]}`} {
+		if _, err := anonymousRoutes(value); err == nil {
+			t.Fatalf("anonymous authority broadened: %s", value)
+		}
+	}
+}
+
 func TestLoadRuntimeConfigAcceptsPrivateServiceDiscoveryHTTPInProduction(t *testing.T) {
 	t.Parallel()
 

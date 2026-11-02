@@ -11,6 +11,7 @@ import (
 )
 
 type Application interface {
+	AvailablePaymentMethods(Actor) []string
 	Restaurants(Actor, string, string) ([]Restaurant, error)
 	Menu(Actor, string, string) ([]MenuItem, error)
 	SetCart(Actor, string, CartRequest) (Cart, bool, error)
@@ -80,6 +81,7 @@ func (handler *Handler) cart(writer http.ResponseWriter, request *http.Request) 
 		handler.problem(writer, request, err)
 		return
 	}
+	value.PaymentMethods = handler.service.AvailablePaymentMethods(actor)
 	writer.Header().Set("ETag", fmt.Sprintf(`"%d"`, value.Revision))
 	writeFoodReplay(writer, http.StatusCreated, value, replay)
 }

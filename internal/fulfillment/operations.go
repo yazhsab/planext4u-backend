@@ -17,7 +17,7 @@ func (service *Service) Territories(actor Actor) ([]Territory, error) {
 		if value.tenantID != actor.TenantID || value.country != actor.Country {
 			continue
 		}
-		if hasRole(actor, "FRANCHISE_ADMIN") && value.FranchiseID != actor.Subject {
+		if !service.memoryTerritoryAllowed(actor, value, "resource.read") {
 			continue
 		}
 		values = append(values, cloneTerritory(value))
@@ -36,6 +36,9 @@ func (service *Service) FieldCheckIn(actor Actor, key, territoryID string, point
 		return FieldCheckIn{}, false, ErrNotFound
 	}
 	if territory.tenantID != actor.TenantID || territory.country != actor.Country {
+		return FieldCheckIn{}, false, ErrForbidden
+	}
+	if !service.memoryTerritoryAllowed(actor, territory, "resource.command") {
 		return FieldCheckIn{}, false, ErrForbidden
 	}
 	fingerprint := digest(point)
@@ -60,7 +63,7 @@ func (service *Service) FieldCheckIn(actor Actor, key, territoryID string, point
 }
 
 func (service *Service) Attendance(actor Actor, subjectID string) ([]AttendanceEntry, error) {
-	if !validActor(actor) || (!hasAnyRole(actor, "OPS_ADMIN", "SUPER_ADMIN", "REGIONAL_ADMIN", "FRANCHISE_ADMIN") && actor.Subject != subjectID) {
+	if !validActor(actor) || (!globalTerritoryOperator(actor) && actor.Subject != subjectID) {
 		return nil, ErrForbidden
 	}
 	service.mu.Lock()
@@ -85,13 +88,16 @@ func (service *Service) RegionalDashboard(actor Actor, regionID string) (Regiona
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	now := service.clock().UTC()
-	result := RegionalDashboard{RegionID: regionID, PayoutsPending: Money{Currency: "INR"}, GeneratedAt: now}
+	result := RegionalDashboard{RegionID: regionID, GeneratedAt: now, LatestLocations: []RiderLocation{}, RecentFieldCheckIns: []FieldCheckIn{}}
+	if globalTerritoryOperator(actor) {
+		result.PayoutsPending = &Money{Currency: "INR"}
+	}
 	allowedTerritories := map[string]bool{}
 	for _, territory := range service.territories {
 		if territory.tenantID != actor.TenantID || territory.country != actor.Country || territory.RegionID != regionID {
 			continue
 		}
-		if hasRole(actor, "FRANCHISE_ADMIN") && territory.FranchiseID != actor.Subject {
+		if !service.memoryTerritoryAllowed(actor, territory, "resource.read") {
 			continue
 		}
 		allowedTerritories[territory.ID] = true
@@ -134,8 +140,10 @@ func (service *Service) RegionalDashboard(actor Actor, regionID string) (Regiona
 	}
 	for _, payout := range service.payouts {
 		if payout.tenantID == actor.TenantID && payout.country == actor.Country && payout.Status != "PAID" {
-			result.PayoutsPending.AmountMinor += payout.Amount.AmountMinor
-			result.PayoutsPending.Currency = payout.Amount.Currency
+			if result.PayoutsPending != nil {
+				result.PayoutsPending.AmountMinor += payout.Amount.AmountMinor
+				result.PayoutsPending.Currency = payout.Amount.Currency
+			}
 		}
 	}
 	for _, checkIn := range service.fieldCheckIns {

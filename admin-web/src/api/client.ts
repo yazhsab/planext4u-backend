@@ -22,11 +22,11 @@ export type ReportDetail = components["schemas"]["ReportDetail"];
 export type ReportExport = components["schemas"]["ReportExport"];
 export type CreateReportExportRequest = components["schemas"]["CreateReportExportRequest"];
 
-const roleSchema = z.enum(["SUPER_ADMIN", "COUNTRY_ADMIN", "CONTENT_ADMIN", "SUPPORT_ADMIN", "AUDITOR"]);
+const roleSchema = z.enum(["SUPER_ADMIN", "COUNTRY_ADMIN", "FINANCE", "CONTENT_ADMIN", "SUPPORT_ADMIN", "AUDITOR", "REGIONAL_STAFF"]);
 const navigationSchema = z.object({
   id: z.string().min(1).max(64),
   label: z.string().min(1).max(80),
-  path: z.enum(["/", "/operations", "/governance", "/support", "/cms", "/audit"]),
+  path: z.enum(["/", "/operations", "/governance", "/privacy", "/support", "/cms", "/audit", "/organization", "/operators", "/masters", "/participants"]),
   capability: z.string().min(1).max(128),
 });
 const sessionSchema = z.object({
@@ -171,6 +171,7 @@ const pageSchema = z.object({
   route: z.string().startsWith("/").max(256),
   title_key: z.string().min(1).max(160),
   audience: z.array(z.enum(["PUBLIC", "CUSTOMER", "VENDOR", "RIDER"])).min(1).max(4),
+  audience_groups: z.array(z.uuid()).max(16).optional(),
   enabled: z.boolean(),
   blocks: z.array(pageBlockSchema).max(128),
 });
@@ -182,7 +183,7 @@ const cmsPageDraftSchema = z.object({
   updated_by: z.string().min(1).max(128),
   updated_at: z.iso.datetime({offset: true}),
 });
-const cmsPageDraftPageSchema = z.object({items: z.array(cmsPageDraftSchema)});
+const cmsPageDraftPageSchema = z.object({items: z.array(cmsPageDraftSchema),published_revision:z.number().int().nonnegative().optional()});
 const semanticVersionSchema = z.string().regex(/^\d+\.\d+\.\d+$/);
 const workspaceSchema = z.object({
   minimum_versions: z.object({ANDROID: semanticVersionSchema, IOS: semanticVersionSchema, WEB: semanticVersionSchema}),
@@ -209,6 +210,7 @@ const workspaceSchema = z.object({
   }).optional(),
 });
 const cmsWorkspaceDraftSchema = z.object({
+	 published_revision:z.number().int().nonnegative().optional(),
   tenant_id: z.string().min(1).max(128),
   country: z.string().regex(/^[A-Z]{2}$/),
   workspace: workspaceSchema,
@@ -240,7 +242,7 @@ export class APIError extends Error {
   }
 }
 
-async function requestJSON<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
+export async function requestJSON<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
 	const headers = new Headers(init?.headers);
 	if (!headers.has("Accept")) headers.set("Accept", "application/json");
   const response = await fetch(path, {
@@ -255,7 +257,7 @@ async function requestJSON<T>(path: string, schema: z.ZodType<T>, init?: Request
     }
     throw new APIError(response.status, "ADMIN_RESPONSE_INVALID", "The administration service returned an unreadable response.");
   }
-  const parsed = schema.safeParse(await response.json());
+  const parsed = schema.safeParse(response.status === 204 ? undefined : await response.json());
   if (!parsed.success) {
     throw new APIError(response.status, "ADMIN_CONTRACT_INVALID", "The administration service response did not match its contract.");
   }

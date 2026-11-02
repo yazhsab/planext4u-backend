@@ -4,6 +4,118 @@
  */
 
 export interface paths {
+    "/admin/api/v1/organization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["adminOrganizationWorkspace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/organization/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["adminOrganizationCreateNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/organization/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["adminOrganizationCreateRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/organization/staff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["adminOrganizationSetStaff"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/organization/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["adminOrganizationInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/organization/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["adminOrganizationAccept"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["adminOperatorLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/internal/v1/admin-sessions": {
         parameters: {
             query?: never;
@@ -308,12 +420,809 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/api/v1/organization/nodes/{node_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["adminOrganizationNodeStatus"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/operators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Tenant and current country scoped; requires current server-owned SUPER_ADMIN and MFA. Root/self edits and root grants are denied. Mutations require fresh MFA, CSRF and an audit reason; access changes revoke sessions. */
+        get: operations["adminListOperators"];
+        put?: never;
+        /** @description Tenant and current country scoped; requires current server-owned SUPER_ADMIN and MFA. Root/self edits and root grants are denied. Mutations require fresh MFA, CSRF and an audit reason; access changes revoke sessions. */
+        post: operations["adminCreateOperator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/operators/{subject_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Tenant and current country scoped; requires current server-owned SUPER_ADMIN and MFA. Root/self edits and root grants are denied. Mutations require fresh MFA, CSRF and an audit reason; access changes revoke sessions. */
+        put: operations["adminUpdateOperator"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/operators/{subject_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Tenant and current country scoped; requires current server-owned SUPER_ADMIN and MFA. Root/self edits and root grants are denied. Mutations require fresh MFA, CSRF and an audit reason; access changes revoke sessions. */
+        get: operations["adminOperatorEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/organization/territory-bindings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Platform administrators only. Lists real fulfillment territories in the authenticated tenant and selected country with current organization bindings. */
+        get: operations["adminFulfillmentTerritoryBindings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/organization/territory-bindings/{territory_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Fresh MFA, CSRF, platform administrator, existing same-scope business territory and active territory node required. Revision and reason are recorded atomically with append-only binding evidence. */
+        put: operations["adminBindFulfillmentTerritory"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/fulfillment/territories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read current scoped fulfillment resources from the owning service
+         * @description Authenticated operator identity, selected country and mapped role are derived from the current server session. Client authority query parameters are rejected. The owning service enforces live staff assignments and consent.
+         */
+        get: operations["adminListFulfillmentTerritories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/fulfillment/regions/{region_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read current scoped fulfillment resources from the owning service
+         * @description Authenticated operator identity, selected country and mapped role are derived from the current server session. Client authority query parameters are rejected. The owning service enforces live staff assignments and consent.
+         */
+        get: operations["adminReadFulfillmentRegion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/fulfillment/field-territories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read current explicit field-command territory IDs
+         * @description Advisory controls use current explicit resource.command assignments. A global operator role alone grants no field attendance authority. The owning command rechecks at execution and replay.
+         */
+        get: operations["adminFulfillmentFieldTerritories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/fulfillment/territories/{territory_id}/field-check-ins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record an assigned field visit through the fulfillment owner
+         * @description Current server session, fresh MFA and CSRF are required. Only point and Idempotency-Key are accepted. The owning service rechecks explicit current territorial resource.command scope before execution or idempotency replay, then enforces its geofence. A timeout is an unknown result; retry the identical point with the same key.
+         */
+        post: operations["adminFulfillmentFieldCheckIn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/organization/audiences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List audience criteria in the current organization scope
+         * @description Tenant, selected country, subject and MFA are derived from the current operator session. Up to 100 currently authorized groups per page, ordered by immutable ID. Continue with next_cursor as after; no cursor grants access. Scope is rechecked on every page. No query authority is accepted.
+         */
+        get: operations["adminListAudienceGroups"];
+        put?: never;
+        /**
+         * Create a dynamic organization audience
+         * @description Current server session, actual MFA, fresh authentication and CSRF are required. The owning transaction locks the live directory account/source session and current organization scope through commit. Caller tenant/country/actor fields are rejected. Revision must be zero for a new group. Criteria do not grant record permissions.
+         */
+        post: operations["adminCreateAudienceGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/organization/audiences/{audience_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update audience criteria at the current revision
+         * @description Current server session, actual MFA, fresh authentication and CSRF are required. The owning transaction locks the live directory account/source session and current organization scope through commit. Caller tenant/country/actor fields are rejected. An outdated revision conflicts without mutation. Before/after scope management is required when moving a group. Criteria versions and audit commit atomically.
+         */
+        put: operations["adminUpdateAudienceGroup"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/organization/audiences/{audience_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check current membership without exposing a member list
+         * @description Current server session, actual MFA, fresh authentication and CSRF are required. The owning transaction locks the live directory account/source session and current organization scope through commit. Caller tenant/country/actor fields are rejected. Current staff-management authority over the group is required. Suspended assignments, inactive ancestors and disabled groups do not match.
+         */
+        post: operations["adminPreviewAudienceMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/fulfillment/regions/{region_id}/summary-export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export current authorized regional operational counters
+         * @description Requires fresh MFA and current operator directory/source-session revision. The owning service holds directory, session and organization locks through export audit commit, derives country-wide authority from the live directory and requires both read and export permission for every included territory. Caller authority query parameters are rejected. Excludes payouts, rider locations and other-person attendance. UTC day boundaries match the regional dashboard. No persistent export download token or public URL is created.
+         */
+        get: operations["adminExportFulfillmentRegion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/masters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List current-country reference data using current operator authority
+         * @description Super/country administrators and auditors only. Literal search, stable ID pagination and active/inactive filters. Tenant and country come from the server session.
+         */
+        get: operations["listMasterData"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/masters/{master_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Create or revise country reference data with atomic change evidence
+         * @description Requires current super/country administration, MFA, fresh source authentication and CSRF. Revision zero creates. Kind, code and parent are immutable. Active children prevent parent deactivation. This does not alter country currency, tax or launch configuration.
+         */
+        put: operations["saveMasterData"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/masters/{master_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read append-only master-data change evidence */
+        get: operations["masterDataHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/participants/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List safe participant application summaries using the current country administrator session
+         * @description Current country administrators see their selected country. Regional staff see only explicitly bound participants under live active territory ancestors and inherited resource.read. Actions separately require resource.command. Fresh source session and directory revision are checked in the owning transaction.
+         */
+        get: operations["listAdminParticipantApplications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/participants/{kind}/{participant_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record an owning revisioned rejection with a reason
+         * @description Fresh MFA, CSRF, current country or bound regional participant command authority, independent participant, original expected revision and idempotency key are required. Retry the same command on response loss. No approval bypass is exposed.
+         */
+        post: operations["rejectAdminParticipantApplication"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/participants/VENDOR/{participant_id}/field-check-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a vendor application field visit using current location
+         * @description Fresh MFA, CSRF, current country or bound regional resource.command authority, a scheduled owner visit, owner distance validation, original expected revision and idempotency key are required. FIELD_OFFICER is only the owning protocol role; current operator source authority is checked by the owner.
+         */
+        post: operations["adminVendorFieldCheckIn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/participants/{kind}/{participant_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a scoped application review
+         * @description Current country administrators with fresh MFA can read redacted review evidence. Bound regional staff can read a minimal vendor summary without contact, document, bank or decision fields. Both require an owner source lock; private asset IDs, extracted fields and bank references are omitted.
+         */
+        get: operations["adminParticipantReviewDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/participants/{kind}/{participant_id}/review/documents/{document_kind}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open one stored private application document for an authorized reviewer
+         * @description Requires a current country admin session, fresh MFA, CSRF and current participant read scope. The owner resolves the document by its stored kind, verifies READY media and issues a short lived grant. The response is no-store and omits the asset ID.
+         */
+        post: operations["adminParticipantReviewDocumentAccess"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/participants/{kind}/{participant_id}/review-action": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a country application review decision
+         * @description Requires current COUNTRY_ADMIN or SUPER_ADMIN, fresh MFA, CSRF, owner revision and idempotency key. Bank verification additionally requires an explicitly assigned FINANCE operator role. Vendor VERIFY_KYC requires private media and independent OCR and KYC results bound to the current document set and revision. Rider APPROVE requires private media, independent KYC and bank verification. Provider absence or rejection leaves the owner state unchanged; real provider configuration is deployment dependent.
+         */
+        post: operations["adminParticipantReviewAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/participants/{kind}/{participant_id}/binding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["adminGetParticipantTerritory"];
+        put: operations["adminBindParticipantTerritory"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/participant-territories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["adminListParticipantTerritories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/privacy/retention-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Current COUNTRY_ADMIN or SUPER_ADMIN with policy capability, fresh MFA and selected-country scope. Query parameters are rejected. */
+        get: operations["adminListRetentionProposals"];
+        put?: never;
+        /** @description Create a scoped proposal. Requires fresh country administrator MFA, current operator revision, policy capability and CSRF. Publication requires a separate command. */
+        post: operations["adminProposeRetentionPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/privacy/retention-proposals/{proposal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read one proposal in the selected country and current administrator authority. */
+        get: operations["adminGetRetentionProposal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/privacy/retention-proposals/{proposal_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Publish a previously proposed country policy using a different fresh MFA administrator and CSRF. Request body must be empty; owner validates proposal and revision. */
+        post: operations["adminPublishRetentionPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/privacy/deletions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List scoped deletion requests and aggregate owner/hold counts. Query parameters are rejected. */
+        get: operations["adminListDeletionRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/privacy/deletions/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read a deletion request in the current tenant and selected country. */
+        get: operations["adminGetDeletionRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/privacy/deletions/{request_id}/holds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Place a scoped owner hold with a durable reason reference. Requires fresh MFA administrator authority and CSRF. */
+        post: operations["adminPlaceDeletionHold"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/privacy/holds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read scoped deletion holds under current country administrator authority. Query parameters are rejected. */
+        get: operations["adminListDeletionHolds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/privacy/holds/{hold_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Release one hold at its expected revision with a reason reference. Requires a different fresh MFA administrator from the holder and CSRF. */
+        post: operations["adminReleaseDeletionHold"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        PrivacyRetentionProposalInput: {
+            /** Format: uuid */
+            id: string;
+            owner: string;
+            policy_version: string;
+            /** Format: int64 */
+            retention_seconds: number;
+            /** Format: int64 */
+            expected_revision: number;
+            reason_reference: string;
+        };
+        PrivacyRetentionProposalCreated: {
+            /** Format: uuid */
+            id: string;
+            /** @constant */
+            status: "PROPOSED";
+        };
+        PrivacyRetentionPublished: {
+            /** Format: uuid */
+            id: string;
+            /** @constant */
+            status: "PUBLISHED";
+            /** Format: int64 */
+            revision: number;
+        };
+        PrivacyRetentionProposal: {
+            /** Format: uuid */
+            id: string;
+            owner: string;
+            /** Format: int64 */
+            expected_revision: number;
+            policy_version: string;
+            /** Format: int64 */
+            retention_microseconds: number;
+            reason_reference: string;
+            /** @enum {string} */
+            status: "PENDING" | "PUBLISHED";
+            /** Format: uuid */
+            requested_by: string;
+            /** Format: date-time */
+            requested_at: string;
+            /** Format: uuid */
+            approved_by?: string;
+            /** Format: date-time */
+            published_at?: string;
+        };
+        PrivacyRetentionProposalPage: {
+            items: components["schemas"]["PrivacyRetentionProposal"][];
+        };
+        PrivacyDeletionRequest: {
+            id: string;
+            /** Format: uuid */
+            identity_id: string;
+            status: string;
+            /** Format: date-time */
+            requested_at: string;
+            /** Format: date-time */
+            effective_at: string;
+            /** Format: int64 */
+            ready_owners: number;
+            /** Format: int64 */
+            blocked_owners: number;
+            /** Format: int64 */
+            active_holds: number;
+        };
+        PrivacyDeletionRequestPage: {
+            items: components["schemas"]["PrivacyDeletionRequest"][];
+        };
+        PrivacyPlaceHoldInput: {
+            owner: string;
+            reason_reference: string;
+        };
+        PrivacyReleaseHoldInput: {
+            /** Format: int64 */
+            expected_revision: number;
+            reason_reference: string;
+        };
+        PrivacyHoldReceipt: {
+            /** Format: int64 */
+            id: number;
+            /** @enum {string} */
+            status: "ACTIVE" | "RELEASED";
+            /** Format: int64 */
+            revision: number;
+        };
+        PrivacyDeletionHold: {
+            /** Format: int64 */
+            id: number;
+            request_id: string;
+            owner: string;
+            reason_reference: string;
+            /** Format: uuid */
+            recorded_by?: string;
+            /** Format: date-time */
+            recorded_at: string;
+            /** Format: int64 */
+            revision: number;
+        };
+        PrivacyDeletionHoldPage: {
+            items: components["schemas"]["PrivacyDeletionHold"][];
+        };
+        OrganizationNode: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            parent_id?: string;
+            /** @enum {string} */
+            kind: "ORGANIZATION" | "TERRITORY";
+            name: string;
+            active: boolean;
+            revision: number;
+        };
+        OrganizationRole: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            capabilities: string[];
+        };
+        StaffAssignment: {
+            /** Format: uuid */
+            subject_id: string;
+            /** Format: uuid */
+            node_id: string;
+            /** Format: uuid */
+            role_id: string;
+            /** @enum {string} */
+            status: "ACTIVE" | "SUSPENDED" | "LEFT";
+            revision: number;
+        };
+        OrganizationWorkspace: {
+            nodes: components["schemas"]["OrganizationNode"][];
+            roles: components["schemas"]["OrganizationRole"][];
+            staff: components["schemas"]["StaffAssignment"][];
+        };
+        StaffInvitation: {
+            /** Format: uuid */
+            id: string;
+            token: string;
+            /** Format: uuid */
+            subject_id: string;
+            /** Format: uuid */
+            node_id: string;
+            /** Format: uuid */
+            role_id: string;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        OrganizationNodeInput: {
+            name: string;
+            parent_id: string;
+            /** @enum {string} */
+            kind: "ORGANIZATION" | "TERRITORY";
+        };
+        OrganizationRoleInput: {
+            name: string;
+            /** Format: uuid */
+            node_id: string;
+            capabilities: ("organization.read" | "organization.manage" | "staff.manage" | "resource.read" | "resource.export" | "resource.command")[];
+        };
+        StaffAssignmentInput: {
+            /** Format: uuid */
+            subject_id: string;
+            /** Format: uuid */
+            node_id: string;
+            /** Format: uuid */
+            role_id: string;
+            /** @enum {string} */
+            status: "ACTIVE" | "SUSPENDED" | "LEFT";
+            revision: number;
+        };
+        StaffInvitationInput: {
+            /** Format: uuid */
+            subject_id: string;
+            /** Format: uuid */
+            node_id: string;
+            /** Format: uuid */
+            role_id: string;
+        };
+        StaffInvitationAcceptance: {
+            token: string;
+        };
+        OperatorLoginInput: {
+            id_token: string;
+            country: string;
+        };
         /** @enum {string} */
-        AdminRole: "SUPER_ADMIN" | "COUNTRY_ADMIN" | "CONTENT_ADMIN" | "SUPPORT_ADMIN" | "AUDITOR";
+        AdminRole: "SUPER_ADMIN" | "COUNTRY_ADMIN" | "FINANCE" | "CONTENT_ADMIN" | "SUPPORT_ADMIN" | "AUDITOR" | "REGIONAL_STAFF";
         AdminSessionAssertion: {
             /** Format: uuid */
             subject_id: string;
@@ -509,6 +1418,8 @@ export interface components {
         };
         CMSPageDraftPage: {
             items: components["schemas"]["CMSPageDraft"][];
+            /** @description Current owning published configuration revision in the resolved operator tenant/country. Zero means no published workspace. If unavailable, publication remains disabled. Include this observed revision with the draft revision when requesting independent approval. */
+            readonly published_revision?: number;
         };
         CMSWorkspaceDraftInput: {
             /** Format: int64 */
@@ -525,6 +1436,8 @@ export interface components {
             updated_by: string;
             /** Format: date-time */
             updated_at: string;
+            /** @description Current owning published configuration revision in the resolved operator tenant/country. Zero means no published workspace. If unavailable, publication remains disabled. Include this observed revision with the draft revision when requesting independent approval. */
+            readonly published_revision?: number;
         };
         AdminOperationInput: {
             domain: components["schemas"]["AdminOperationDomain"];
@@ -619,6 +1532,318 @@ export interface components {
             next_cursor?: string;
             has_more: boolean;
         };
+        OperatorChange: {
+            display_name: string;
+            roles: ("COUNTRY_ADMIN" | "FINANCE" | "CONTENT_ADMIN" | "SUPPORT_ADMIN" | "AUDITOR" | "REGIONAL_STAFF")[];
+            allowed_countries: string[];
+            active: boolean;
+            revision: number;
+            reason: string;
+        };
+        OperatorCreate: {
+            display_name: string;
+            roles: ("COUNTRY_ADMIN" | "FINANCE" | "CONTENT_ADMIN" | "SUPPORT_ADMIN" | "AUDITOR" | "REGIONAL_STAFF")[];
+            allowed_countries: string[];
+            active: boolean;
+            /** @constant */
+            revision: 0;
+            reason: string;
+            provider_subject: string;
+        };
+        OperatorAccount: {
+            display_name: string;
+            roles: ("SUPER_ADMIN" | "COUNTRY_ADMIN" | "FINANCE" | "CONTENT_ADMIN" | "SUPPORT_ADMIN" | "AUDITOR" | "REGIONAL_STAFF")[];
+            allowed_countries: string[];
+            active: boolean;
+            revision: number;
+            /** Format: uuid */
+            subject_id: string;
+            provider_subject: string;
+        };
+        OperatorPage: {
+            items: components["schemas"]["OperatorAccount"][];
+            /** Format: uuid */
+            next_after?: string;
+        };
+        OperatorEvent: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            actor_id: string;
+            country: string;
+            /** @enum {string} */
+            action: "CREATED" | "UPDATED";
+            revision: number;
+            roles: ("SUPER_ADMIN" | "COUNTRY_ADMIN" | "FINANCE" | "CONTENT_ADMIN" | "SUPPORT_ADMIN" | "AUDITOR" | "REGIONAL_STAFF")[];
+            allowed_countries: string[];
+            active: boolean;
+            reason: string;
+            /** Format: date-time */
+            occurred_at: string;
+        };
+        OperatorEventPage: {
+            items: components["schemas"]["OperatorEvent"][];
+            next_before?: number;
+        };
+        FulfillmentTerritoryBinding: {
+            /** Format: uuid */
+            territory_id: string;
+            name: string;
+            region_id: string;
+            /** Format: uuid */
+            node_id?: string;
+            revision: number;
+        };
+        OperatorFulfillmentTerritory: {
+            center: components["schemas"]["OperatorFulfillmentPoint"];
+            franchise_id: string;
+            id: string;
+            name: string;
+            postal_codes: string[];
+            radius_km: number;
+            region_id: string;
+        };
+        OperatorFulfillmentPoint: {
+            latitude: number;
+            longitude: number;
+        };
+        OperatorFulfillmentRegionalDashboard: {
+            at_risk_tasks: number;
+            completed_today: number;
+            /** Format: date-time */
+            generated_at: string;
+            latest_locations: components["schemas"]["OperatorFulfillmentRiderLocation"][];
+            online_riders: number;
+            /** @description Country-wide pending payout amount; present only for global operations administrators. Omitted for delegated regional/franchise viewers. */
+            payouts_pending?: components["schemas"]["OperatorFulfillmentMoney"];
+            recent_field_check_ins: components["schemas"]["OperatorFulfillmentFieldCheckIn"][];
+            region_id: string;
+            territories: number;
+            unassigned_tasks: number;
+        };
+        OperatorFulfillmentRiderLocation: {
+            accuracy_m: number;
+            /** Format: date-time */
+            expires_at: string;
+            point: components["schemas"]["OperatorFulfillmentPoint"];
+            rider_id: string;
+            sequence: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        OperatorFulfillmentMoney: {
+            amount_minor: number;
+            currency: string;
+        };
+        OperatorFulfillmentFieldCheckIn: {
+            distance_m: number;
+            id: string;
+            officer_id: string;
+            point: components["schemas"]["OperatorFulfillmentPoint"];
+            /** Format: date-time */
+            recorded_at: string;
+            territory_id: string;
+        };
+        AudienceGroupInput: {
+            /** Format: uuid */
+            node_id: string;
+            name: string;
+            role_ids: string[];
+            include_descendants: boolean;
+            active: boolean;
+            revision: number;
+        };
+        AudienceGroupUpdateInput: {
+            /** Format: uuid */
+            node_id: string;
+            name: string;
+            role_ids: string[];
+            include_descendants: boolean;
+            active: boolean;
+            revision: number;
+        };
+        AudienceGroup: {
+            /** Format: uuid */
+            node_id: string;
+            name: string;
+            role_ids: string[];
+            include_descendants: boolean;
+            active: boolean;
+            revision: number;
+            /** Format: uuid */
+            id: string;
+        };
+        MasterData: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "COUNTRY" | "STATE" | "DISTRICT" | "CITY" | "AREA" | "OCCUPATION" | "REASON";
+            code: string;
+            /** Format: uuid */
+            parent_id?: string;
+            name_en: string;
+            name_ta: string;
+            active: boolean;
+            /** Format: int64 */
+            revision: number;
+        };
+        MasterDataChange: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "COUNTRY" | "STATE" | "DISTRICT" | "CITY" | "AREA" | "OCCUPATION" | "REASON";
+            code: string;
+            /** Format: uuid */
+            parent_id?: string;
+            name_en: string;
+            name_ta: string;
+            active: boolean;
+            /** Format: int64 */
+            revision: number;
+            reason: string;
+        };
+        MasterDataPage: {
+            items: components["schemas"]["MasterData"][];
+            /** Format: uuid */
+            next_after?: string;
+        };
+        MasterDataVersion: {
+            definition: components["schemas"]["MasterData"];
+            /** Format: uuid */
+            actor_id: string;
+            reason: string;
+            /** Format: date-time */
+            occurred_at: string;
+        };
+        MasterDataHistory: {
+            items: components["schemas"]["MasterDataVersion"][];
+            /** Format: int64 */
+            next_before?: number;
+        };
+        ParticipantReviewSummary: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            participant_id: string;
+            /** @enum {string} */
+            kind: "VENDOR" | "RIDER";
+            status: string;
+            display_name: string;
+            category: string;
+            bank_status: string;
+            /** Format: date-time */
+            updated_at: string;
+            revision: number;
+            document_count: number;
+            actions: ("REJECT" | "FIELD_CHECK_IN")[];
+        };
+        ParticipantReviewPage: {
+            items: components["schemas"]["ParticipantReviewSummary"][];
+            /** Format: uuid */
+            next_after?: string;
+        };
+        RegionalParticipantReviewSummary: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            participant_id: string;
+            /** @enum {string} */
+            kind: "VENDOR" | "RIDER";
+            revision: number;
+            status: string;
+            display_name: string;
+            category: string;
+            /** Format: date-time */
+            updated_at: string;
+            actions: ("REJECT" | "FIELD_CHECK_IN")[];
+        };
+        RegionalParticipantReviewPage: {
+            items: components["schemas"]["RegionalParticipantReviewSummary"][];
+            /** Format: uuid */
+            next_after?: string;
+        };
+        ParticipantReviewReceipt: {
+            /** Format: uuid */
+            participant_id: string;
+            /** @enum {string} */
+            kind: "VENDOR" | "RIDER";
+            revision: number;
+            /** @enum {string} */
+            status: "REJECTED" | "SUSPENDED" | "FIELD_VISIT_PASSED" | "OCR_REVIEW" | "KYC_REVIEW" | "FIELD_VISIT_REQUIRED" | "BANK_REVIEW" | "APPROVED";
+        };
+        ParticipantReviewDetail: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            participant_id: string;
+            /** @enum {string} */
+            kind: "VENDOR" | "RIDER";
+            revision: number;
+            status: string;
+            display_name: string;
+            category: string;
+            contact_name?: string;
+            phone_masked?: string;
+            vehicle_number_masked?: string;
+            documents: {
+                kind: string;
+                ocr_status: string;
+                review_reason?: string;
+            }[];
+            field_visit?: {
+                /** Format: date-time */
+                scheduled_at: string;
+                /** Format: date-time */
+                checked_in_at?: string;
+                check_in_distance_m?: number;
+            };
+            service_zone_count?: number;
+            zones?: string[];
+            bank_status: string;
+            bank_last4?: string;
+            last_review_reason?: string;
+            review_actions: ("START_OCR_REVIEW" | "VERIFY_KYC" | "REQUIRE_FIELD_VISIT" | "VERIFY_BANK" | "APPROVE" | "REJECT")[];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        RegionalParticipantReviewDetail: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            participant_id: string;
+            /** @enum {string} */
+            kind: "VENDOR";
+            revision: number;
+            status: string;
+            display_name: string;
+            category: string;
+            field_visit?: {
+                /** Format: date-time */
+                scheduled_at: string;
+                /** Format: date-time */
+                checked_in_at?: string;
+            };
+            service_zone_count: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ParticipantTerritoryBinding: {
+            /** @enum {string} */
+            kind: "VENDOR" | "RIDER";
+            /** Format: uuid */
+            participant_id: string;
+            /** Format: uuid */
+            node_id?: string;
+            active: boolean;
+            revision: number;
+        };
+        ParticipantTerritoryPage: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            }[];
+        };
         CorrelationID: string;
         FieldError: {
             field: string;
@@ -655,6 +1880,8 @@ export interface components {
             audience: ("PUBLIC" | "CUSTOMER" | "VENDOR" | "RIDER")[];
             enabled: boolean;
             blocks: components["schemas"]["PageBlock"][];
+            /** @description Optional current organization audience groups. A page must also match its base role audience; matching any active group narrows visibility. Membership is evaluated on each read and is never cached with the published snapshot. */
+            audience_groups?: string[];
         };
         /** @enum {string} */
         Locale: "en" | "ta" | "hi" | "te" | "kn" | "ml" | "mr" | "bn" | "gu";
@@ -713,6 +1940,9 @@ export interface components {
         CSRFToken: string;
         ReportID: string;
         ExportID: string;
+        PrivacyProposalID: string;
+        PrivacyRequestID: string;
+        PrivacyHoldID: number;
     };
     requestBodies: never;
     headers: never;
@@ -720,6 +1950,215 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    adminOrganizationWorkspace: {
+        parameters: {
+            query?: {
+                search?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationWorkspace"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminOrganizationCreateNode: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationNodeInput"];
+            };
+        };
+        responses: {
+            /** @description Completed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationNode"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminOrganizationCreateRole: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationRoleInput"];
+            };
+        };
+        responses: {
+            /** @description Completed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationRole"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminOrganizationSetStaff: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StaffAssignmentInput"];
+            };
+        };
+        responses: {
+            /** @description Completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffAssignment"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminOrganizationInvite: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StaffInvitationInput"];
+            };
+        };
+        responses: {
+            /** @description Completed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffInvitation"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminOrganizationAccept: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StaffInvitationAcceptance"];
+            };
+        };
+        responses: {
+            /** @description Completed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminOperatorLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorLoginInput"];
+            };
+        };
+        responses: {
+            /** @description Completed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSessionExchangeResult"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
     adminExchangeVerifiedSession: {
         parameters: {
             query?: never;
@@ -1297,6 +2736,1190 @@ export interface operations {
             };
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
+        };
+    };
+    adminOrganizationNodeStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    active: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Completed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminListOperators: {
+        parameters: {
+            query?: {
+                search?: string;
+                after?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminCreateOperator: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorCreate"];
+            };
+        };
+        responses: {
+            /** @description Completed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorAccount"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminUpdateOperator: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path: {
+                subject_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorChange"];
+            };
+        };
+        responses: {
+            /** @description Completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorAccount"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminOperatorEvents: {
+        parameters: {
+            query?: {
+                before?: number;
+            };
+            header?: never;
+            path: {
+                subject_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorEventPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminFulfillmentTerritoryBindings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["FulfillmentTerritoryBinding"][];
+                    };
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminBindFulfillmentTerritory: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path: {
+                territory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    node_id: string;
+                    revision: number;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Completed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminListFulfillmentTerritories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Owning service read succeeded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["OperatorFulfillmentTerritory"][];
+                    };
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminReadFulfillmentRegion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                region_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Owning service read succeeded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorFulfillmentRegionalDashboard"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminFulfillmentFieldTerritories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current command scope */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        territory_ids: string[];
+                    };
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminFulfillmentFieldCheckIn: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+                "Idempotency-Key": string;
+            };
+            path: {
+                territory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    point: components["schemas"]["OperatorFulfillmentPoint"];
+                };
+            };
+        };
+        responses: {
+            /** @description Owning service confirmed the visit */
+            201: {
+                headers: {
+                    /** @description Present only for an acknowledged prior visit. */
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorFulfillmentFieldCheckIn"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminListAudienceGroups: {
+        parameters: {
+            query?: {
+                /** @description The previous page next_cursor, a canonical lowercase UUID. Omit for the first page. */
+                after?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current scoped result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        groups: components["schemas"]["AudienceGroup"][];
+                        /**
+                         * Format: uuid
+                         * @description Present only when another currently authorized page exists.
+                         */
+                        next_cursor?: string;
+                    };
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminCreateAudienceGroup: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AudienceGroupInput"];
+            };
+        };
+        responses: {
+            /** @description Current scoped result */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudienceGroup"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminUpdateAudienceGroup: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path: {
+                audience_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AudienceGroupUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description Current scoped result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudienceGroup"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminPreviewAudienceMember: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path: {
+                audience_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    subject_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Current scoped result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        member: boolean;
+                    };
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminExportFulfillmentRegion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                region_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded spreadsheet-safe operational CSV; private, no-store */
+            200: {
+                headers: {
+                    "Content-Disposition"?: "attachment; filename=\"delivery-summary.csv\"";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    listMasterData: {
+        parameters: {
+            query: {
+                kind: "COUNTRY" | "STATE" | "DISTRICT" | "CITY" | "AREA" | "OCCUPATION" | "REASON";
+                search?: string;
+                status?: "ALL" | "ACTIVE" | "INACTIVE";
+                parent_id?: string;
+                after?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful current-country result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    saveMasterData: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path: {
+                master_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MasterDataChange"];
+            };
+        };
+        responses: {
+            /** @description Successful current-country result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterData"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            /** @description Revision, stable identity or active-child conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid record or hierarchy */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: components["responses"]["Problem"];
+        };
+    };
+    masterDataHistory: {
+        parameters: {
+            query?: {
+                before?: number;
+            };
+            header?: never;
+            path: {
+                master_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful current-country result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataHistory"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            /** @description No entry in the current tenant/country */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    listAdminParticipantApplications: {
+        parameters: {
+            query?: {
+                status?: string;
+                search?: string;
+                after?: string;
+            };
+            header?: never;
+            path: {
+                kind: "VENDOR" | "RIDER";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current-country review projection or regional queue without document and bank metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantReviewPage"] | components["schemas"]["RegionalParticipantReviewPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    rejectAdminParticipantApplication: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+                "X-CSRF-Token": string;
+            };
+            path: {
+                kind: "VENDOR" | "RIDER";
+                participant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Minimal current-country participant projection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantReviewReceipt"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminVendorFieldCheckIn: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+                "X-CSRF-Token": string;
+            };
+            path: {
+                participant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    latitude: number;
+                    longitude: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Minimal vendor field visit receipt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantReviewReceipt"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminParticipantReviewDetail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: "VENDOR" | "RIDER";
+                participant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Country review evidence or minimal regional vendor summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantReviewDetail"] | components["schemas"]["RegionalParticipantReviewDetail"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminParticipantReviewDocumentAccess: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path: {
+                kind: "VENDOR" | "RIDER";
+                participant_id: string;
+                document_kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Short lived private access grant. Cache-Control: no-store. */
+            200: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        kind: string;
+                        /** Format: uri */
+                        url: string;
+                        /** Format: date-time */
+                        expires_at: string;
+                    };
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminParticipantReviewAction: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+                "X-CSRF-Token": string;
+            };
+            path: {
+                kind: "VENDOR" | "RIDER";
+                participant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    action: "START_OCR_REVIEW" | "VERIFY_KYC" | "REQUIRE_FIELD_VISIT" | "VERIFY_BANK" | "APPROVE" | "REJECT";
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Minimal owner decision receipt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantReviewReceipt"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminGetParticipantTerritory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: "VENDOR" | "RIDER";
+                participant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current authorized result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantTerritoryBinding"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminBindParticipantTerritory: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path: {
+                kind: "VENDOR" | "RIDER";
+                participant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    node_id: string;
+                    active: boolean;
+                    revision: number;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Current authorized result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantTerritoryBinding"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminListParticipantTerritories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current authorized result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantTerritoryPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminListRetentionProposals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current country proposals */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyRetentionProposalPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminProposeRetentionPolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": components["parameters"]["CSRFToken"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrivacyRetentionProposalInput"];
+            };
+        };
+        responses: {
+            /** @description Proposal recorded */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyRetentionProposalCreated"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminGetRetentionProposal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: components["parameters"]["PrivacyProposalID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Proposal */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyRetentionProposal"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminPublishRetentionPolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": components["parameters"]["CSRFToken"];
+            };
+            path: {
+                proposal_id: components["parameters"]["PrivacyProposalID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Published policy revision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyRetentionPublished"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminListDeletionRequests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current country deletion requests */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyDeletionRequestPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminGetDeletionRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: components["parameters"]["PrivacyRequestID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deletion request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyDeletionRequest"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminPlaceDeletionHold: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": components["parameters"]["CSRFToken"];
+            };
+            path: {
+                request_id: components["parameters"]["PrivacyRequestID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrivacyPlaceHoldInput"];
+            };
+        };
+        responses: {
+            /** @description Active hold receipt */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyHoldReceipt"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminListDeletionHolds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current country holds */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyDeletionHoldPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    adminReleaseDeletionHold: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": components["parameters"]["CSRFToken"];
+            };
+            path: {
+                hold_id: components["parameters"]["PrivacyHoldID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrivacyReleaseHoldInput"];
+            };
+        };
+        responses: {
+            /** @description Released hold receipt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyHoldReceipt"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
         };
     };
 }

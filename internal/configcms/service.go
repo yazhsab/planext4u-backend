@@ -14,9 +14,10 @@ import (
 )
 
 type Service struct {
-	repository      Repository
-	clock           func() time.Time
-	webDeploymentID string
+	repository       Repository
+	publicRepository Repository
+	clock            func() time.Time
+	webDeploymentID  string
 }
 
 func NewService(repository Repository, clock func() time.Time) (*Service, error) {
@@ -24,14 +25,21 @@ func NewService(repository Repository, clock func() time.Time) (*Service, error)
 }
 
 func NewServiceWithWebDeployment(repository Repository, clock func() time.Time, webDeploymentID string) (*Service, error) {
-	if repository == nil || clock == nil {
+	return NewServiceWithPublicRepository(repository, repository, clock, webDeploymentID)
+}
+
+// Public startup reads can use the owning repository directly while the normal
+// bootstrap retains its established cache. A removed splash must be observed by
+// the next successful startup read rather than await a process-local cache TTL.
+func NewServiceWithPublicRepository(repository, publicRepository Repository, clock func() time.Time, webDeploymentID string) (*Service, error) {
+	if repository == nil || publicRepository == nil || clock == nil {
 		return nil, fmt.Errorf("invalid configuration service")
 	}
 	webDeploymentID = strings.TrimSpace(webDeploymentID)
 	if !ValidDeploymentID(webDeploymentID) {
 		return nil, fmt.Errorf("invalid web deployment identifier")
 	}
-	return &Service{repository: repository, clock: clock, webDeploymentID: webDeploymentID}, nil
+	return &Service{repository: repository, publicRepository: publicRepository, clock: clock, webDeploymentID: webDeploymentID}, nil
 }
 
 func (service *Service) Bootstrap(ctx context.Context, tenantID, country string, platform Platform, appVersion, deploymentID, requestedLocale string) (Bootstrap, error) {
@@ -72,14 +80,14 @@ func (service *Service) Bootstrap(ctx context.Context, tenantID, country string,
 		maintenanceUntil = &end
 		maintenanceText = window.Message
 	}
-	sections := append([]HomeSection(nil), snapshot.HomeSections...)
+	sections := append([]HomeSection{}, snapshot.HomeSections...)
 	sort.SliceStable(sections, func(left, right int) bool { return sections[left].Priority < sections[right].Priority })
 	result := Bootstrap{
 		Revision: snapshot.Revision, PublishedAt: snapshot.PublishedAt, Platform: platform, ClientVersion: appVersion,
 		UpdateGate: gate, UpdateAction: action, LatestVersion: latest,
 		Maintenance: maintenance, MaintenanceUntil: maintenanceUntil, MaintenanceText: maintenanceText,
 		Locale: locale, SupportedLocales: append([]string(nil), snapshot.SupportedLocales...),
-		ConsentPolicies: append([]ConsentPolicy(nil), snapshot.ConsentPolicies...), Flags: cloneMap(snapshot.Flags), HomeSections: sections, Pages: publishedPages(snapshot.Pages),
+		ConsentPolicies: append([]ConsentPolicy{}, snapshot.ConsentPolicies...), Flags: cloneMap(snapshot.Flags), HomeSections: sections, Pages: publishedPages(snapshot.Pages),
 	}
 	if platform == PlatformWeb {
 		result.ClientDeploymentID = deploymentID

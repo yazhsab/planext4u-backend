@@ -57,7 +57,9 @@ func TestBEP4012Phase4DiscoveryLoadMeetsControlledLatencyBudget(t *testing.T) {
 		}
 		latencies = append(latencies, result.duration)
 	}
-	if p95 := percentile95(latencies); p95 > 400*time.Millisecond {
+	p95 := percentile95(latencies)
+	t.Logf("phase4 discovery p95=%s (400ms budget)", p95)
+	if p95 > 400*time.Millisecond {
 		t.Fatalf("phase4 discovery p95=%s, want <=400ms", p95)
 	}
 }

@@ -1,21 +1,80 @@
 {
   "openapi": "3.1.0",
-  "info": {"title": "Planext4u Configuration and CMS API", "version": "1.1.0"},
-  "security": [{"bearerAuth": []}],
+  "info": {
+    "title": "Planext4u Configuration and CMS API",
+    "version": "1.3.0"
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
   "paths": {
     "/v1/bootstrap": {
       "get": {
         "operationId": "configurationGetBootstrap",
         "parameters": [
-          {"name": "platform", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Platform"}},
-          {"name": "app_version", "in": "query", "required": true, "schema": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}},
-          {"name": "deployment_id", "in": "query", "required": false, "x-planext4u-required-for-platforms": ["WEB"], "description": "Immutable build deployment identifier. Required when platform is WEB.", "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"}},
-          {"name": "locale", "in": "query", "required": true, "schema": {"type": "string"}}
+          {
+            "name": "platform",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Platform"
+            }
+          },
+          {
+            "name": "app_version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+            }
+          },
+          {
+            "name": "deployment_id",
+            "in": "query",
+            "required": false,
+            "x-planext4u-required-for-platforms": [
+              "WEB"
+            ],
+            "description": "Immutable build deployment identifier. Required when platform is WEB.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          },
+          {
+            "name": "locale",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
-          "200": {"description": "Resolved tenant and country bootstrap", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Bootstrap"}}}},
-          "404": {"$ref": "#/components/responses/Problem"},
-          "422": {"$ref": "#/components/responses/Problem"}
+          "200": {
+            "description": "Resolved tenant and country bootstrap",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bootstrap"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
         }
       }
     },
@@ -23,66 +82,943 @@
       "get": {
         "operationId": "configurationGetPage",
         "parameters": [
-          {"name": "page_id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"}},
-          {"name": "locale", "in": "query", "required": false, "schema": {"type": "string"}}
+          {
+            "name": "page_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            }
+          },
+          {
+            "name": "locale",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
-          "200": {"description": "Published CMS page for the tenant and country", "headers": {"ETag": {"schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PageDocument"}}}},
-          "404": {"$ref": "#/components/responses/Problem"},
-          "422": {"$ref": "#/components/responses/Problem"}
+          "200": {
+            "description": "Published CMS page for the tenant and country",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageDocument"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/startup": {
+      "get": {
+        "operationId": "configurationGetPublicStartup",
+        "summary": "Read published public mobile splash before authentication",
+        "description": "Deployment-owned tenant and explicit country allowlist. Only the exact reserved PUBLIC splash page is projected; no bootstrap, identity, targeting, redirects or scripts. An absent/disabled splash is null. Locale falls back to English. This response never authenticates a user or grants consent.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "country",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}$"
+            }
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "customer",
+                "vendor",
+                "rider"
+              ]
+            }
+          },
+          {
+            "name": "locale",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 32
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded current public projection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartupDocument"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/v1/occupations": {
+      "get": {
+        "tags": [
+          "Reference data"
+        ],
+        "operationId": "searchOccupations",
+        "summary": "Search active occupations in the trusted session tenant/country",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "Authenticated gateway route with literal search and bounded stable-ID pagination. No participant, operator or audit records are exposed.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current active occupation references",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OccupationPage"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "description": "Reference owner unavailable; retry without selecting arbitrary IDs"
+          }
+        }
+      }
+    },
+    "/v1/geography": {
+      "get": {
+        "operationId": "configuration.listGeography",
+        "summary": "Search active geography within the authenticated country and selected parent.",
+        "description": "COUNTRY has no parent; other levels require the immediate parent. All ancestors must be active. Unknown, duplicate and caller authority fields are rejected; safe pages contain at most 50 records.",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "COUNTRY",
+                "STATE",
+                "DISTRICT",
+                "CITY",
+                "AREA"
+              ]
+            }
+          },
+          {
+            "name": "parent_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current country geography page; no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeographyPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid geography query."
+          },
+          "503": {
+            "description": "The owning directory is unavailable."
+          }
         }
       }
     }
   },
   "components": {
-    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
-    "responses": {"Problem": {"description": "Safe standard error", "content": {"application/json": {"schema": {"$ref": "./common.openapi.json#/components/schemas/ErrorEnvelope"}}}}},
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "Safe standard error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "./common.openapi.json#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      }
+    },
     "schemas": {
-      "Platform": {"type": "string", "enum": ["ANDROID", "IOS", "WEB"]},
-      "Locale": {"type": "string", "enum": ["en", "ta", "hi", "te", "kn", "ml", "mr", "bn", "gu"]},
-      "UpdateGate": {"type": "string", "enum": ["NONE", "OPTIONAL", "REQUIRED"]},
-      "UpdateAction": {"type": "string", "enum": ["NONE", "STORE_UPDATE", "RELOAD"]},
-      "ConsentPolicy": {"type": "object", "additionalProperties": false, "required": ["purpose", "policy_version", "required"], "properties": {"purpose": {"type": "string"}, "policy_version": {"type": "string"}, "required": {"type": "boolean"}}},
-      "HomeSection": {"type": "object", "additionalProperties": false, "required": ["id", "kind", "title_key", "enabled", "priority"], "properties": {"id": {"type": "string"}, "kind": {"type": "string"}, "title_key": {"type": "string"}, "enabled": {"type": "boolean"}, "priority": {"type": "integer"}}},
-      "MaintenanceWindow": {"type": "object", "additionalProperties": false, "required": ["starts_at", "ends_at", "message"], "properties": {"starts_at": {"type": "string", "format": "date-time"}, "ends_at": {"type": "string", "format": "date-time"}, "message": {"type": "string", "minLength": 1, "maxLength": 240}}},
-      "Workspace": {
-        "type": "object", "additionalProperties": false,
-        "required": ["minimum_versions", "latest_versions", "supported_locales", "default_locale", "consent_policies", "flags", "home_sections"],
+      "Platform": {
+        "type": "string",
+        "enum": [
+          "ANDROID",
+          "IOS",
+          "WEB"
+        ]
+      },
+      "Locale": {
+        "type": "string",
+        "enum": [
+          "en",
+          "ta",
+          "hi",
+          "te",
+          "kn",
+          "ml",
+          "mr",
+          "bn",
+          "gu"
+        ]
+      },
+      "UpdateGate": {
+        "type": "string",
+        "enum": [
+          "NONE",
+          "OPTIONAL",
+          "REQUIRED"
+        ]
+      },
+      "UpdateAction": {
+        "type": "string",
+        "enum": [
+          "NONE",
+          "STORE_UPDATE",
+          "RELOAD"
+        ]
+      },
+      "ConsentPolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "purpose",
+          "policy_version",
+          "required"
+        ],
         "properties": {
-          "minimum_versions": {"type": "object", "additionalProperties": false, "required": ["ANDROID", "IOS", "WEB"], "properties": {"ANDROID": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "IOS": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "WEB": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}}},
-          "latest_versions": {"type": "object", "additionalProperties": false, "required": ["ANDROID", "IOS", "WEB"], "properties": {"ANDROID": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "IOS": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "WEB": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}}},
-          "supported_locales": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/components/schemas/Locale"}},
-          "default_locale": {"$ref": "#/components/schemas/Locale"},
-          "consent_policies": {"type": "array", "items": {"$ref": "#/components/schemas/ConsentPolicy"}},
-          "flags": {"type": "object", "maxProperties": 256, "additionalProperties": {"type": "boolean"}},
-          "home_sections": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/HomeSection"}},
-          "maintenance_window": {"$ref": "#/components/schemas/MaintenanceWindow"}
+          "purpose": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          }
         }
       },
-      "PageBlock": {"type": "object", "additionalProperties": false, "required": ["id", "kind", "enabled", "priority", "content"], "properties": {"id": {"type": "string"}, "kind": {"type": "string"}, "title_key": {"type": "string"}, "enabled": {"type": "boolean"}, "priority": {"type": "integer", "minimum": 0}, "content": {"type": "object", "additionalProperties": true}}},
-      "Page": {"type": "object", "additionalProperties": false, "required": ["id", "route", "title_key", "audience", "enabled", "blocks"], "properties": {"id": {"type": "string"}, "route": {"type": "string", "pattern": "^/"}, "title_key": {"type": "string"}, "audience": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["PUBLIC", "CUSTOMER", "VENDOR", "RIDER"]}}, "enabled": {"type": "boolean"}, "blocks": {"type": "array", "items": {"$ref": "#/components/schemas/PageBlock"}}}},
-      "PageDocument": {"type": "object", "additionalProperties": false, "required": ["revision", "published_at", "locale", "page"], "properties": {"revision": {"type": "integer", "minimum": 1}, "published_at": {"type": "string", "format": "date-time"}, "locale": {"$ref": "#/components/schemas/Locale"}, "page": {"$ref": "#/components/schemas/Page"}}},
-      "Bootstrap": {
-        "type": "object", "additionalProperties": false,
-        "required": ["revision", "published_at", "platform", "client_version", "update_gate", "update_action", "latest_version", "maintenance", "locale", "supported_locales", "consent_policies", "flags", "home_sections", "pages"],
+      "HomeSection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "title_key",
+          "enabled",
+          "priority"
+        ],
         "properties": {
-          "revision": {"type": "integer", "minimum": 1}, "published_at": {"type": "string", "format": "date-time"},
-          "platform": {"$ref": "#/components/schemas/Platform"}, "client_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-          "update_gate": {"$ref": "#/components/schemas/UpdateGate"}, "update_action": {"$ref": "#/components/schemas/UpdateAction"}, "latest_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-          "client_deployment_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"},
-          "latest_deployment_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"},
-          "maintenance": {"type": "boolean"}, "maintenance_until": {"type": "string", "format": "date-time"}, "maintenance_text": {"type": "string"},
-          "locale": {"$ref": "#/components/schemas/Locale"}, "supported_locales": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/components/schemas/Locale"}},
-          "consent_policies": {"type": "array", "items": {"$ref": "#/components/schemas/ConsentPolicy"}},
-          "flags": {"type": "object", "additionalProperties": {"type": "boolean"}},
-          "home_sections": {"type": "array", "items": {"$ref": "#/components/schemas/HomeSection"}},
-          "pages": {"type": "array", "items": {"$ref": "#/components/schemas/Page"}}
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "title_key": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "priority": {
+            "type": "integer"
+          }
+        }
+      },
+      "MaintenanceWindow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "starts_at",
+          "ends_at",
+          "message"
+        ],
+        "properties": {
+          "starts_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ends_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          }
+        }
+      },
+      "Workspace": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "minimum_versions",
+          "latest_versions",
+          "supported_locales",
+          "default_locale",
+          "consent_policies",
+          "flags",
+          "home_sections"
+        ],
+        "properties": {
+          "minimum_versions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "ANDROID",
+              "IOS",
+              "WEB"
+            ],
+            "properties": {
+              "ANDROID": {
+                "type": "string",
+                "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+              },
+              "IOS": {
+                "type": "string",
+                "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+              },
+              "WEB": {
+                "type": "string",
+                "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+              }
+            }
+          },
+          "latest_versions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "ANDROID",
+              "IOS",
+              "WEB"
+            ],
+            "properties": {
+              "ANDROID": {
+                "type": "string",
+                "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+              },
+              "IOS": {
+                "type": "string",
+                "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+              },
+              "WEB": {
+                "type": "string",
+                "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+              }
+            }
+          },
+          "supported_locales": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Locale"
+            }
+          },
+          "default_locale": {
+            "$ref": "#/components/schemas/Locale"
+          },
+          "consent_policies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsentPolicy"
+            }
+          },
+          "flags": {
+            "type": "object",
+            "maxProperties": 256,
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          },
+          "home_sections": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/HomeSection"
+            }
+          },
+          "maintenance_window": {
+            "$ref": "#/components/schemas/MaintenanceWindow"
+          }
+        }
+      },
+      "PageBlock": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "enabled",
+          "priority",
+          "content"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "title_key": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "content": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "Page": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "route",
+          "title_key",
+          "audience",
+          "enabled",
+          "blocks"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "route": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "title_key": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": [
+                "PUBLIC",
+                "CUSTOMER",
+                "VENDOR",
+                "RIDER"
+              ]
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PageBlock"
+            }
+          },
+          "audience_groups": {
+            "type": "array",
+            "maxItems": 16,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Optional current organization audience groups. A page must also match its base role audience; matching any active group narrows visibility. Membership is evaluated on each read and is never cached with the published snapshot."
+          }
+        }
+      },
+      "PageDocument": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "published_at",
+          "locale",
+          "page"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "locale": {
+            "$ref": "#/components/schemas/Locale"
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          }
+        }
+      },
+      "Bootstrap": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "published_at",
+          "platform",
+          "client_version",
+          "update_gate",
+          "update_action",
+          "latest_version",
+          "maintenance",
+          "locale",
+          "supported_locales",
+          "consent_policies",
+          "flags",
+          "home_sections",
+          "pages"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/Platform"
+          },
+          "client_version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+          },
+          "update_gate": {
+            "$ref": "#/components/schemas/UpdateGate"
+          },
+          "update_action": {
+            "$ref": "#/components/schemas/UpdateAction"
+          },
+          "latest_version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+          },
+          "client_deployment_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "latest_deployment_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "maintenance": {
+            "type": "boolean"
+          },
+          "maintenance_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "maintenance_text": {
+            "type": "string"
+          },
+          "locale": {
+            "$ref": "#/components/schemas/Locale"
+          },
+          "supported_locales": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Locale"
+            }
+          },
+          "consent_policies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsentPolicy"
+            }
+          },
+          "flags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          },
+          "home_sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HomeSection"
+            }
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Page"
+            }
+          }
+        }
+      },
+      "StartupSplash": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "title",
+          "message"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "pattern": "^[A-Za-z0-9._-]+$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      },
+      "StartupDocument": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "published_at",
+          "country",
+          "role",
+          "locale",
+          "splash"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "vendor",
+              "rider"
+            ]
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "en",
+              "ta",
+              "hi",
+              "te",
+              "kn",
+              "ml",
+              "mr",
+              "bn",
+              "gu"
+            ]
+          },
+          "splash": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StartupSplash"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "OccupationRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "code",
+          "name_en",
+          "name_ta",
+          "master_revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+          },
+          "name_en": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "name_ta": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "master_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        }
+      },
+      "OccupationPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "country",
+          "items"
+        ],
+        "properties": {
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/OccupationRecord"
+            }
+          },
+          "next_after": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GeographyRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "country",
+          "kind",
+          "code",
+          "parent_id",
+          "name_en",
+          "name_ta",
+          "master_revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "COUNTRY",
+              "STATE",
+              "DISTRICT",
+              "CITY",
+              "AREA"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "parent_id": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name_en": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "name_ta": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "master_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        }
+      },
+      "GeographyPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "country",
+          "kind",
+          "items"
+        ],
+        "properties": {
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "COUNTRY",
+              "STATE",
+              "DISTRICT",
+              "CITY",
+              "AREA"
+            ]
+          },
+          "parent_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/GeographyRecord"
+            }
+          },
+          "next_after": {
+            "type": "string",
+            "format": "uuid"
+          }
         }
       }
     }
   },
   "x-planext4u-owner": "communications-trust-administration",
-  "x-planext4u-reviewers": ["product", "security", "privacy"],
+  "x-planext4u-reviewers": [
+    "product",
+    "security",
+    "privacy"
+  ],
   "x-planext4u-classification": "internal",
   "x-planext4u-slo-class": "critical"
 }

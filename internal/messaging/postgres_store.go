@@ -28,7 +28,21 @@ func (store *PostgresStore) Ready(ctx context.Context) error {
 	var ready bool
 	if err := store.pool.QueryRow(ctx, `
 		SELECT to_regclass('messaging.outbox') IS NOT NULL
-		   AND to_regclass('messaging.inbox') IS NOT NULL`).Scan(&ready); err != nil {
+		   AND to_regclass('messaging.inbox') IS NOT NULL
+		   AND to_regclass('messaging.privacy_outbox_scrub_runs') IS NOT NULL
+		   AND to_regclass('messaging.privacy_outbox_scrubbed_events') IS NOT NULL
+		   AND EXISTS(SELECT 1 FROM information_schema.columns
+		              WHERE table_schema='messaging' AND table_name='outbox'
+		                AND column_name='privacy_subject_id')
+		   AND EXISTS(SELECT 1 FROM pg_trigger
+		              WHERE tgrelid=to_regclass('messaging.outbox')
+		                AND tgname='outbox_privacy_scope_guard' AND tgenabled IN ('O','A'))
+		   AND EXISTS(SELECT 1 FROM pg_trigger
+		              WHERE tgrelid=to_regclass('messaging.outbox')
+		                AND tgname='privacy_outbox_reintroduction' AND tgenabled IN ('O','A'))
+		   AND EXISTS(SELECT 1 FROM pg_trigger
+		              WHERE tgrelid=to_regclass('messaging.inbox')
+		                AND tgname='privacy_inbox_reprocessing' AND tgenabled IN ('O','A'))`).Scan(&ready); err != nil {
 		return fmt.Errorf("check messaging schema readiness: %w", err)
 	}
 	if !ready {
@@ -141,17 +155,17 @@ func (store *PostgresStore) MarkFailed(ctx context.Context, id, worker string, n
 	return state, nil
 }
 
-func (store *PostgresStore) DeadLetters(ctx context.Context, tenantID string, limit int) ([]OutboxRecord, error) {
-	if _, err := uuid.Parse(tenantID); err != nil || limit < 1 || limit > 200 {
+func (store *PostgresStore) DeadLetters(ctx context.Context, tenantID, country string, limit int) ([]OutboxRecord, error) {
+	if _, err := uuid.Parse(tenantID); err != nil || len(country) != 2 || country[0] < 'A' || country[0] > 'Z' || country[1] < 'A' || country[1] > 'Z' || limit < 1 || limit > 200 {
 		return nil, ErrInvalidRequest
 	}
 	rows, err := store.pool.Query(ctx, `
 		SELECT envelope, state, attempts, next_attempt_at, lease_owner, lease_until,
 		       last_error_code, created_at, published_at, dead_at
 		FROM messaging.outbox
-		WHERE tenant_id = $1 AND state = 'DEAD_LETTER'
+		WHERE tenant_id = $1 AND envelope->>'country' = $2 AND state = 'DEAD_LETTER'
 		ORDER BY dead_at DESC, event_id
-		LIMIT $2`, tenantID, limit)
+		LIMIT $3`, tenantID, country, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list dead-letter messages: %w", err)
 	}
@@ -167,8 +181,8 @@ func (store *PostgresStore) DeadLetters(ctx context.Context, tenantID string, li
 	return result, rows.Err()
 }
 
-func (store *PostgresStore) Replay(ctx context.Context, tenantID, id string, now time.Time) error {
-	if _, err := uuid.Parse(tenantID); err != nil {
+func (store *PostgresStore) Replay(ctx context.Context, tenantID, country, id string, now time.Time) error {
+	if _, err := uuid.Parse(tenantID); err != nil || len(country) != 2 || country[0] < 'A' || country[0] > 'Z' || country[1] < 'A' || country[1] > 'Z' {
 		return ErrInvalidRequest
 	}
 	if _, err := uuid.Parse(id); err != nil || now.IsZero() {
@@ -176,9 +190,9 @@ func (store *PostgresStore) Replay(ctx context.Context, tenantID, id string, now
 	}
 	result, err := store.pool.Exec(ctx, `
 		UPDATE messaging.outbox
-		SET state = 'PENDING', attempts = 0, next_attempt_at = $3, lease_owner = NULL,
+		SET state = 'PENDING', attempts = 0, next_attempt_at = $4, lease_owner = NULL,
 		    lease_until = NULL, last_error_code = NULL, dead_at = NULL
-		WHERE tenant_id = $1 AND event_id = $2 AND state = 'DEAD_LETTER'`, tenantID, id, now.UTC())
+		WHERE tenant_id = $1 AND envelope->>'country' = $2 AND event_id = $3 AND state = 'DEAD_LETTER'`, tenantID, country, id, now.UTC())
 	if err != nil {
 		return fmt.Errorf("replay dead-letter message: %w", err)
 	}

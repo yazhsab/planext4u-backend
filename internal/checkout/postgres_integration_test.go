@@ -44,6 +44,8 @@ func TestPostgresCheckoutStateSurvivesRestartAndIsTenantIsolated(t *testing.T) {
 		"../../migrations/commerce/000003_customer_address_book.up.sql",
 		"../../migrations/commerce/000004_checkout_orchestration.up.sql",
 		"../../migrations/commerce/000005_published_commercial_configuration.up.sql",
+		"../../migrations/commerce/000006_checkout_workflows.up.sql",
+		"../../migrations/commerce/000007_address_geography.up.sql",
 	} {
 		migration, readErr := os.ReadFile(path)
 		if readErr != nil {
@@ -174,7 +176,7 @@ func TestPostgresCheckoutStateSurvivesRestartAndIsTenantIsolated(t *testing.T) {
 		t.Fatalf("save refill replay=%t err=%v", replay, err)
 	}
 	loadedRefill, found, err := restarted.Refill(postgresCheckoutPaymentTwo)
-	if err != nil || !found || loadedRefill.scope != scope || loadedRefill.offer.ID != "refill-100" {
+	if err != nil || !found || loadedRefill.scope != scope || (loadedRefill.offer.ID != "refill-100" || loadedRefill.offer.ExpiresAfter != 365*24*time.Hour) {
 		t.Fatalf("loaded refill=%#v found=%t err=%v", loadedRefill, found, err)
 	}
 

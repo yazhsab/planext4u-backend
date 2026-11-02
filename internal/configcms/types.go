@@ -56,12 +56,13 @@ type PageBlock struct {
 }
 
 type Page struct {
-	ID       string      `json:"id"`
-	Route    string      `json:"route"`
-	TitleKey string      `json:"title_key"`
-	Audience []string    `json:"audience"`
-	Enabled  bool        `json:"enabled"`
-	Blocks   []PageBlock `json:"blocks"`
+	ID             string      `json:"id"`
+	Route          string      `json:"route"`
+	TitleKey       string      `json:"title_key"`
+	Audience       []string    `json:"audience"`
+	AudienceGroups []string    `json:"audience_groups,omitempty"`
+	Enabled        bool        `json:"enabled"`
+	Blocks         []PageBlock `json:"blocks"`
 }
 
 type Snapshot struct {

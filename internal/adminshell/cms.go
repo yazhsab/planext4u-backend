@@ -19,7 +19,16 @@ func (handler *Handler) listCMSPages(writer http.ResponseWriter, request *http.R
 		writeCMSProblem(writer, request, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, map[string]any{"items": values})
+	revision, err := handler.cmsPublishedRevision(request, session.Principal.TenantID, session.Principal.SelectedCountry)
+	if err != nil {
+		writeProblem(writer, request, http.StatusServiceUnavailable, "CMS_PUBLICATION_UNAVAILABLE", "Publication details could not be loaded. Refresh and retry.")
+		return
+	}
+	result := map[string]any{"items": values}
+	if revision != nil {
+		result["published_revision"] = *revision
+	}
+	writeJSON(writer, http.StatusOK, result)
 }
 
 func (handler *Handler) saveCMSPageDraft(writer http.ResponseWriter, request *http.Request) {
@@ -57,7 +66,36 @@ func (handler *Handler) getCMSWorkspace(writer http.ResponseWriter, request *htt
 		writeCMSProblem(writer, request, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, value)
+	revision, err := handler.cmsPublishedRevision(request, session.Principal.TenantID, session.Principal.SelectedCountry)
+	if err != nil {
+		writeProblem(writer, request, http.StatusServiceUnavailable, "CMS_PUBLICATION_UNAVAILABLE", "Publication details could not be loaded. Refresh and retry.")
+		return
+	}
+	writeJSON(writer, http.StatusOK, struct {
+		configcms.WorkspaceDraft
+		PublishedRevision *int64 `json:"published_revision,omitempty"`
+	}{value, revision})
+}
+
+func (handler *Handler) cmsPublishedRevision(request *http.Request, tenant, country string) (*int64, error) {
+	// Legacy in-process authoring adapters can omit publication metadata. The
+	// canonical runtime always wires the owning repository; the UI then freezes
+	// both observed revisions in the independently approved publication command.
+	if handler.cmsPublished == nil {
+		return nil, nil
+	}
+	snapshot, err := handler.cmsPublished.Get(request.Context(), tenant, country)
+	if errors.Is(err, configcms.ErrNotFound) {
+		zero := int64(0)
+		return &zero, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if snapshot.TenantID != tenant || snapshot.Country != country || snapshot.Revision < 1 {
+		return nil, configcms.ErrInvalidRepository
+	}
+	return &snapshot.Revision, nil
 }
 
 func (handler *Handler) saveCMSWorkspaceDraft(writer http.ResponseWriter, request *http.Request) {

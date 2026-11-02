@@ -69,6 +69,9 @@ func TestGatewayDerivesTrustedIdentityAndPropagatesCorrelation(t *testing.T) {
 		}
 		writer.Header().Set("Server", "unsafe-upstream")
 		writer.Header().Set(correlationIDHeader, "upstream-correlation")
+		writer.Header().Add("Referrer-Policy", "unsafe-url")
+		writer.Header().Add("Referrer-Policy", "no-referrer")
+		writer.Header().Set("X-Content-Type-Options", "unsafe-owner-value")
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = writer.Write([]byte(`{"ok":true}`))
 	}))
@@ -93,8 +96,16 @@ func TestGatewayDerivesTrustedIdentityAndPropagatesCorrelation(t *testing.T) {
 	if response.Header().Get(correlationIDHeader) != "corr-synthetic-gateway-001" {
 		t.Fatalf("correlation response header = %q", response.Header().Get(correlationIDHeader))
 	}
+	if values := response.Header().Values(correlationIDHeader); len(values) != 1 {
+		t.Fatalf("duplicate correlation IDs copied from upstream: %v", values)
+	}
 	if response.Header().Get("Server") != "" {
 		t.Fatalf("unsafe Server response header propagated: %q", response.Header().Get("Server"))
+	}
+	for name, expected := range map[string]string{"Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff"} {
+		if values := response.Header().Values(name); len(values) != 1 || values[0] != expected {
+			t.Fatalf("edge-owned %s was duplicated or weakened: %v", name, values)
+		}
 	}
 	got := <-captured
 	if got.path != "/v1/customer/home" || got.query != "country=IN" || got.body != `{"fixture":true}` {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 )
 
 var (
@@ -12,13 +13,27 @@ var (
 	ErrConflict       = errors.New("media state conflict")
 	ErrExpired        = errors.New("media upload expired")
 	ErrDependency     = errors.New("media dependency unavailable")
+	ErrRetained       = errors.New("media evidence retained by owning application")
 )
 
 type Repository interface {
-	Create(context.Context, Asset) error
+	Create(context.Context, Asset, UploadGrantProvenance) error
 	Get(context.Context, string, string, string) (Asset, error)
 	GetPublic(context.Context, string, string, string) (Asset, error)
 	Update(context.Context, Asset, int64) error
+	Tombstone(context.Context, string, string, string, string) (Asset, error)
+}
+
+const (
+	GrantProvenanceUnknown             = "UNKNOWN"
+	GrantProvenanceAWSConditionalSigV4 = "AWS_SIGV4_IF_NONE_MATCH"
+)
+
+// UploadGrantProvenance is persisted with the session at creation. An unknown
+// value is deliberately ineligible for automatic historical-version cleanup.
+type UploadGrantProvenance struct {
+	Scheme     string
+	ValidUntil *time.Time
 }
 
 func (repository *MemoryRepository) GetPublic(_ context.Context, tenantID, country, assetID string) (Asset, error) {
@@ -40,7 +55,10 @@ func NewMemoryRepository() *MemoryRepository {
 	return &MemoryRepository{assets: map[string]Asset{}}
 }
 
-func (repository *MemoryRepository) Create(_ context.Context, asset Asset) error {
+func (repository *MemoryRepository) Create(_ context.Context, asset Asset, provenance UploadGrantProvenance) error {
+	if !validUploadGrantProvenance(provenance) {
+		return ErrInvalidRequest
+	}
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
 	if _, exists := repository.assets[asset.ID]; exists {
@@ -72,6 +90,21 @@ func (repository *MemoryRepository) Update(_ context.Context, asset Asset, expec
 	}
 	repository.assets[asset.ID] = cloneAsset(asset)
 	return nil
+}
+
+func (repository *MemoryRepository) Tombstone(_ context.Context, tenant, country, owner, id string) (Asset, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	asset, ok := repository.assets[id]
+	if !ok || asset.TenantID != tenant || asset.Country != country || asset.OwnerID != owner {
+		return Asset{}, ErrNotFound
+	}
+	if asset.State != StateDeleted {
+		asset.State = StateDeleted
+		asset.Version++
+		repository.assets[id] = cloneAsset(asset)
+	}
+	return cloneAsset(asset), nil
 }
 
 func cloneAsset(asset Asset) Asset {

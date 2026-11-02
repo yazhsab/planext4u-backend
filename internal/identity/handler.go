@@ -84,16 +84,28 @@ func newHandler(service *Service, readiness func() bool, guest *guestSessionHTTP
 	handler.mux.HandleFunc("GET /healthz", handler.handleHealth)
 	handler.mux.HandleFunc("GET /readyz", handler.handleReadiness)
 	handler.mux.HandleFunc("POST /v1/auth/exchange", handler.handleExchange)
+	handler.mux.HandleFunc("POST /v1/auth/enroll", handler.handleExchange)
+	handler.mux.HandleFunc("POST /v1/auth/recover", handler.handleExchange)
 	handler.mux.HandleFunc("POST /v1/auth/refresh", handler.handleRefresh)
 	handler.mux.HandleFunc("POST /v1/auth/revoke", handler.handleRevoke)
 	handler.mux.HandleFunc("GET /v1/me", handler.handleMe)
+	handler.mux.HandleFunc("GET /v1/me/occupation", handler.handleOccupation)
+	handler.mux.HandleFunc("PUT /v1/me/occupation", handler.handleOccupation)
+	handler.mux.HandleFunc("POST /v1/me/sign-in-methods/verify", handler.handleSignInMethods)
+	handler.mux.HandleFunc("POST /v1/me/sign-in-methods/binding", handler.handleSignInMethods)
 	handler.mux.HandleFunc("PATCH /v1/me", handler.handleProfileUpdate)
 	handler.mux.HandleFunc("GET /v1/me/sessions", handler.handleSessions)
 	handler.mux.HandleFunc("DELETE /v1/me/sessions/{session_id}", handler.handleSessionRevoke)
 	handler.mux.HandleFunc("GET /v1/me/consents", handler.handleConsents)
 	handler.mux.HandleFunc("PUT /v1/me/consents/{purpose}", handler.handleConsentUpdate)
 	handler.mux.HandleFunc("GET /v1/me/data-export", handler.handleDataExport)
+	handler.mux.HandleFunc("GET /v1/me/contact-matching", handler.handleContactState)
+	handler.mux.HandleFunc("PUT /v1/me/contact-matching", handler.handleContactSync)
+	handler.mux.HandleFunc("GET /v1/me/contact-matching/matches", handler.handleContactMatches)
 	handler.mux.HandleFunc("POST /v1/me/deletion-requests", handler.handleDeletionRequest)
+	handler.mux.HandleFunc("GET /v1/me/lifecycle", handler.handleLifecycle)
+	handler.mux.HandleFunc("POST /v1/me/deactivation", handler.handleDeactivate)
+	handler.mux.HandleFunc("POST /v1/me/deletion-requests/{request_id}/cancel", handler.handleCancelDeletion)
 	if guest != nil {
 		handler.mux.HandleFunc("POST /internal/v1/customer-guest-sessions", handler.handleGuestSession)
 	}
@@ -111,7 +123,11 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	writer.Header().Set("Referrer-Policy", "no-referrer")
 	writer.Header().Set("Cache-Control", "no-store")
 	if request.Body != nil {
-		request.Body = http.MaxBytesReader(writer, request.Body, maxIdentityRequestBytes)
+		limit := int64(maxIdentityRequestBytes)
+		if request.Method == http.MethodPut && request.URL.Path == "/v1/me/contact-matching" {
+			limit = 256 * 1024
+		}
+		request.Body = http.MaxBytesReader(writer, request.Body, limit)
 	}
 	_, pattern := handler.mux.Handler(request)
 	if pattern == "" {
@@ -140,6 +156,7 @@ func (handler *Handler) handleReadiness(writer http.ResponseWriter, _ *http.Requ
 func (handler *Handler) handleExchange(writer http.ResponseWriter, request *http.Request) {
 	var input struct {
 		Provider      string `json:"provider"`
+		EnrollAs      Role   `json:"enroll_as,omitempty"`
 		ProviderToken string `json:"provider_token"`
 		DeviceID      string `json:"device_id"`
 		Country       string `json:"country"`
@@ -148,7 +165,16 @@ func (handler *Handler) handleExchange(writer http.ResponseWriter, request *http
 		handler.writeFailure(writer, request, err)
 		return
 	}
-	result, err := handler.service.Exchange(request.Context(), ExchangeInput{
+	if request.URL.Path == "/v1/auth/enroll" && input.EnrollAs == "" || request.URL.Path != "/v1/auth/enroll" && input.EnrollAs != "" {
+		handler.writeFailure(writer, request, ErrInvalidInput)
+		return
+	}
+	exchange := handler.service.Exchange
+	if request.URL.Path == "/v1/auth/recover" {
+		exchange = handler.service.Recover
+	}
+	result, err := exchange(request.Context(), ExchangeInput{
+		EnrollAs:      input.EnrollAs,
 		Provider:      input.Provider,
 		ProviderToken: input.ProviderToken,
 		DeviceID:      input.DeviceID,
@@ -391,8 +417,9 @@ func (handler *Handler) handleConsentUpdate(writer http.ResponseWriter, request 
 		return
 	}
 	var input struct {
-		Granted       *bool  `json:"granted"`
-		PolicyVersion string `json:"policy_version"`
+		Granted         *bool  `json:"granted"`
+		PolicyVersion   string `json:"policy_version"`
+		ExpectedVersion *int64 `json:"expected_version"`
 	}
 	if err := decodeJSON(request, &input); err != nil || input.Granted == nil {
 		if err == nil {
@@ -402,9 +429,10 @@ func (handler *Handler) handleConsentUpdate(writer http.ResponseWriter, request 
 		return
 	}
 	consent, err := handler.service.RecordConsent(request.Context(), trusted, ConsentUpdate{
-		Purpose:       ConsentPurpose(request.PathValue("purpose")),
-		Granted:       *input.Granted,
-		PolicyVersion: input.PolicyVersion,
+		ExpectedVersion: input.ExpectedVersion,
+		Purpose:         ConsentPurpose(request.PathValue("purpose")),
+		Granted:         *input.Granted,
+		PolicyVersion:   input.PolicyVersion,
 	})
 	if err != nil {
 		handler.writeFailure(writer, request, err)
@@ -419,7 +447,23 @@ func (handler *Handler) handleDataExport(writer http.ResponseWriter, request *ht
 		handler.writeFailure(writer, request, err)
 		return
 	}
-	value, err := handler.service.ExportData(request.Context(), trusted)
+	version := 1
+	if request.URL.RawQuery != "" || request.URL.ForceQuery {
+		query := request.URL.Query()
+		selected := query.Get("schema")
+		if len(query) != 1 || len(query["schema"]) != 1 || selected != "2" && selected != "3" && selected != "4" {
+			handler.writeFailure(writer, request, ErrInvalidInput)
+			return
+		}
+		if selected == "2" {
+			version = 2
+		} else if selected == "3" {
+			version = 3
+		} else {
+			version = 4
+		}
+	}
+	value, err := handler.service.ExportDataVersion(request.Context(), trusted, version)
 	if err != nil {
 		handler.writeFailure(writer, request, err)
 		return
@@ -458,8 +502,14 @@ func (handler *Handler) writeFailure(writer http.ResponseWriter, request *http.R
 	message := "The request could not be completed."
 	retryable := false
 	switch {
+	case errors.Is(err, ErrContactConflict):
+		status, code, message = http.StatusConflict, "CONTACT_SNAPSHOT_CONFLICT", "Contacts changed. Refresh before syncing again."
+	case errors.Is(err, ErrContactConsent):
+		status, code, message = http.StatusForbidden, "CONTACT_CONSENT_REQUIRED", "Review and enable the current contact matching policy."
 	case errors.Is(err, ErrRequestTooLarge):
 		status, code, message = http.StatusRequestEntityTooLarge, "REQUEST_TOO_LARGE", "The request exceeds the allowed size."
+	case errors.Is(err, ErrExportTooLarge):
+		status, code, message = http.StatusConflict, "EXPORT_REQUIRES_PAGINATION", "This account exceeds the immediate export budget. No truncated export was generated."
 	case errors.Is(err, ErrInvalidInput):
 		status, code, message = http.StatusUnprocessableEntity, "VALIDATION_FAILED", "Check the submitted values."
 	case errors.Is(err, ErrProviderRejected):
@@ -474,6 +524,8 @@ func (handler *Handler) writeFailure(writer http.ResponseWriter, request *http.R
 		status, code, message = http.StatusNotFound, "RESOURCE_NOT_FOUND", "The requested resource was not found."
 	case errors.Is(err, ErrMethodNotAllowed):
 		status, code, message = http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "This method is not allowed for the resource."
+	case errors.Is(err, ErrConsentConflict):
+		status, code, message = http.StatusConflict, "CONSENT_VERSION_CONFLICT", "Consent changed on another device. Refresh and explicitly choose again."
 	case errors.Is(err, ErrVersionConflict):
 		status, code, message = http.StatusConflict, "PROFILE_VERSION_CONFLICT", "The profile changed. Refresh and try again."
 	}
@@ -567,10 +619,18 @@ func newCorrelationID() string {
 }
 
 func knownIdentityPath(path string) bool {
+	if path == "/v1/me/sign-in-methods/verify" || path == "/v1/me/sign-in-methods/binding" {
+		return true
+	}
 	switch path {
-	case "/healthz", "/readyz", "/v1/auth/exchange", "/v1/auth/refresh", "/v1/auth/revoke",
+	case "/v1/me/contact-matching", "/v1/me/contact-matching/matches", "/v1/me/occupation":
+		return true
+	case "/healthz", "/readyz", "/v1/auth/exchange", "/v1/auth/enroll", "/v1/auth/recover", "/v1/auth/refresh", "/v1/auth/revoke",
 		"/v1/me", "/v1/me/sessions", "/v1/me/consents", "/v1/me/data-export", "/v1/me/deletion-requests",
 		"/internal/v1/customer-guest-sessions":
+		return true
+	}
+	if path == "/v1/me/lifecycle" || path == "/v1/me/deactivation" || strings.HasPrefix(path, "/v1/me/deletion-requests/") && strings.HasSuffix(path, "/cancel") {
 		return true
 	}
 	for _, prefix := range []string{"/v1/me/sessions/", "/v1/me/consents/"} {

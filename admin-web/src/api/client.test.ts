@@ -15,6 +15,14 @@ describe("admin API client", () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json({...adminSession, selected_country: "India"}))));
     await expect(getSession()).rejects.toMatchObject({code: "ADMIN_CONTRACT_INVALID"});
   });
+  it("accepts the server-owned operator navigation while rejecting external paths", async () => {
+    const item = {id: "operators", label: "Operator accounts", path: "/operators", capability: "admin.operators.manage"};
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json({...adminSession, roles: ["SUPER_ADMIN"], navigation: [...adminSession.navigation, item]}))));
+    const session = await getSession();
+    expect(session.navigation).toContainEqual(item);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json({...adminSession, navigation: [{...item, path: "https://attacker.test"}]}))));
+    await expect(getSession()).rejects.toMatchObject({code: "ADMIN_CONTRACT_INVALID"});
+  });
 
   it("preserves safe problem codes and correlation identifiers", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(problem(403, "ADMIN_ROLE_FORBIDDEN", "Access denied."))));

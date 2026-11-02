@@ -116,7 +116,7 @@ func TestBEP4012GatewayFoodRiderChatDeliveryAndPayout(t *testing.T) {
 		decodeVerticalJSON(t, response, &foodOrder)
 	}
 
-	riderApplication := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/rider/applications", `{"full_name":"Synthetic Rider","phone_masked":"******1234","vehicle_type":"MOTORBIKE","vehicle_number":"TN01AB1234","documents":[{"kind":"DRIVER_LICENSE","asset_id":"asset-rider-license-e2e"},{"kind":"IDENTITY","asset_id":"asset-rider-identity-e2e"}],"bank_reference":"bankref_rider_e2e001","zones":["600001"]}`, rider, map[string]string{"Idempotency-Key": "e2e-rider-register-0001"})
+	riderApplication := verticalRequestWithHeaders(t, client, http.MethodPost, server.URL+"/v1/rider/applications", `{"full_name":"Synthetic Rider","phone_masked":"******1234","vehicle_type":"MOTORBIKE","vehicle_number":"TN01AB1234","documents":[{"kind":"DRIVER_LICENSE","asset_id":"asset-rider-license-e2e"},{"kind":"IDENTITY","asset_id":"asset-rider-identity-e2e"},{"kind":"VEHICLE_REGISTRATION","asset_id":"asset-rider-registration-e2e"},{"kind":"INSURANCE","asset_id":"asset-rider-insurance-e2e"}],"bank_reference":"bankref_rider_e2e001","zones":["600001"]}`, rider, map[string]string{"Idempotency-Key": "e2e-rider-register-0001"})
 	assertVerticalResponse(t, riderApplication, http.StatusCreated, `"status":"KYC_REVIEW"`)
 	var riderProfile struct {
 		Revision int64 `json:"revision"`

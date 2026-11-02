@@ -15,10 +15,14 @@ var (
 )
 
 type Actor struct {
-	TenantID string
-	Country  string
-	Subject  string
-	Roles    []string
+	SourceSessionID   string `json:"-"`
+	OperatorSessionID string `json:"-"`
+	OperatorRevision  int64  `json:"-"`
+	TenantID          string
+	Country           string
+	Subject           string
+	Roles             []string
+	MFAVerified       bool
 }
 
 type ApplicationStatus string
@@ -108,6 +112,13 @@ type RegisterRequest struct {
 
 type DocumentsRequest struct {
 	Documents []Document `json:"documents"`
+}
+
+type ResubmissionRequest struct {
+	BusinessName string     `json:"business_name"`
+	BusinessType string     `json:"business_type"`
+	ContactName  string     `json:"contact_name"`
+	Documents    []Document `json:"documents"`
 }
 
 type VisitRequest struct {

@@ -16,6 +16,8 @@ import (
 	"github.com/yazhsab/planext4u-backend/internal/audit"
 	"github.com/yazhsab/planext4u-backend/internal/configcms"
 	"github.com/yazhsab/planext4u-backend/internal/governance"
+	"github.com/yazhsab/planext4u-backend/internal/identity"
+	"github.com/yazhsab/planext4u-backend/internal/organization"
 	"github.com/yazhsab/planext4u-backend/internal/support"
 )
 
@@ -45,22 +47,40 @@ type GovernanceService interface {
 	Dashboard(governance.Actor) (governance.Dashboard, error)
 }
 
+type PrivacyGovernance interface {
+	ProposeDeletionPolicy(context.Context, identity.DeletionGovernor, identity.DeletionPolicyProposal) (string, error)
+	PublishDeletionPolicy(context.Context, identity.DeletionGovernor, string) (int64, error)
+	PlaceDeletionHold(context.Context, identity.DeletionGovernor, string, string, string) (int64, error)
+	ReleaseDeletionHold(context.Context, identity.DeletionGovernor, int64, int64, string) (int64, error)
+	ListDeletionPolicyProposals(context.Context, identity.DeletionGovernor) ([]identity.DeletionPolicyReview, error)
+	GetDeletionPolicyProposal(context.Context, identity.DeletionGovernor, string) (identity.DeletionPolicyReview, error)
+	ListDeletionRequests(context.Context, identity.DeletionGovernor) ([]identity.DeletionRequestReview, error)
+	GetDeletionRequest(context.Context, identity.DeletionGovernor, string) (identity.DeletionRequestReview, error)
+	ListDeletionHolds(context.Context, identity.DeletionGovernor) ([]identity.DeletionHoldReview, error)
+}
+
 type SupportReader interface {
 	AdminList(context.Context, support.AdminPrincipal, support.AdminListFilter) (support.AdminTicketPage, error)
 }
 
 type Config struct {
-	Sessions       SessionResolver
-	Audit          AuditReader
-	Operations     OperationsService
-	CMS            CMSAuthoringService
-	CMSWorkspace   CMSWorkspaceAuthoringService
-	Governance     GovernanceService
-	Support        SupportReader
-	Reports        ReportService
-	Clock          func() time.Time
-	AllowedOrigins []string
-	RequireMFA     bool
+	Sessions          SessionResolver
+	Audit             AuditReader
+	Operations        OperationsService
+	CMS               CMSAuthoringService
+	CMSWorkspace      CMSWorkspaceAuthoringService
+	CMSPublished      configcms.Repository
+	Governance        GovernanceService
+	PrivacyGovernance PrivacyGovernance
+	Support           SupportReader
+	Reports           ReportService
+	Organization      *organization.Service
+	Masters           MasterService
+	OperatorAccounts  *OperatorAccounts
+	Fulfillment       FulfillmentReader
+	Clock             func() time.Time
+	AllowedOrigins    []string
+	RequireMFA        bool
 }
 
 type Handler struct {
@@ -69,9 +89,15 @@ type Handler struct {
 	operations        OperationsService
 	cms               CMSAuthoringService
 	cmsWorkspace      CMSWorkspaceAuthoringService
+	cmsPublished      configcms.Repository
 	governanceService GovernanceService
+	privacyGovernance PrivacyGovernance
 	supportReader     SupportReader
 	reports           ReportService
+	organization      *organization.Service
+	masters           MasterService
+	operatorAccounts  *OperatorAccounts
+	fulfillmentReader FulfillmentReader
 	clock             func() time.Time
 	allowedOrigins    map[string]bool
 	requireMFA        bool
@@ -89,8 +115,54 @@ func NewHandler(config Config) (http.Handler, error) {
 		}
 		origins[origin] = true
 	}
-	handler := &Handler{sessions: config.Sessions, audit: config.Audit, operations: config.Operations, cms: config.CMS, cmsWorkspace: config.CMSWorkspace, governanceService: config.Governance, supportReader: config.Support, reports: config.Reports, clock: config.Clock, allowedOrigins: origins, requireMFA: config.RequireMFA}
+	handler := &Handler{sessions: config.Sessions, audit: config.Audit, operations: config.Operations, cms: config.CMS, cmsWorkspace: config.CMSWorkspace, governanceService: config.Governance, privacyGovernance: config.PrivacyGovernance, supportReader: config.Support, reports: config.Reports, clock: config.Clock, allowedOrigins: origins, requireMFA: config.RequireMFA}
+	handler.organization = config.Organization
+	handler.masters = config.Masters
+	handler.operatorAccounts = config.OperatorAccounts
+	handler.fulfillmentReader = config.Fulfillment
+	handler.cmsPublished = config.CMSPublished
 	mux := http.NewServeMux()
+	if handler.masters != nil {
+		mux.HandleFunc("GET /admin/api/v1/masters", handler.listMasters)
+		mux.HandleFunc("PUT /admin/api/v1/masters/{master_id}", handler.saveMaster)
+		mux.HandleFunc("GET /admin/api/v1/masters/{master_id}/history", handler.masterHistory)
+	}
+	mux.HandleFunc("GET /admin/api/v1/participants/{kind}", handler.participantList)
+	mux.HandleFunc("POST /admin/api/v1/participants/{kind}/{participant_id}/reject", handler.participantReject)
+	mux.HandleFunc("POST /admin/api/v1/participants/VENDOR/{participant_id}/field-check-in", handler.participantFieldCheckIn)
+	mux.HandleFunc("GET /admin/api/v1/participants/{kind}/{participant_id}/review", handler.participantReviewDetail)
+	mux.HandleFunc("POST /admin/api/v1/participants/{kind}/{participant_id}/review/documents/{document_kind}/access", handler.participantReviewDocumentAccess)
+	mux.HandleFunc("POST /admin/api/v1/participants/{kind}/{participant_id}/review-action", handler.participantReviewAction)
+	mux.HandleFunc("GET /admin/api/v1/fulfillment/territories", handler.fulfillmentTerritories)
+	mux.HandleFunc("GET /admin/api/v1/fulfillment/regions/{region_id}/summary-export", handler.fulfillmentSummaryExport)
+	mux.HandleFunc("GET /admin/api/v1/fulfillment/field-territories", handler.fulfillmentFieldTerritories)
+	mux.HandleFunc("POST /admin/api/v1/fulfillment/territories/{territory_id}/field-check-ins", handler.fulfillmentFieldCheckIn)
+	mux.HandleFunc("GET /admin/api/v1/fulfillment/regions/{region_id}", handler.fulfillmentDashboard)
+	if handler.operatorAccounts != nil {
+		mux.HandleFunc("GET /admin/api/v1/operators", handler.listOperators)
+		mux.HandleFunc("POST /admin/api/v1/operators", handler.createOperator)
+		mux.HandleFunc("PUT /admin/api/v1/operators/{subject_id}", handler.updateOperator)
+		mux.HandleFunc("GET /admin/api/v1/operators/{subject_id}/events", handler.operatorEvents)
+	}
+	if handler.organization != nil {
+		mux.HandleFunc("GET /admin/api/v1/participant-territories", handler.participantTerritories)
+		mux.HandleFunc("GET /admin/api/v1/participants/{kind}/{participant_id}/binding", handler.participantBinding)
+		mux.HandleFunc("PUT /admin/api/v1/participants/{kind}/{participant_id}/binding", handler.participantBind)
+		mux.HandleFunc("GET /admin/api/v1/organization/territory-bindings", handler.organizationTerritoryBindings)
+		mux.HandleFunc("PUT /admin/api/v1/organization/territory-bindings/{territory_id}", handler.organizationBindTerritory)
+		mux.HandleFunc("GET /admin/api/v1/organization", handler.organizationWorkspace)
+		mux.HandleFunc("GET /admin/api/v1/organization/export", handler.organizationWorkspace)
+		mux.HandleFunc("POST /admin/api/v1/organization/nodes", handler.organizationCreateNode)
+		mux.HandleFunc("PUT /admin/api/v1/organization/nodes/{node_id}/status", handler.organizationNodeStatus)
+		mux.HandleFunc("POST /admin/api/v1/organization/roles", handler.organizationCreateRole)
+		mux.HandleFunc("GET /admin/api/v1/organization/audiences", handler.organizationAudienceGroups)
+		mux.HandleFunc("POST /admin/api/v1/organization/audiences", handler.organizationSaveAudienceGroup)
+		mux.HandleFunc("PUT /admin/api/v1/organization/audiences/{audience_id}", handler.organizationSaveAudienceGroup)
+		mux.HandleFunc("POST /admin/api/v1/organization/audiences/{audience_id}/preview", handler.organizationPreviewAudience)
+		mux.HandleFunc("PUT /admin/api/v1/organization/staff", handler.organizationSetStaff)
+		mux.HandleFunc("POST /admin/api/v1/organization/invitations", handler.organizationInvite)
+		mux.HandleFunc("POST /admin/api/v1/organization/invitations/accept", handler.organizationAccept)
+	}
 	mux.HandleFunc("GET /admin/api/v1/session", handler.session)
 	mux.HandleFunc("DELETE /admin/api/v1/session", handler.logout)
 	mux.HandleFunc("PUT /admin/api/v1/session/country", handler.updateCountry)
@@ -99,6 +171,17 @@ func NewHandler(config Config) (http.Handler, error) {
 	mux.HandleFunc("POST /admin/api/v1/operations", handler.submitOperation)
 	mux.HandleFunc("GET /admin/api/v1/operations/audit", handler.operationsAudit)
 	mux.HandleFunc("GET /admin/api/v1/governance", handler.governance)
+	if handler.privacyGovernance != nil {
+		mux.HandleFunc("GET /admin/api/v1/privacy/retention-proposals", handler.listDeletionPolicyProposals)
+		mux.HandleFunc("GET /admin/api/v1/privacy/retention-proposals/{proposal_id}", handler.getDeletionPolicyProposal)
+		mux.HandleFunc("GET /admin/api/v1/privacy/deletions", handler.listDeletionRequests)
+		mux.HandleFunc("GET /admin/api/v1/privacy/deletions/{request_id}", handler.getDeletionRequest)
+		mux.HandleFunc("GET /admin/api/v1/privacy/holds", handler.listDeletionHolds)
+		mux.HandleFunc("POST /admin/api/v1/privacy/retention-proposals", handler.proposeDeletionPolicy)
+		mux.HandleFunc("POST /admin/api/v1/privacy/retention-proposals/{proposal_id}/publish", handler.publishDeletionPolicy)
+		mux.HandleFunc("POST /admin/api/v1/privacy/deletions/{request_id}/holds", handler.placeDeletionHold)
+		mux.HandleFunc("POST /admin/api/v1/privacy/holds/{hold_id}/release", handler.releaseDeletionHold)
+	}
 	mux.HandleFunc("POST /admin/api/v1/operations/{change_id}/approve", handler.approveOperation)
 	mux.HandleFunc("POST /admin/api/v1/operations/{change_id}/reject", handler.rejectOperation)
 	if handler.cms != nil {
@@ -277,7 +360,7 @@ func (handler *Handler) csrfAllowed(request *http.Request, expected string) bool
 	return len(provided) == len(expected) && subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 }
 
-func assuranceFor(principal Principal, now time.Time) Assurance {
+func principalHasMFA(principal Principal) bool {
 	mfa := false
 	for _, method := range principal.AuthMethods {
 		switch strings.ToLower(method) {
@@ -285,17 +368,35 @@ func assuranceFor(principal Principal, now time.Time) Assurance {
 			mfa = true
 		}
 	}
+	return mfa
+}
+
+func assuranceFor(principal Principal, now time.Time) Assurance {
+	mfa := principalHasMFA(principal)
 	age := now.UTC().Sub(principal.AuthenticatedAt.UTC())
 	return Assurance{MFASatisfied: mfa, FreshAuth: age >= -time.Minute && age <= 5*time.Minute, AuthTime: principal.AuthenticatedAt.UTC()}
 }
 
 func navigation(capabilities map[string]bool) []NavigationItem {
 	items := []NavigationItem{{ID: "workspace", Label: "Workspace", Path: "/", Capability: CapabilityShellRead}}
+	items = append(items, NavigationItem{ID: "organization", Label: "Organization & staff", Path: "/organization", Capability: CapabilityShellRead})
+	if capabilities[adminops.CapabilityCountry] || capabilities[CapabilityAuditRead] && !capabilities[CapabilitySupportManage] {
+		items = append(items, NavigationItem{ID: "masters", Label: "Master data", Path: "/masters", Capability: CapabilityShellRead})
+	}
+	if capabilities[CapabilityParticipantReview] {
+		items = append(items, NavigationItem{ID: "participants", Label: "Participant onboarding", Path: "/participants", Capability: CapabilityParticipantReview})
+	}
+	if capabilities[CapabilityOperatorsManage] {
+		items = append(items, NavigationItem{ID: "operators", Label: "Operator accounts", Path: "/operators", Capability: CapabilityOperatorsManage})
+	}
 	if capabilities[CapabilityOperationsRead] {
 		items = append(items, NavigationItem{ID: "operations", Label: "Operations", Path: "/operations", Capability: CapabilityOperationsRead})
 	}
 	if capabilities[CapabilityGovernanceRead] {
 		items = append(items, NavigationItem{ID: "governance", Label: "Governance", Path: "/governance", Capability: CapabilityGovernanceRead})
+	}
+	if capabilities[CapabilityPrivacyGovern] && capabilities[adminops.CapabilityPolicy] {
+		items = append(items, NavigationItem{ID: "privacy", Label: "Privacy governance", Path: "/privacy", Capability: adminops.CapabilityPolicy})
 	}
 	if capabilities[CapabilitySupportManage] {
 		items = append(items, NavigationItem{ID: "support", Label: "Support", Path: "/support", Capability: CapabilitySupportManage})

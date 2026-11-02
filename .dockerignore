@@ -8,3 +8,5 @@
 !cmd/fake-provider/**
 !internal/fakeprovider/**
 !deploy/local/fake-provider.Dockerfile
+!deploy/local/api.Dockerfile
+!deploy/local/verification.Dockerfile

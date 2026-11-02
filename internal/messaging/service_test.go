@@ -93,9 +93,46 @@ func TestBEOutbox001ReplayRequiresCapabilityFreshAuthAndTenant(t *testing.T) {
 	if err := service.Replay(context.Background(), principal, message.ID, "Approved incident replay", "corr-synthetic-replay"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("cross tenant = %v", err)
 	}
-	dead, _ := store.DeadLetters(context.Background(), "00000000-0000-4000-8000-000000000010", 10)
+	dead, _ := store.DeadLetters(context.Background(), "00000000-0000-4000-8000-000000000010", "IN", 10)
 	if len(dead) != 1 {
 		t.Fatalf("original DLQ altered = %#v", dead)
+	}
+}
+
+func TestDeadLetterReadAndReplayRequireExactCountry(t *testing.T) {
+	t.Parallel()
+	service, store, publisher, _, now := fixture(t, 1)
+	india := syntheticMessage("00000000-0000-4000-8000-000000000081", 1)
+	foreign := syntheticMessage("00000000-0000-4000-8000-000000000082", 1)
+	foreign.Country = "US"
+	for _, message := range []Message{india, foreign} {
+		if err := service.Enqueue(context.Background(), message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publisher.err = errors.New("synthetic broker outage")
+	if _, err := service.Dispatch(context.Background(), "worker", 10); err != nil {
+		t.Fatal(err)
+	}
+	principal := replayPrincipal(*now)
+	visible, err := service.DeadLetters(context.Background(), principal, 10)
+	if err != nil || len(visible) != 1 || visible[0].Message.ID != india.ID {
+		t.Fatalf("country-scoped dead letters = %#v, %v", visible, err)
+	}
+	if err := service.Replay(context.Background(), principal, foreign.ID, "Approved foreign event replay", "corr-country-replay"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-country replay = %v", err)
+	}
+	if retained, err := store.DeadLetters(context.Background(), india.TenantID, "US", 10); err != nil || len(retained) != 1 || retained[0].Message.ID != foreign.ID {
+		t.Fatalf("foreign dead letter changed = %#v, %v", retained, err)
+	}
+	principal.Country = ""
+	if _, err := service.DeadLetters(context.Background(), principal, 10); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("missing country read = %v", err)
+	}
+	principal.Country = "US"
+	visible, err = service.DeadLetters(context.Background(), principal, 10)
+	if err != nil || len(visible) != 1 || visible[0].Message.ID != foreign.ID {
+		t.Fatalf("foreign country read = %#v, %v", visible, err)
 	}
 }
 

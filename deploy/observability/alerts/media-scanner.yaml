@@ -1,0 +1,17 @@
+groups:
+  - name: planext4u-media-scanner
+    rules:
+      - alert: Planext4uMediaScannerUnhealthy
+        expr: planext4u_media_scanner_ready == 0
+        for: 2m
+        labels: {severity: page, dependency: malware-scanner}
+        annotations:
+          summary: "Media scanner is unavailable, incompatible or has stale loaded signatures"
+          runbook_url: "https://github.com/yazhsab/planext4u-backend/blob/main/docs/runbooks/MEDIA_SCANNER.md"
+      - alert: Planext4uMediaScannerChecksMissing
+        expr: (time() - planext4u_media_scanner_checked_at > 120) or absent(planext4u_media_scanner_ready{service_name="planext4u-media"})
+        for: 5m
+        labels: {severity: page, dependency: malware-scanner}
+        annotations:
+          summary: "Media scanner readiness or telemetry checks have stopped"
+          runbook_url: "https://github.com/yazhsab/planext4u-backend/blob/main/docs/runbooks/MEDIA_SCANNER.md"

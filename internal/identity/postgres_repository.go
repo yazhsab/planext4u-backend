@@ -29,6 +29,7 @@ func (repository *PostgresRepository) Ready(ctx context.Context) error {
 		   AND to_regclass('identity.sessions') IS NOT NULL
 		   AND to_regclass('identity.refresh_tokens') IS NOT NULL
 		   AND to_regclass('identity.consent_evidence') IS NOT NULL
+		   AND to_regclass('identity.account_restrictions') IS NOT NULL
 		   AND to_regclass('identity.security_events') IS NOT NULL`).Scan(&ready); err != nil {
 		return fmt.Errorf("check identity schema readiness: %w", err)
 	}
@@ -75,6 +76,30 @@ func (repository *PostgresRepository) StartSession(ctx context.Context, params S
 	}
 	if account.DisabledAt != nil {
 		return Identity{}, Session{}, ErrForbidden
+	}
+	var deletionDue bool
+	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identity.account_deletion_requests WHERE identity_id=$1 AND status='SCHEDULED' AND effective_at<=$2)`, account.ID, params.Now).Scan(&deletionDue); err != nil {
+		return Identity{}, Session{}, err
+	}
+	if deletionDue {
+		return Identity{}, Session{}, ErrForbidden
+	}
+	if params.EnrollAs != "" {
+		if params.EnrollAs != RoleCustomer && params.EnrollAs != RoleVendor && params.EnrollAs != RoleRider {
+			return Identity{}, Session{}, ErrForbidden
+		}
+		// Participation permits onboarding only. Supply/fulfillment continue to
+		// enforce their independently approved KYC and operational statuses.
+		if _, err := transaction.Exec(ctx, `INSERT INTO identity.identity_roles(identity_id,role,granted_at) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, account.ID, params.EnrollAs, params.Now); err != nil {
+			return Identity{}, Session{}, err
+		}
+		account, err = loadIdentityByID(ctx, transaction, account.ID)
+		if err != nil {
+			return Identity{}, Session{}, err
+		}
+		if err := insertSecurityEvent(ctx, transaction, "PARTICIPATION_ENROLLED", account.ID, "", "", "", string(params.EnrollAs), params.Now); err != nil {
+			return Identity{}, Session{}, err
+		}
 	}
 	session := Session{
 		ID:              params.SessionID,
@@ -203,6 +228,25 @@ func (repository *PostgresRepository) RotateSession(ctx context.Context, params 
 		}
 		return Identity{}, Session{}, ErrForbidden
 	}
+	var deletionDue bool
+	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identity.account_deletion_requests WHERE identity_id=$1 AND status='SCHEDULED' AND effective_at<=$2)`, account.ID, params.Now).Scan(&deletionDue); err != nil {
+		return Identity{}, Session{}, err
+	}
+	if deletionDue {
+		changed, revokeErr := revokeSessionTx(ctx, transaction, session.ID, params.Now)
+		if revokeErr != nil {
+			return Identity{}, Session{}, revokeErr
+		}
+		if changed {
+			if eventErr := insertSecurityEvent(ctx, transaction, "ACCOUNT_DELETION_EFFECTIVE", account.ID, session.ID, session.DeviceReference, "", "SUCCEEDED", params.Now); eventErr != nil {
+				return Identity{}, Session{}, eventErr
+			}
+		}
+		if commitErr := transaction.Commit(ctx); commitErr != nil {
+			return Identity{}, Session{}, fmt.Errorf("commit due deletion access revocation: %w", commitErr)
+		}
+		return Identity{}, Session{}, ErrForbidden
+	}
 	if err := insertSecurityEvent(ctx, transaction, "SESSION_REFRESHED", account.ID, session.ID, session.DeviceReference, "", "SUCCEEDED", params.Now); err != nil {
 		return Identity{}, Session{}, err
 	}
@@ -259,6 +303,13 @@ func (repository *PostgresRepository) Authenticate(ctx context.Context, trusted 
 	if account.DisabledAt != nil || account.ID != trusted.Subject ||
 		account.TenantID != trusted.TenantID || session.TenantID != trusted.TenantID ||
 		session.Country != trusted.Country {
+		return Identity{}, Session{}, ErrForbidden
+	}
+	var deletionDue bool
+	if err := repository.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identity.account_deletion_requests WHERE identity_id=$1 AND status='SCHEDULED' AND effective_at<=$2)`, account.ID, now).Scan(&deletionDue); err != nil {
+		return Identity{}, Session{}, err
+	}
+	if deletionDue {
 		return Identity{}, Session{}, ErrForbidden
 	}
 	return account, session, nil
@@ -372,13 +423,13 @@ func (repository *PostgresRepository) UpdateProfile(ctx context.Context, identit
 	return profile, nil
 }
 
-func (repository *PostgresRepository) ListConsents(ctx context.Context, identityID string) ([]Consent, error) {
+func (repository *PostgresRepository) ListConsents(ctx context.Context, identityID, country string) ([]Consent, error) {
 	rows, err := repository.pool.Query(ctx, `
 		SELECT DISTINCT ON (purpose)
 		       evidence_id, purpose, granted, policy_version, recorded_at, version
 		FROM identity.consent_evidence
-		WHERE identity_id = $1
-		ORDER BY purpose, version DESC`, identityID)
+		WHERE identity_id = $1 AND country = $2
+		ORDER BY purpose, version DESC`, identityID, country)
 	if err != nil {
 		return nil, fmt.Errorf("list consent evidence: %w", err)
 	}
@@ -386,6 +437,7 @@ func (repository *PostgresRepository) ListConsents(ctx context.Context, identity
 	result := make([]Consent, 0)
 	for rows.Next() {
 		var consent Consent
+		consent.Country = country
 		if err := rows.Scan(&consent.EvidenceID, &consent.Purpose, &consent.Granted,
 			&consent.PolicyVersion, &consent.RecordedAt, &consent.Version); err != nil {
 			return nil, fmt.Errorf("scan consent evidence: %w", err)
@@ -400,17 +452,34 @@ func (repository *PostgresRepository) ListConsents(ctx context.Context, identity
 }
 
 func (repository *PostgresRepository) RecordConsent(ctx context.Context, identityID string, consent Consent, now time.Time) (Consent, error) {
+	if !validCountry(consent.Country) {
+		return Consent{}, ErrInvalidInput
+	}
 	transaction, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return Consent{}, fmt.Errorf("begin consent evidence: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
+	// The same lock is held shared by duty/location commands through commit.
+	// A withdrawal cannot acknowledge while an earlier location is in flight.
+	if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "consent:"+identityID); err != nil {
+		return Consent{}, fmt.Errorf("lock consent processing: %w", err)
+	}
 	var lockedIdentity string
 	if err := transaction.QueryRow(ctx, `SELECT id FROM identity.identities WHERE id = $1 FOR UPDATE`, identityID).Scan(&lockedIdentity); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Consent{}, ErrNotFound
 		}
 		return Consent{}, fmt.Errorf("lock consent identity: %w", err)
+	}
+	if consent.Granted {
+		var scopedVersion int64
+		if err := transaction.QueryRow(ctx, `SELECT coalesce(max(version),0) FROM identity.consent_evidence WHERE identity_id=$1 AND country=$2 AND purpose=$3`, identityID, consent.Country, consent.Purpose).Scan(&scopedVersion); err != nil {
+			return Consent{}, fmt.Errorf("read current scoped consent: %w", err)
+		}
+		if consent.ExpectedVersion == nil || *consent.ExpectedVersion != scopedVersion {
+			return Consent{}, ErrConsentConflict
+		}
 	}
 	if err := transaction.QueryRow(ctx, `
 		SELECT COALESCE(MAX(version), 0) + 1
@@ -420,10 +489,10 @@ func (repository *PostgresRepository) RecordConsent(ctx context.Context, identit
 	}
 	if _, err := transaction.Exec(ctx, `
 		INSERT INTO identity.consent_evidence
-			(evidence_id, identity_id, purpose, granted, policy_version, recorded_at, version)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			(evidence_id, identity_id, purpose, granted, policy_version, recorded_at, version, country)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		consent.EvidenceID, identityID, consent.Purpose, consent.Granted,
-		consent.PolicyVersion, consent.RecordedAt, consent.Version); err != nil {
+		consent.PolicyVersion, consent.RecordedAt, consent.Version, consent.Country); err != nil {
 		return Consent{}, fmt.Errorf("record consent evidence: %w", err)
 	}
 	if err := insertSecurityEvent(ctx, transaction, "CONSENT_CHANGED", identityID, "", "", string(consent.Purpose), consentOutcome(consent.Granted), now); err != nil {
@@ -435,12 +504,24 @@ func (repository *PostgresRepository) RecordConsent(ctx context.Context, identit
 	return consent, nil
 }
 
-func (repository *PostgresRepository) CreateDeletionRequest(ctx context.Context, request DeletionRequest) (DeletionRequest, error) {
+func (repository *PostgresRepository) CreateDeletionRequest(ctx context.Context, trusted TrustedIdentity, request DeletionRequest) (DeletionRequest, error) {
 	transaction, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return DeletionRequest{}, fmt.Errorf("begin deletion request: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
+	if request.IdentityID != trusted.Subject {
+		return DeletionRequest{}, ErrForbidden
+	}
+	if err = validateDeletionAuthority(ctx, transaction, trusted, request.RequestedAt); err != nil {
+		return DeletionRequest{}, err
+	}
+	// The newer schema captures the governing country from this locked source
+	// session in a trigger. Older disposable integration schemas ignore the
+	// transaction-local setting; production readiness requires the new schema.
+	if _, err = transaction.Exec(ctx, `SELECT set_config('planext4u.deletion_session',$1,true)`, trusted.Session); err != nil {
+		return DeletionRequest{}, err
+	}
 	err = transaction.QueryRow(ctx, `
 		INSERT INTO identity.account_deletion_requests
 			(id, identity_id, status, reason, requested_at, effective_at)
@@ -456,7 +537,7 @@ func (repository *PostgresRepository) CreateDeletionRequest(ctx context.Context,
 	if err != nil {
 		return DeletionRequest{}, fmt.Errorf("create deletion request: %w", err)
 	}
-	if err := insertSecurityEvent(ctx, transaction, "ACCOUNT_DELETION_REQUESTED", request.IdentityID, "", "", "", "SCHEDULED", request.RequestedAt); err != nil {
+	if err := insertSecurityEvent(ctx, transaction, "ACCOUNT_DELETION_REQUESTED", request.IdentityID, trusted.Session, "", "", "SCHEDULED", request.RequestedAt); err != nil {
 		return DeletionRequest{}, err
 	}
 	if err := transaction.Commit(ctx); err != nil {

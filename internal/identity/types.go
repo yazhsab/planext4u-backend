@@ -20,6 +20,8 @@ var (
 	ErrForbidden            = errors.New("access forbidden")
 	ErrNotFound             = errors.New("resource not found")
 	ErrVersionConflict      = errors.New("resource version conflict")
+	ErrConsentConflict      = errors.New("consent changed; refresh before granting")
+	ErrExportTooLarge       = errors.New("identity export exceeds synchronous budget")
 )
 
 type Role string
@@ -39,6 +41,7 @@ const (
 	ConsentMarketing              ConsentPurpose = "MARKETING"
 	ConsentLocationServiceability ConsentPurpose = "LOCATION_SERVICEABILITY"
 	ConsentLocationDelivery       ConsentPurpose = "LOCATION_DELIVERY"
+	ConsentContactMatching        ConsentPurpose = "CONTACT_MATCHING"
 )
 
 type ProviderIdentity struct {
@@ -61,12 +64,14 @@ type Profile struct {
 }
 
 type Consent struct {
-	EvidenceID    string         `json:"evidence_id"`
-	Purpose       ConsentPurpose `json:"purpose"`
-	Granted       bool           `json:"granted"`
-	PolicyVersion string         `json:"policy_version"`
-	RecordedAt    time.Time      `json:"recorded_at"`
-	Version       int64          `json:"version"`
+	ExpectedVersion *int64         `json:"-"`
+	Country         string         `json:"-"`
+	EvidenceID      string         `json:"evidence_id"`
+	Purpose         ConsentPurpose `json:"purpose"`
+	Granted         bool           `json:"granted"`
+	PolicyVersion   string         `json:"policy_version"`
+	RecordedAt      time.Time      `json:"recorded_at"`
+	Version         int64          `json:"version"`
 }
 
 type Identity struct {
@@ -153,6 +158,7 @@ type GuestSession struct {
 }
 
 type ExchangeInput struct {
+	EnrollAs      Role
 	Provider      string
 	ProviderToken string
 	DeviceID      string
@@ -169,20 +175,29 @@ type ProfileUpdate struct {
 }
 
 type ConsentUpdate struct {
-	Purpose       ConsentPurpose
-	Granted       bool
-	PolicyVersion string
+	ExpectedVersion *int64
+	Purpose         ConsentPurpose
+	Granted         bool
+	PolicyVersion   string
 }
 
 type DataExport struct {
-	GeneratedAt time.Time     `json:"generated_at"`
-	IdentityID  string        `json:"identity_id"`
-	TenantID    string        `json:"tenant_id"`
-	Country     string        `json:"country"`
-	Roles       []Role        `json:"roles"`
-	Profile     Profile       `json:"profile"`
-	Sessions    []SessionView `json:"sessions"`
-	Consents    []Consent     `json:"consents"`
+	SchemaVersion        int                        `json:"schema_version"`
+	Coverage             ExportCoverage             `json:"coverage"`
+	ConsentHistory       []ExportConsent            `json:"consent_history"`
+	ContactSnapshots     *[]ExportContactSnapshot   `json:"contact_snapshots,omitempty"`
+	DeletionHistory      *[]ExportDeletionRequest   `json:"deletion_history,omitempty"`
+	OccupationReferences *[]OccupationSelection     `json:"occupation_references,omitempty"`
+	VendorApplications   *[]ExportVendorApplication `json:"vendor_applications,omitempty"`
+	RiderProfiles        *[]ExportRiderProfile      `json:"rider_profiles,omitempty"`
+	GeneratedAt          time.Time                  `json:"generated_at"`
+	IdentityID           string                     `json:"identity_id"`
+	TenantID             string                     `json:"tenant_id"`
+	Country              string                     `json:"country"`
+	Roles                []Role                     `json:"roles"`
+	Profile              Profile                    `json:"profile"`
+	Sessions             []SessionView              `json:"sessions"`
+	Consents             []Consent                  `json:"consents"`
 }
 
 type DeletionRequest struct {
@@ -195,6 +210,7 @@ type DeletionRequest struct {
 }
 
 type StartSessionParams struct {
+	EnrollAs        Role
 	Provider        ProviderIdentity
 	IdentityID      string
 	SessionID       string
@@ -214,6 +230,7 @@ type RotateSessionParams struct {
 }
 
 type Repository interface {
+	ExportSnapshot(context.Context, TrustedIdentity, time.Time) (DataExport, error)
 	StartSession(context.Context, StartSessionParams) (Identity, Session, error)
 	RotateSession(context.Context, RotateSessionParams) (Identity, Session, error)
 	RevokeByRefresh(context.Context, string, time.Time) error
@@ -221,9 +238,9 @@ type Repository interface {
 	ListSessions(context.Context, string) ([]Session, error)
 	RevokeSession(context.Context, string, string, time.Time) error
 	UpdateProfile(context.Context, string, ProfileUpdate, time.Time) (Profile, error)
-	ListConsents(context.Context, string) ([]Consent, error)
+	ListConsents(context.Context, string, string) ([]Consent, error)
 	RecordConsent(context.Context, string, Consent, time.Time) (Consent, error)
-	CreateDeletionRequest(context.Context, DeletionRequest) (DeletionRequest, error)
+	CreateDeletionRequest(context.Context, TrustedIdentity, DeletionRequest) (DeletionRequest, error)
 }
 
 type AccessTokenIssuer interface {

@@ -73,7 +73,11 @@ func (service *Service) Get(scope Scope, reservationID string) (Reservation, err
 
 func (service *Service) Reserve(scope Scope, idempotencyKey, orderReference string, lines []Line, expiresAt time.Time) (Reservation, bool, error) {
 	now := service.clock().UTC()
-	normalized, fingerprint, err := normalizeRequest(scope, idempotencyKey, orderReference, lines, expiresAt, now)
+	validationTime := now
+	if !expiresAt.After(now) {
+		validationTime = expiresAt.Add(-time.Nanosecond)
+	}
+	normalized, fingerprint, err := normalizeRequest(scope, idempotencyKey, orderReference, lines, expiresAt, validationTime)
 	if err != nil {
 		return Reservation{}, false, err
 	}
@@ -87,6 +91,10 @@ func (service *Service) Reserve(scope Scope, idempotencyKey, orderReference stri
 		}
 		return cloneReservation(replay.value), true, nil
 	}
+	if !expiresAt.After(now) {
+		return Reservation{}, false, ErrInvalidRequest
+	}
+
 	for _, line := range normalized {
 		if service.stock[stockKey(scope, line.VariantID)] < line.Quantity {
 			return Reservation{}, false, ErrInsufficientStock

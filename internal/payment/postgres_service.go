@@ -414,7 +414,7 @@ func (service *PostgresService) applyProviderEvent(method Method, event Provider
 		return Payment{}, false, ErrReconciliation
 	}
 	expectedAmount := value.Amount
-	if (value.Status == StatusRefundRequested || value.Status == StatusRefundSubmitted || value.Status == StatusRefundFailed) && value.RefundAmount != nil {
+	if (event.Status == StatusRefunded || event.Status == StatusRefundFailed) && value.RefundAmount != nil {
 		expectedAmount = *value.RefundAmount
 	}
 	referenceMatches := value.ProviderReference == event.ProviderReference || (event.ProviderReference == "" && value.Status == StatusRefundSubmitted)
@@ -428,10 +428,13 @@ func (service *PostgresService) applyProviderEvent(method Method, event Provider
 		}
 		return Payment{}, false, ErrReconciliation
 	}
-	if !validProviderTransition(value.Status, event.Status) {
+	if !validProviderTransition(value.Status, event.Status) && !obsoleteProviderEvent(value.Status, event.Status) {
 		return Payment{}, false, ErrInvalidTransition
 	}
-	value.Status, value.UpdatedAt = event.Status, service.clock().UTC()
+	if !obsoleteProviderEvent(value.Status, event.Status) {
+		value.Status = event.Status
+	}
+	value.UpdatedAt = service.clock().UTC()
 	if event.ProviderTransactionReference != "" {
 		value.ProviderTransactionReference = event.ProviderTransactionReference
 	}
@@ -501,6 +504,10 @@ func (service *PostgresService) RequestRefundWithProvider(ctx context.Context, s
 		})
 	} else if value.Method == MethodRazorpay || value.Method == MethodPaystack {
 		providerErr = ErrProviderUnavailable
+	} else if value.Method == MethodWallet {
+		// Wallet owners restore the debit before recording the refund receipt.
+		submission.Status = StatusRefunded
+		submission.ProviderRefundReference = "wallet-refund-" + value.ID
 	} else {
 		submission.Status = StatusRefundSubmitted
 	}
@@ -604,6 +611,11 @@ func (service *PostgresService) supported(country string, method Method) bool {
 	default:
 		return false
 	}
+}
+
+// Supports reports enabled runtime adapters, without exposing provider secrets.
+func (service *PostgresService) Supports(country string, method Method) bool {
+	return service.supported(country, method)
 }
 
 type paymentQuerier interface {

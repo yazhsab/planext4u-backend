@@ -146,7 +146,7 @@ func supplyFixture(t *testing.T) (*Service, time.Time) {
 }
 
 func supplyActorFor(subject, role string) Actor {
-	return Actor{TenantID: "tenant-synthetic-001", Country: "IN", Subject: subject, Roles: []string{role}}
+	return Actor{TenantID: "tenant-synthetic-001", Country: "IN", Subject: subject, Roles: []string{role}, MFAVerified: role == "OPS_ADMIN" || role == "SUPER_ADMIN" || role == "FINANCE" || role == "FIELD_OFFICER"}
 }
 
 func approvedVendorFixture(t *testing.T, service *Service, now time.Time, subject string) Actor {

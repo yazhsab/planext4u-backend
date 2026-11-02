@@ -47,7 +47,7 @@ func TestSessionReturnsServerAuthorizedNavigationAndAssurance(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &view); err != nil {
 		t.Fatalf("decode session: %v", err)
 	}
-	if view.SelectedCountry != "IN" || len(view.Navigation) != 4 || view.Navigation[1].Path != "/operations" || view.Navigation[2].Path != "/governance" || view.Navigation[3].Path != "/audit" {
+	if view.SelectedCountry != "IN" || len(view.Navigation) != 6 || view.Navigation[1].Path != "/organization" || view.Navigation[2].Path != "/masters" || view.Navigation[3].Path != "/operations" || view.Navigation[4].Path != "/governance" || view.Navigation[5].Path != "/audit" {
 		t.Fatalf("unexpected session view: %#v", view)
 	}
 	if !view.Assurance.MFASatisfied || !view.Assurance.FreshAuth || view.CSRFToken == "" {
@@ -307,7 +307,7 @@ func TestCMSWorkspaceDraftControlsGlobalMobileConfiguration(t *testing.T) {
 	}
 }
 
-func testHandler(t *testing.T, requireMFA bool) (http.Handler, *MemorySessionStore) {
+func testHandler(t *testing.T, requireMFA bool, fulfillmentReaders ...FulfillmentReader) (http.Handler, *MemorySessionStore) {
 	t.Helper()
 	store, err := NewMemorySessionStore(func() time.Time { return testNow })
 	if err != nil {
@@ -355,8 +355,13 @@ func testHandler(t *testing.T, requireMFA bool) (http.Handler, *MemorySessionSto
 	if _, _, err = supportService.Create(context.Background(), support.Actor{TenantID: "tenant-1", Country: "IN", Subject: "customer-001", Roles: []support.Role{support.RoleCustomer}}, support.CreateTicketRequest{OwnerRole: support.RoleCustomer, Category: support.CategoryOrder, Subject: "Synthetic customer support request", Description: "The synthetic order needs assistance."}, "admin-projection-ticket-0001"); err != nil {
 		t.Fatalf("seed support service: %v", err)
 	}
+	var fulfillmentReader FulfillmentReader
+	if len(fulfillmentReaders) > 0 {
+		fulfillmentReader = fulfillmentReaders[0]
+	}
 	handler, err := NewHandler(Config{
-		Sessions: store, Audit: auditService, Operations: operations, CMS: cms, CMSWorkspace: workspace, Governance: governanceService, Support: supportService, Reports: &testReportService{}, Clock: func() time.Time { return testNow },
+		Fulfillment: fulfillmentReader,
+		Sessions:    store, Audit: auditService, Operations: operations, CMS: cms, CMSWorkspace: workspace, Governance: governanceService, Support: supportService, Reports: &testReportService{}, Clock: func() time.Time { return testNow },
 		AllowedOrigins: []string{"https://admin.planext4u.net"}, RequireMFA: requireMFA,
 	})
 	if err != nil {

@@ -577,8 +577,8 @@ func TestSupplyCommandsDeclareTypedBodies(t *testing.T) {
 			assertComponentRequestBody(t, method, path, requestBody, schemas)
 		}
 	}
-	if typed != 15 {
-		t.Fatalf("supply command coverage typed=%d, want 15", typed)
+	if typed != 19 {
+		t.Fatalf("supply command coverage typed=%d, want 19", typed)
 	}
 }
 
@@ -621,8 +621,8 @@ func TestRiderCommandsDeclareTypedBodiesOrIntentionalBodylessSemantics(t *testin
 		typed++
 		assertComponentRequestBody(t, "post", path, requestBody, schemas)
 	}
-	if typed != 7 || bodyless != len(expectedBodyless) {
-		t.Fatalf("rider command coverage typed=%d bodyless=%d, want 7/%d", typed, bodyless, len(expectedBodyless))
+	if typed != 11 || bodyless != len(expectedBodyless) {
+		t.Fatalf("rider command coverage typed=%d bodyless=%d, want 11/%d", typed, bodyless, len(expectedBodyless))
 	}
 }
 

@@ -68,7 +68,8 @@ func (service *Service) Presign(ctx context.Context, tenantID, country, ownerID 
 	if err != nil {
 		return UploadGrant{}, ErrDependency
 	}
-	if err := service.repository.Create(ctx, asset); err != nil {
+	provenance := inspectConditionalUploadGrant(url, headers)
+	if err := service.repository.Create(ctx, asset, provenance); err != nil {
 		return UploadGrant{}, err
 	}
 	return UploadGrant{Asset: asset, UploadURL: url, Headers: cloneHeaders(headers), ExpiresAt: expiresAt}, nil
@@ -179,11 +180,7 @@ func (service *Service) Delete(ctx context.Context, tenantID, ownerID, assetID s
 	if err != nil {
 		return err
 	}
-	if err := service.objects.Delete(ctx, asset.ObjectKey); err != nil {
-		return ErrDependency
-	}
-	asset.State, asset.Version = StateDeleted, asset.Version+1
-	return service.repository.Update(ctx, asset, asset.Version-1)
+	return service.DeleteScoped(ctx, tenantID, asset.Country, ownerID, assetID)
 }
 
 func metadataMatches(asset Asset, actual ObjectMetadata) bool {

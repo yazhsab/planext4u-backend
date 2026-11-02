@@ -101,6 +101,10 @@ test("authorized content administrator can configure page drafts and workspace f
   await page.getByRole("tab", {name: "App workspace"}).click();
   await expect(page.getByRole("heading", {name: "Global app workspace"})).toBeVisible();
   await expect(page.getByText("services")).toBeVisible();
+  await expect(page.getByRole("button", {name: "Add optional contact matching policy"})).toBeVisible();
+  await page.getByRole("button", {name: "Add optional contact matching policy"}).click();
+  await expect(page.getByLabel("Contact matching policy version")).toHaveValue("contacts-v1");
+  await expect(page.getByRole("button", {name: "Remove from next publication"})).toBeVisible();
 
   const results = await new AxeBuilder({page}).analyze();
   expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);

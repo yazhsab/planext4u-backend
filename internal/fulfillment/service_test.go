@@ -331,7 +331,7 @@ func TestOrderSettlementUsesCapturedCommercialTerms(t *testing.T) {
 
 func TestBEP4011TerritoryGeoRBACMFAAuditAndDashboard(t *testing.T) {
 	service, _ := fulfillmentFixture(t)
-	field := fulfillmentActor("field-officer-001", "FIELD_OFFICER", false)
+	field := fulfillmentActor("field-officer-001", "FIELD_OFFICER", true)
 	if _, _, err := service.FieldCheckIn(field, "field-checkin-outside01", "territory-chennai-core", Point{Latitude: 12.9716, Longitude: 77.5946}); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("outside check-in error=%v", err)
 	}
@@ -366,7 +366,9 @@ func TestBEP4011TerritoryGeoRBACMFAAuditAndDashboard(t *testing.T) {
 func fulfillmentFixture(t *testing.T) (*Service, *time.Time) {
 	t.Helper()
 	now := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
-	service, err := NewService(Configuration{OfferTTL: 45 * time.Second, LocationTTL: 2 * time.Minute, ChatAfterDeliveryTTL: 2 * time.Hour, SettlementCooling: 48 * time.Hour, CommissionBasisPoints: 1000, TaxBasisPoints: 1800, Territories: []Territory{
+	service, err := NewService(Configuration{TerritoryAuthority: func(actor Actor, id, capability string) bool {
+		return actor.Subject == "field-officer-001" && id == "territory-chennai-core" && (capability == "resource.read" || capability == "resource.command")
+	}, OfferTTL: 45 * time.Second, LocationTTL: 2 * time.Minute, ChatAfterDeliveryTTL: 2 * time.Hour, SettlementCooling: 48 * time.Hour, CommissionBasisPoints: 1000, TaxBasisPoints: 1800, Territories: []Territory{
 		{ID: "territory-chennai-core", RegionID: "region-chennai", FranchiseID: "franchise-chennai-001", Name: "Chennai core", Center: Point{Latitude: 13.0827, Longitude: 80.2707}, RadiusKM: 25, PostalCodes: []string{"600001", "600002"}, tenantID: "tenant-synthetic-001", country: "IN"},
 		{ID: "territory-bengaluru-core", RegionID: "region-bengaluru", FranchiseID: "franchise-bengaluru-001", Name: "Bengaluru core", Center: Point{Latitude: 12.9716, Longitude: 77.5946}, RadiusKM: 25, PostalCodes: []string{"560001"}, tenantID: "tenant-synthetic-001", country: "IN"},
 	}}, func() time.Time { return now })
@@ -383,7 +385,7 @@ func fulfillmentActor(subject, role string, mfa bool) Actor {
 func approvedRiderFixture(t *testing.T, service *Service, subject string) Actor {
 	t.Helper()
 	rider := fulfillmentActor(subject, "RIDER", false)
-	profile, _, err := service.RegisterRider(rider, "rider-register-"+subject, RiderRegistrationRequest{FullName: "Synthetic Rider", PhoneMasked: "******1234", VehicleType: "MOTORBIKE", VehicleNumber: "TN01AB1234", Documents: []RiderDocument{{Kind: "DRIVER_LICENSE", AssetID: "asset-rider-license"}, {Kind: "IDENTITY", AssetID: "asset-rider-identity"}}, BankReference: "bankref_rider001", Zones: []string{"600001"}})
+	profile, _, err := service.RegisterRider(rider, "rider-register-"+subject, RiderRegistrationRequest{FullName: "Synthetic Rider", PhoneMasked: "******1234", VehicleType: "MOTORBIKE", VehicleNumber: "TN01AB1234", Documents: []RiderDocument{{Kind: "DRIVER_LICENSE", AssetID: "asset-rider-license"}, {Kind: "IDENTITY", AssetID: "asset-rider-identity"}, {Kind: "VEHICLE_REGISTRATION", AssetID: "asset-rider-registration"}, {Kind: "INSURANCE", AssetID: "asset-rider-insurance"}}, BankReference: "bankref_rider001", Zones: []string{"600001"}})
 	if err != nil {
 		t.Fatal(err)
 	}

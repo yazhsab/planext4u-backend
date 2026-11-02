@@ -15,6 +15,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/yazhsab/planext4u-backend/internal/bankverification"
+	"github.com/yazhsab/planext4u-backend/internal/kycattestation"
+	"github.com/yazhsab/planext4u-backend/internal/privateevidence"
 )
 
 const fulfillmentOperationTimeout = 25 * time.Second
@@ -32,22 +35,44 @@ type fulfillmentPolicy struct {
 // PostgresService is the durable fulfillment runtime. Mutations, revision
 // checks, audit records and idempotency responses share one database commit.
 type PostgresService struct {
-	pool  *pgxpool.Pool
-	clock func() time.Time
+	pool         *pgxpool.Pool
+	clock        func() time.Time
+	evidence     privateevidence.Verifier
+	bankVerifier bankverification.Verifier
+	kycVerifier  kycattestation.Verifier
 }
 
-func NewPostgresService(pool *pgxpool.Pool, clock func() time.Time) (*PostgresService, error) {
-	if pool == nil || clock == nil {
+func NewPostgresService(pool *pgxpool.Pool, clock func() time.Time, verifiers ...privateevidence.Verifier) (*PostgresService, error) {
+	if pool == nil || clock == nil || len(verifiers) > 1 || len(verifiers) == 1 && verifiers[0] == nil {
 		return nil, ErrInvalidRequest
 	}
-	return &PostgresService{pool: pool, clock: clock}, nil
+	verifier := privateevidence.Unavailable()
+	if len(verifiers) == 1 {
+		verifier = verifiers[0]
+	}
+	return &PostgresService{pool: pool, clock: clock, evidence: verifier, bankVerifier: bankverification.Unavailable(), kycVerifier: kycattestation.Unavailable()}, nil
+}
+
+func NewPostgresServiceWithProviders(pool *pgxpool.Pool, clock func() time.Time, documents privateevidence.Verifier, bank bankverification.Verifier, kyc ...kycattestation.Verifier) (*PostgresService, error) {
+	if bank == nil || len(kyc) > 1 || len(kyc) == 1 && kyc[0] == nil {
+		return nil, ErrInvalidRequest
+	}
+	service, err := NewPostgresService(pool, clock, documents)
+	if err != nil {
+		return nil, err
+	}
+	service.bankVerifier = bank
+	if len(kyc) == 1 {
+		service.kycVerifier = kyc[0]
+	}
+	return service, nil
 }
 
 func (service *PostgresService) Now() time.Time { return service.clock().UTC() }
 
 func (service *PostgresService) Ready(ctx context.Context) error {
 	var ready bool
-	err := service.pool.QueryRow(ctx, `SELECT to_regclass('fulfillment.rider_profiles') IS NOT NULL AND to_regclass('fulfillment.delivery_tasks') IS NOT NULL AND to_regclass('fulfillment.offer_declines') IS NOT NULL AND to_regclass('fulfillment.policies') IS NOT NULL AND to_regclass('fulfillment.payout_entry_claims') IS NOT NULL`).Scan(&ready)
+	err := service.pool.QueryRow(ctx, `SELECT to_regclass('fulfillment.rider_command_history') IS NOT NULL AND to_regclass('fulfillment.rider_location_history') IS NOT NULL AND to_regclass('fulfillment.rider_profiles') IS NOT NULL AND to_regclass('fulfillment.delivery_tasks') IS NOT NULL AND to_regclass('fulfillment.offer_declines') IS NOT NULL AND to_regclass('fulfillment.policies') IS NOT NULL AND to_regclass('fulfillment.payout_entry_claims') IS NOT NULL`).Scan(&ready)
 	if err != nil {
 		return fmt.Errorf("check fulfillment schema readiness: %w", err)
 	}
@@ -68,6 +93,9 @@ func (service *PostgresService) RegisterRider(actor Actor, key string, request R
 		return RiderProfile{}, false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockRiderSession(ctx, tx, actor); err != nil {
+		return RiderProfile{}, false, err
+	}
 	if err := fulfillmentCommandLock(ctx, tx, actor, "rider-register", key); err != nil {
 		return RiderProfile{}, false, err
 	}
@@ -79,6 +107,15 @@ func (service *PostgresService) RegisterRider(actor Actor, key string, request R
 		replay.tenantID, replay.country = actor.TenantID, actor.Country
 		return replay, true, nil
 	}
+	ids := make([]string, len(request.Documents))
+	for index, document := range request.Documents {
+		ids[index] = document.AssetID
+	}
+	verificationContext, cancelVerification := context.WithTimeout(ctx, 3*time.Second)
+	defer cancelVerification()
+	if err := service.evidence.VerifyIdentityDocuments(verificationContext, privateevidence.Scope{TenantID: actor.TenantID, Country: actor.Country, OwnerID: actor.Subject}, ids); err != nil {
+		return RiderProfile{}, false, err
+	}
 	documents := cloneRiderDocuments(request.Documents)
 	for index := range documents {
 		documents[index].OCRStatus = "REVIEW_REQUIRED"
@@ -89,6 +126,9 @@ func (service *PostgresService) RegisterRider(actor Actor, key string, request R
 	_, err = tx.Exec(ctx, `INSERT INTO fulfillment.rider_profiles (id,tenant_id,country,rider_identity_id,revision,status,full_name,phone_masked,vehicle_type,vehicle_number,bank_reference,bank_status,zones,max_concurrent,documents,created_at,updated_at) VALUES ($1,$2,$3,$4,1,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15)`, value.ID, actor.TenantID, actor.Country, actor.Subject, value.Status, value.FullName, value.PhoneMasked, value.VehicleType, value.VehicleNumber, value.BankReference, value.BankStatus, value.Zones, value.MaxConcurrent, encoded, now)
 	if err != nil {
 		return RiderProfile{}, false, mapFulfillmentError(err)
+	}
+	if err := privateevidence.Claim(ctx, tx, privateevidence.Scope{TenantID: actor.TenantID, Country: actor.Country, OwnerID: actor.Subject}, "RIDER_APPLICATION", value.ID, ids); err != nil {
+		return RiderProfile{}, false, err
 	}
 	if err := storeFulfillmentReplay(ctx, tx, actor, "rider-register", key, fingerprint, value, now); err != nil {
 		return RiderProfile{}, false, err
@@ -109,11 +149,17 @@ func (service *PostgresService) Rider(actor Actor) (RiderProfile, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RiderProfile{}, ErrNotFound
 	}
-	return value, err
+	if err != nil {
+		return RiderProfile{}, err
+	}
+	if err := service.pool.QueryRow(ctx, `SELECT coalesce((SELECT max(device_sequence) FROM fulfillment.rider_command_history WHERE rider_identity_id=$1 AND tenant_id=$2 AND country=$3),0),coalesce((SELECT sequence FROM fulfillment.rider_location_history WHERE rider_identity_id=$1 AND tenant_id=$2 AND country=$3),0)`, actor.Subject, actor.TenantID, actor.Country).Scan(&value.LastCommandSequence, &value.LastLocationSequence); err != nil {
+		return RiderProfile{}, err
+	}
+	return value, nil
 }
 
 func (service *PostgresService) ReviewRider(actor Actor, key, riderID string, revision int64, approved bool, reason string) (RiderProfile, bool, error) {
-	if !postgresFulfillmentActor(actor) || !hasAnyRole(actor, "OPS_ADMIN", "SUPER_ADMIN") || !actor.MFAVerified || !validKey(key) || !fulfillmentIsUUID(riderID) || len(strings.TrimSpace(reason)) < 8 {
+	if !postgresFulfillmentActor(actor) || !hasAnyRole(actor, "OPS_ADMIN", "SUPER_ADMIN", "REGIONAL_ADMIN") || hasRole(actor, "REGIONAL_ADMIN") && !hasAnyRole(actor, "OPS_ADMIN", "SUPER_ADMIN") && approved || !actor.MFAVerified || !validKey(key) || !fulfillmentIsUUID(riderID) || len(strings.TrimSpace(reason)) < 8 {
 		if !actor.MFAVerified {
 			return RiderProfile{}, false, ErrMFARequired
 		}
@@ -121,11 +167,18 @@ func (service *PostgresService) ReviewRider(actor Actor, key, riderID string, re
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), fulfillmentOperationTimeout)
 	defer cancel()
-	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return RiderProfile{}, false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	reviewLock := lockRiderReviewer
+	if !approved {
+		reviewLock = lockScopedRiderReviewer
+	}
+	if err := reviewLock(ctx, tx, actor, riderID); err != nil {
+		return RiderProfile{}, false, err
+	}
 	operation := "rider-review:" + riderID
 	if err := fulfillmentCommandLock(ctx, tx, actor, operation, key); err != nil {
 		return RiderProfile{}, false, err
@@ -139,7 +192,10 @@ func (service *PostgresService) ReviewRider(actor Actor, key, riderID string, re
 	if found, err := loadFulfillmentReplay(ctx, tx, actor, operation, key, fingerprint, &replay); err != nil {
 		return RiderProfile{}, false, err
 	} else if found {
-		return replay, true, nil
+		if err := reviewLock(ctx, tx, actor, riderID); err != nil {
+			return RiderProfile{}, false, err
+		}
+		return regionalRiderReviewReceipt(actor, replay), true, nil
 	}
 	value, err := loadPostgresRider(ctx, tx, actor.TenantID, actor.Country, riderID, true)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -151,6 +207,37 @@ func (service *PostgresService) ReviewRider(actor Actor, key, riderID string, re
 	if value.Revision != revision || value.Status != RiderKYCReview {
 		return RiderProfile{}, false, ErrConflict
 	}
+	if approved {
+		if !validRiderDocumentSet(value.VehicleType, value.Documents) {
+			return RiderProfile{}, false, ErrInvalidRequest
+		}
+		ids := make([]string, len(value.Documents))
+		for index, document := range value.Documents {
+			ids[index] = document.AssetID
+		}
+		verificationContext, cancelVerification := context.WithTimeout(ctx, 3*time.Second)
+		defer cancelVerification()
+		if err := service.evidence.VerifyIdentityDocuments(verificationContext, privateevidence.Scope{TenantID: actor.TenantID, Country: actor.Country, OwnerID: value.RiderID}, ids); err != nil {
+			return RiderProfile{}, false, err
+		}
+		kycDocuments := make([]kycattestation.Document, len(value.Documents))
+		for index, document := range value.Documents {
+			kycDocuments[index] = kycattestation.Document{Kind: document.Kind, AssetID: document.AssetID}
+		}
+		kycContext, cancelKYC := context.WithTimeout(ctx, 3*time.Second)
+		defer cancelKYC()
+		attestationID, err := service.kycVerifier.Verify(kycContext, kycattestation.Scope{TenantID: actor.TenantID, Country: actor.Country, OwnerID: value.RiderID}, kycDocuments)
+		if err != nil {
+			return RiderProfile{}, false, err
+		}
+		bankContext, cancelBank := context.WithTimeout(ctx, 3*time.Second)
+		defer cancelBank()
+		verificationID, err := service.bankVerifier.Verify(bankContext, bankverification.Scope{TenantID: actor.TenantID, Country: actor.Country, OwnerID: value.RiderID}, bankverification.Account{Reference: value.BankReference})
+		if err != nil {
+			return RiderProfile{}, false, err
+		}
+		reason = strings.TrimSpace(reason) + "; provider KYC attestation: " + attestationID + "; provider bank verification: " + verificationID
+	}
 	for index := range value.Documents {
 		if approved {
 			value.Documents[index].OCRStatus = "VERIFIED"
@@ -158,15 +245,19 @@ func (service *PostgresService) ReviewRider(actor Actor, key, riderID string, re
 			value.Documents[index].OCRStatus = "REJECTED"
 		}
 	}
+	value.ReworkAllowed = !approved
 	if approved {
+		value.ReviewReason = ""
 		value.Status, value.BankStatus, value.AllowedActions = RiderApproved, "VERIFIED", []string{"START_DUTY", "VIEW_EARNINGS"}
 	} else {
-		value.Status, value.AllowedActions = RiderSuspended, nil
+		value.ReviewReason = strings.TrimSpace(reason)
+		value.Status, value.AllowedActions = RiderSuspended, []string{"RESUBMIT_APPLICATION"}
 	}
 	value.Revision++
 	value.UpdatedAt = service.Now()
 	documents, _ := json.Marshal(value.Documents)
-	_, err = tx.Exec(ctx, `UPDATE fulfillment.rider_profiles SET revision=$2,status=$3,bank_status=$4,documents=$5,updated_at=$6 WHERE id=$1`, value.ID, value.Revision, value.Status, value.BankStatus, documents, value.UpdatedAt)
+	value.ReviewedAt = &value.UpdatedAt
+	_, err = tx.Exec(ctx, `UPDATE fulfillment.rider_profiles SET revision=$2,status=$3,bank_status=$4,documents=$5,updated_at=$6,review_reason=$7,reviewed_at=$6,rework_allowed=$8 WHERE id=$1`, value.ID, value.Revision, value.Status, value.BankStatus, documents, value.UpdatedAt, value.ReviewReason, value.ReworkAllowed)
 	if err != nil {
 		return RiderProfile{}, false, err
 	}
@@ -176,10 +267,22 @@ func (service *PostgresService) ReviewRider(actor Actor, key, riderID string, re
 	if err := storeFulfillmentReplay(ctx, tx, actor, operation, key, fingerprint, value, value.UpdatedAt); err != nil {
 		return RiderProfile{}, false, err
 	}
+	if err := reviewLock(ctx, tx, actor, riderID); err != nil {
+		return RiderProfile{}, false, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return RiderProfile{}, false, mapFulfillmentError(err)
 	}
-	return value, false, nil
+	return regionalRiderReviewReceipt(actor, value), false, nil
+}
+
+func regionalRiderReviewReceipt(actor Actor, value RiderProfile) RiderProfile {
+	if !hasRole(actor, "REGIONAL_ADMIN") || hasAnyRole(actor, "OPS_ADMIN", "SUPER_ADMIN") {
+		return value
+	}
+	// A scoped reviewer needs only a command receipt. Keep the private document,
+	// bank and contact fields out of a direct owning-service response as well.
+	return RiderProfile{ID: value.ID, RiderID: value.RiderID, Revision: value.Revision, Status: value.Status, UpdatedAt: value.UpdatedAt}
 }
 
 func (service *PostgresService) StartDuty(actor Actor, key, zoneID string) (DutySession, bool, error) {
@@ -188,11 +291,14 @@ func (service *PostgresService) StartDuty(actor Actor, key, zoneID string) (Duty
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), fulfillmentOperationTimeout)
 	defer cancel()
-	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return DutySession{}, false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := authorizeDeliveryConsent(ctx, tx, actor, actor.Subject); err != nil {
+		return DutySession{}, false, err
+	}
 	if err := fulfillmentCommandLock(ctx, tx, actor, "duty-start", key); err != nil {
 		return DutySession{}, false, err
 	}
@@ -538,7 +644,7 @@ func (service *PostgresService) UpdateLocation(actor Actor, key string, input Lo
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), fulfillmentOperationTimeout)
 	defer cancel()
-	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return RiderLocation{}, false, err
 	}
@@ -559,7 +665,29 @@ func (service *PostgresService) Location(actor Actor, riderID string) (RiderLoca
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), fulfillmentOperationTimeout)
 	defer cancel()
-	value, err := loadPostgresLocation(ctx, service.pool, actor.TenantID, actor.Country, riderID, false)
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return RiderLocation{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := authorizeDeliveryConsent(ctx, tx, actor, riderID); err != nil {
+		if errors.Is(err, ErrDeliveryConsentRequired) {
+			return RiderLocation{}, ErrNotFound
+		}
+		return RiderLocation{}, err
+	}
+	if !hasAnyRole(actor, "DISPATCH", "OPS_ADMIN", "SUPER_ADMIN") {
+		var related bool
+		// The first two participants are the immutable order parties. Previously
+		// assigned riders may remain in chat history and cannot gain tracking rights.
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM fulfillment.delivery_tasks d JOIN fulfillment.conversations c ON (c.tenant_id,c.country,c.order_id)=(d.tenant_id,d.country,d.order_id) WHERE d.tenant_id=$1 AND d.country=$2 AND d.assigned_rider_identity_id=$3 AND d.status IN ('ASSIGNED','PICKED_UP') AND $4::uuid=ANY(c.participant_identity_ids[1:2]))`, actor.TenantID, actor.Country, riderID, actor.Subject).Scan(&related); err != nil {
+			return RiderLocation{}, err
+		}
+		if !related {
+			return RiderLocation{}, ErrNotFound
+		}
+	}
+	value, err := loadPostgresLocation(ctx, tx, actor.TenantID, actor.Country, riderID, false)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RiderLocation{}, ErrNotFound
 	}
@@ -568,6 +696,9 @@ func (service *PostgresService) Location(actor Actor, riderID string) (RiderLoca
 	}
 	if !value.ExpiresAt.After(service.Now()) {
 		return RiderLocation{}, ErrLocationStale
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return RiderLocation{}, err
 	}
 	return value, nil
 }
@@ -632,23 +763,31 @@ func (service *PostgresService) RecoverOffline(actor Actor, commands []OfflineCo
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].DeviceSequence < sorted[j].DeviceSequence })
 	ctx, cancel := context.WithTimeout(context.Background(), fulfillmentOperationTimeout)
 	defer cancel()
-	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	for _, command := range sorted {
+		if command.Kind == "LOCATION" {
+			if err := authorizeDeliveryConsent(ctx, tx, actor, actor.Subject); err != nil {
+				return nil, err
+			}
+			break
+		}
+	}
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, actor.TenantID+":"+actor.Subject+":offline"); err != nil {
 		return nil, err
 	}
 	var lastSequence int64
-	if err := tx.QueryRow(ctx, `SELECT coalesce(max(device_sequence),0) FROM fulfillment.offline_commands WHERE rider_identity_id=$1`, actor.Subject).Scan(&lastSequence); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT coalesce(max(device_sequence),0) FROM fulfillment.rider_command_history WHERE rider_identity_id=$1 AND tenant_id=$2 AND country=$3`, actor.Subject, actor.TenantID, actor.Country).Scan(&lastSequence); err != nil {
 		return nil, err
 	}
 	expected := lastSequence + 1
 	results := make([]OfflineResult, 0, len(sorted))
 	for _, command := range sorted {
 		var encoded []byte
-		err := tx.QueryRow(ctx, `SELECT result FROM fulfillment.offline_commands WHERE rider_identity_id=$1 AND command_id=$2`, actor.Subject, command.CommandID).Scan(&encoded)
+		err := tx.QueryRow(ctx, `SELECT result FROM fulfillment.rider_command_history WHERE rider_identity_id=$1 AND command_id=$2 AND tenant_id=$3 AND country=$4`, actor.Subject, command.CommandID, actor.TenantID, actor.Country).Scan(&encoded)
 		if err == nil {
 			var previous OfflineResult
 			if json.Unmarshal(encoded, &previous) != nil {
@@ -671,7 +810,7 @@ func (service *PostgresService) RecoverOffline(actor Actor, commands []OfflineCo
 				return nil, err
 			}
 			var sequence int64
-			_ = tx.QueryRow(ctx, `SELECT sequence FROM fulfillment.rider_locations WHERE rider_identity_id=$1 FOR UPDATE`, actor.Subject).Scan(&sequence)
+			_ = tx.QueryRow(ctx, `SELECT sequence FROM fulfillment.rider_location_history WHERE rider_identity_id=$1 AND tenant_id=$2 AND country=$3 FOR UPDATE`, actor.Subject, actor.TenantID, actor.Country).Scan(&sequence)
 			location.Sequence = sequence + 1
 			if _, _, err := service.updatePostgresLocation(ctx, tx, actor, command.CommandID, location); err != nil {
 				return nil, err
@@ -679,7 +818,16 @@ func (service *PostgresService) RecoverOffline(actor Actor, commands []OfflineCo
 			result.ResourceStatus = "LOCATION_UPDATED"
 		case "PICKUP":
 			value, err := loadPostgresTask(ctx, tx, actor.TenantID, actor.Country, command.TaskID, true)
-			if err != nil || value.AssignedRiderID != actor.Subject || value.Revision != command.Revision || value.Status != "ASSIGNED" {
+			if err != nil || value.AssignedRiderID != actor.Subject {
+				return nil, ErrConflict
+			}
+			// The online pickup may have committed before its response was lost.
+			// Acknowledge an already achieved transition without repeating it.
+			if value.Revision > command.Revision && (value.Status == "PICKED_UP" || value.Status == "DELIVERED") {
+				result.ResourceStatus = value.Status
+				break
+			}
+			if value.Revision != command.Revision || value.Status != "ASSIGNED" {
 				return nil, ErrConflict
 			}
 			now := service.Now()
@@ -692,7 +840,7 @@ func (service *PostgresService) RecoverOffline(actor Actor, commands []OfflineCo
 			return nil, ErrInvalidRequest
 		}
 		resultJSON, _ := json.Marshal(result)
-		_, err = tx.Exec(ctx, `INSERT INTO fulfillment.offline_commands (rider_identity_id,device_sequence,command_id,kind,status,result,processed_at) VALUES ($1,$2,$3,$4,'APPLIED',$5,$6)`, actor.Subject, command.DeviceSequence, command.CommandID, command.Kind, resultJSON, service.Now())
+		_, err = tx.Exec(ctx, `INSERT INTO fulfillment.rider_command_history (rider_identity_id,device_sequence,command_id,kind,status,result,processed_at,tenant_id,country) VALUES ($1,$2,$3,$4,'APPLIED',$5,$6,$7,$8)`, actor.Subject, command.DeviceSequence, command.CommandID, command.Kind, resultJSON, service.Now(), actor.TenantID, actor.Country)
 		if err != nil {
 			return nil, mapFulfillmentError(err)
 		}
@@ -719,7 +867,7 @@ func loadPostgresRider(ctx context.Context, query fulfillmentQuerier, tenantID, 
 	}
 	var value RiderProfile
 	var documents []byte
-	err := query.QueryRow(ctx, `SELECT id::text,rider_identity_id::text,revision,status,full_name,phone_masked,vehicle_type,vehicle_number,bank_reference,bank_status,zones,max_concurrent,documents,created_at,updated_at,tenant_id::text,country FROM fulfillment.rider_profiles WHERE tenant_id=$1 AND country=$2 AND rider_identity_id=$3`+suffix, tenantID, country, riderID).Scan(&value.ID, &value.RiderID, &value.Revision, &value.Status, &value.FullName, &value.PhoneMasked, &value.VehicleType, &value.VehicleNumber, &value.BankReference, &value.BankStatus, &value.Zones, &value.MaxConcurrent, &documents, &value.CreatedAt, &value.UpdatedAt, &value.tenantID, &value.country)
+	err := query.QueryRow(ctx, `SELECT id::text,rider_identity_id::text,revision,status,full_name,phone_masked,vehicle_type,vehicle_number,bank_reference,bank_status,zones,max_concurrent,documents,created_at,updated_at,tenant_id::text,country,review_reason,reviewed_at,rework_allowed FROM fulfillment.rider_profiles WHERE tenant_id=$1 AND country=$2 AND rider_identity_id=$3`+suffix, tenantID, country, riderID).Scan(&value.ID, &value.RiderID, &value.Revision, &value.Status, &value.FullName, &value.PhoneMasked, &value.VehicleType, &value.VehicleNumber, &value.BankReference, &value.BankStatus, &value.Zones, &value.MaxConcurrent, &documents, &value.CreatedAt, &value.UpdatedAt, &value.tenantID, &value.country, &value.ReviewReason, &value.ReviewedAt, &value.ReworkAllowed)
 	if err != nil {
 		return RiderProfile{}, err
 	}
@@ -727,6 +875,9 @@ func loadPostgresRider(ctx context.Context, query fulfillmentQuerier, tenantID, 
 		return RiderProfile{}, fmt.Errorf("decode rider documents: %w", err)
 	}
 	value.AllowedActions = riderAllowedActions(value.Status)
+	if value.Status == RiderSuspended && value.ReworkAllowed {
+		value.AllowedActions = []string{"RESUBMIT_APPLICATION"}
+	}
 	return value, nil
 }
 
@@ -781,11 +932,14 @@ func loadPostgresLocation(ctx context.Context, query fulfillmentQuerier, tenantI
 		suffix = " FOR UPDATE"
 	}
 	var value RiderLocation
-	err := query.QueryRow(ctx, `SELECT rider_identity_id::text,sequence,latitude,longitude,accuracy_m,updated_at,expires_at,tenant_id::text,country FROM fulfillment.rider_locations WHERE tenant_id=$1 AND country=$2 AND rider_identity_id=$3`+suffix, tenantID, country, riderID).Scan(&value.RiderID, &value.Sequence, &value.Point.Latitude, &value.Point.Longitude, &value.AccuracyM, &value.UpdatedAt, &value.ExpiresAt, &value.tenantID, &value.country)
+	err := query.QueryRow(ctx, `SELECT rider_identity_id::text,sequence,latitude,longitude,accuracy_m,updated_at,expires_at,tenant_id::text,country FROM fulfillment.rider_location_history WHERE tenant_id=$1 AND country=$2 AND rider_identity_id=$3`+suffix, tenantID, country, riderID).Scan(&value.RiderID, &value.Sequence, &value.Point.Latitude, &value.Point.Longitude, &value.AccuracyM, &value.UpdatedAt, &value.ExpiresAt, &value.tenantID, &value.country)
 	return value, err
 }
 
 func (service *PostgresService) updatePostgresLocation(ctx context.Context, tx pgx.Tx, actor Actor, key string, input LocationUpdate) (RiderLocation, bool, error) {
+	if err := authorizeDeliveryConsent(ctx, tx, actor, actor.Subject); err != nil {
+		return RiderLocation{}, false, err
+	}
 	operation := "location"
 	if err := fulfillmentCommandLock(ctx, tx, actor, operation, key); err != nil {
 		return RiderLocation{}, false, err
@@ -817,7 +971,7 @@ func (service *PostgresService) updatePostgresLocation(ctx context.Context, tx p
 		return RiderLocation{}, false, err
 	}
 	value := RiderLocation{RiderID: actor.Subject, Sequence: input.Sequence, Point: input.Point, AccuracyM: input.AccuracyM, UpdatedAt: now, ExpiresAt: now.Add(policy.locationTTL), tenantID: actor.TenantID, country: actor.Country}
-	_, err = tx.Exec(ctx, `INSERT INTO fulfillment.rider_locations (rider_identity_id,tenant_id,country,sequence,latitude,longitude,accuracy_m,updated_at,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (rider_identity_id) DO UPDATE SET tenant_id=excluded.tenant_id,country=excluded.country,sequence=excluded.sequence,latitude=excluded.latitude,longitude=excluded.longitude,accuracy_m=excluded.accuracy_m,updated_at=excluded.updated_at,expires_at=excluded.expires_at`, actor.Subject, actor.TenantID, actor.Country, value.Sequence, value.Point.Latitude, value.Point.Longitude, value.AccuracyM, now, value.ExpiresAt)
+	_, err = tx.Exec(ctx, `INSERT INTO fulfillment.rider_location_history (rider_identity_id,tenant_id,country,sequence,latitude,longitude,accuracy_m,updated_at,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (tenant_id,country,rider_identity_id) DO UPDATE SET sequence=excluded.sequence,latitude=excluded.latitude,longitude=excluded.longitude,accuracy_m=excluded.accuracy_m,updated_at=excluded.updated_at,expires_at=excluded.expires_at`, actor.Subject, actor.TenantID, actor.Country, value.Sequence, value.Point.Latitude, value.Point.Longitude, value.AccuracyM, now, value.ExpiresAt)
 	if err != nil {
 		return RiderLocation{}, false, err
 	}
@@ -1068,7 +1222,7 @@ func riderAllowedActions(status RiderStatus) []string {
 	case RiderApproved:
 		return []string{"START_DUTY", "VIEW_EARNINGS"}
 	default:
-		return nil
+		return []string{}
 	}
 }
 

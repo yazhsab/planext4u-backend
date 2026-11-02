@@ -1,6 +1,7 @@
 package configcms
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,47 @@ import (
 	"testing"
 	"time"
 )
+
+func TestBootstrapEmptyCollectionsRespectMobileJSONContract(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 25, 0, 0, 0, 0, time.UTC)
+	snapshot := validSnapshot(now)
+	snapshot.ConsentPolicies = nil
+	snapshot.HomeSections = nil
+	repository, err := NewMemoryRepository(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, _ := NewService(repository, func() time.Time { return now })
+	handler, _ := NewHandler(service)
+	request := httptest.NewRequest(http.MethodGet, "/v1/bootstrap?platform=android&app_version=1.2.0&locale=en", nil)
+	request.Header.Set("X-Planext4u-Tenant", snapshot.TenantID)
+	request.Header.Set("X-Planext4u-Country", snapshot.Country)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("bootstrap failed: %d", response.Code)
+	}
+	var payload map[string]json.RawMessage
+	if err = json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"consent_policies", "home_sections", "pages"} {
+		if string(payload[name]) != "[]" {
+			t.Fatalf("%s breaks required-array contract: %s", name, payload[name])
+		}
+	}
+	workspace, err := json.Marshal(workspaceFromSnapshot(snapshot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(workspace, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if string(payload["consent_policies"]) != "[]" || string(payload["home_sections"]) != "[]" {
+		t.Fatalf("admin workspace has null arrays: %s", workspace)
+	}
+}
 
 func TestBootstrapHandlerUsesTrustedScopeAndCachingHeaders(t *testing.T) {
 	t.Parallel()
@@ -23,7 +65,7 @@ func TestBootstrapHandlerUsesTrustedScopeAndCachingHeaders(t *testing.T) {
 	handler.ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK || response.Header().Get("ETag") != `"config-1"` ||
-		!strings.Contains(response.Header().Get("Cache-Control"), "stale-if-error") ||
+		response.Header().Get("Cache-Control") != "no-store" ||
 		!strings.Contains(response.Body.String(), `"update_gate":"OPTIONAL"`) ||
 		!strings.Contains(response.Body.String(), `"locale":"hi"`) {
 		t.Fatalf("response = %d %v %s", response.Code, response.Header(), response.Body.String())
@@ -77,6 +119,7 @@ func TestPageHandlerReturnsPublishedPageWithRevisionETag(t *testing.T) {
 	service, _ := NewService(repository, func() time.Time { return now })
 	handler, _ := NewHandler(service)
 	request := httptest.NewRequest(http.MethodGet, "/v1/pages/customer-home?locale=ta", nil)
+	request.Header.Set("X-Planext4u-Roles", "CUSTOMER")
 	request.Header.Set("X-Planext4u-Tenant", snapshot.TenantID)
 	request.Header.Set("X-Planext4u-Country", snapshot.Country)
 	response := httptest.NewRecorder()

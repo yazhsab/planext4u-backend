@@ -72,13 +72,8 @@ func (service *Service) Application(actor Actor) (Application, error) {
 }
 
 func (service *Service) SubmitDocuments(actor Actor, key string, revision int64, request DocumentsRequest) (Application, bool, error) {
-	if !validKey(key) || len(request.Documents) < 2 || len(request.Documents) > 10 {
+	if !validKey(key) || !validApplicationDocuments(request.Documents, safeID) {
 		return Application{}, false, ErrInvalidRequest
-	}
-	for _, document := range request.Documents {
-		if !safeID(document.AssetID) || !regexp.MustCompile(`^[A-Z_]{2,40}$`).MatchString(document.Kind) {
-			return Application{}, false, ErrInvalidRequest
-		}
 	}
 	return service.mutateApplication(actor, key, revision, "documents", request, func(value *Application) error {
 		if !hasRole(actor, "VENDOR") || value.VendorID != actor.Subject || value.Status != StatusRegistered {
@@ -88,6 +83,7 @@ func (service *Service) SubmitDocuments(actor Actor, key string, revision int64,
 		for index := range value.Documents {
 			value.Documents[index].OCRStatus = "PENDING"
 			value.Documents[index].ExtractedFields = nil
+			value.Documents[index].ReviewReason = ""
 		}
 		value.Status = StatusDocumentsSubmitted
 		return nil
@@ -99,6 +95,9 @@ func (service *Service) Transition(actor Actor, key string, revision int64, requ
 }
 
 func (service *Service) TransitionForVendor(actor Actor, key, vendorID string, revision int64, request TransitionRequest) (Application, bool, error) {
+	if !actor.MFAVerified {
+		return Application{}, false, ErrForbidden
+	}
 	if !hasAnyRole(actor, "OPS_ADMIN", "SUPER_ADMIN", "FIELD_OFFICER", "FINANCE") || len(strings.TrimSpace(request.Reason)) < 8 {
 		return Application{}, false, ErrForbidden
 	}
@@ -201,6 +200,9 @@ func (service *Service) SubmitBank(actor Actor, key string, revision int64, bank
 }
 
 func (service *Service) VerifyBank(actor Actor, key, vendorID string, revision int64, reason string) (Application, bool, error) {
+	if !actor.MFAVerified {
+		return Application{}, false, ErrForbidden
+	}
 	if !hasAnyRole(actor, "FINANCE", "SUPER_ADMIN") || len(strings.TrimSpace(reason)) < 8 {
 		return Application{}, false, ErrForbidden
 	}
@@ -541,6 +543,8 @@ func applicationActions(value Application) []string {
 	switch value.Status {
 	case StatusRegistered:
 		return []string{"SUBMIT_DOCUMENTS"}
+	case StatusRejected:
+		return []string{"RESUBMIT_DOCUMENTS"}
 	case StatusFieldVisitRequired, StatusFieldVisitScheduled:
 		return []string{"SCHEDULE_FIELD_VISIT"}
 	case StatusFieldVisitPassed:

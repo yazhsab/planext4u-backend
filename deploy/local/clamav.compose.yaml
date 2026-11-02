@@ -1,0 +1,64 @@
+name: planext4u-phase2-security
+services:
+  clamav-init:
+    image: clamav/clamav:1.4.6@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
+    entrypoint: ["sh", "-c", "chown 100:101 /var/lib/clamav /run/clamav && chmod 0770 /run/clamav"]
+    network_mode: none
+    volumes:
+      - clamav-signatures:/var/lib/clamav
+      - clamav-socket:/run/clamav
+    labels:
+      net.planext4u.environment: local-phase2
+  clamav-update:
+    image: clamav/clamav:1.4.6@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
+    command: ["freshclam", "--config-file=/etc/clamav/planext4u-freshclam.conf", "--daemon", "--foreground", "--stdout"]
+    depends_on:
+      clamav-init:
+        condition: service_completed_successfully
+    volumes:
+      - clamav-signatures:/var/lib/clamav
+      - clamav-socket:/run/clamav
+      - ./clamd.conf:/etc/clamav/planext4u.conf:ro
+      - ./freshclam.conf:/etc/clamav/planext4u-freshclam.conf:ro
+    mem_limit: 2g
+    cpus: 1
+    environment:
+      TZ: UTC
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+    labels:
+      net.planext4u.environment: local-phase2
+  clamav:
+    image: clamav/clamav:1.4.6@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
+    entrypoint: ["clamd", "--config-file=/etc/clamav/planext4u.conf", "--foreground"]
+    user: "100:101"
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:uid=100,gid=101,mode=0700,size=256m
+    volumes:
+      - clamav-signatures:/var/lib/clamav:ro
+      - clamav-socket:/run/clamav
+      - ./clamd.conf:/etc/clamav/planext4u.conf:ro
+    depends_on:
+      clamav-init:
+        condition: service_completed_successfully
+    mem_limit: 4g
+    cpus: 2
+    environment:
+      TZ: UTC
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "clamdscan", "--config-file=/etc/clamav/planext4u.conf", "--ping=1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    labels:
+      net.planext4u.environment: local-phase2
+volumes:
+  clamav-signatures:
+    name: planext4u-phase2-clamav-signatures
+  clamav-socket:
+    name: planext4u-phase2-clamav-socket

@@ -1,0 +1,4 @@
+REVOKE planext4u_bankverification_runtime FROM planext4u_transaction_runtime;
+REVOKE planext4u_bankverification_owner FROM CURRENT_USER;
+DROP ROLE IF EXISTS planext4u_bankverification_runtime;
+DROP ROLE IF EXISTS planext4u_bankverification_owner;

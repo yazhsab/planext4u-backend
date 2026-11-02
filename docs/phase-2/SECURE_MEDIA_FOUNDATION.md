@@ -34,3 +34,5 @@ PostgreSQL stores that metadata through migration
 `media/000003_browser_presentations`, and the S3 adapter signs GET requests
 through the same bounded presentation port. Production storage endpoints and
 signing credentials remain environment-specific release configuration.
+
+The 25 October completion continuation wires the private S3/ClamAV implementation in normal local startup. Loaded definitions now have a configurable 48-hour default freshness limit, checked at readiness and before/after a clean scan; stale/invalid/future signatures leave documents pending and inaccessible. See [the scanner runbook](../runbooks/MEDIA_SCANNER.md) for UTC configuration, retry, health metrics and alert deployment. Actual engine/S3 evidence and the remaining provider/retention work are tracked in `docs/completion/phase-2/STATUS.md`.

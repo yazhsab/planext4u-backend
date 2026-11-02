@@ -8,6 +8,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/yazhsab/planext4u-backend/internal/bankverification"
+	"github.com/yazhsab/planext4u-backend/internal/kycattestation"
+	"github.com/yazhsab/planext4u-backend/internal/ocrattestation"
+	"github.com/yazhsab/planext4u-backend/internal/privateevidence"
 )
 
 type ApplicationService interface {
@@ -39,9 +44,13 @@ func NewHandler(service ApplicationService) (http.Handler, error) {
 	}
 	handler := &Handler{service: service}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/vendor/applications", handler.participantApplications)
+	mux.HandleFunc("GET /v1/vendor/applications/{vendor_id}/review", handler.vendorReview)
+	mux.HandleFunc("POST /v1/vendor/applications/{vendor_id}/review/documents/{kind}/access", handler.vendorReviewDocumentAccess)
 	mux.HandleFunc("POST /v1/vendor/applications", handler.register)
 	mux.HandleFunc("GET /v1/vendor/application", handler.application)
 	mux.HandleFunc("POST /v1/vendor/application/documents", handler.documents)
+	mux.HandleFunc("POST /v1/vendor/application/resubmissions", handler.resubmitDocuments)
 	mux.HandleFunc("POST /v1/vendor/application/field-visit", handler.scheduleVisit)
 	mux.HandleFunc("POST /v1/vendor/application/zones", handler.zones)
 	mux.HandleFunc("POST /v1/vendor/application/bank", handler.bank)
@@ -388,7 +397,7 @@ func (handler *Handler) problem(writer http.ResponseWriter, request *http.Reques
 		status, code, detail = http.StatusUnprocessableEntity, "SUPPLY_REQUEST_INVALID", "The supply request is invalid."
 	case errors.Is(err, ErrNotFound):
 		status, code, detail = http.StatusNotFound, "SUPPLY_NOT_FOUND", "The supply resource was not found."
-	case errors.Is(err, ErrForbidden):
+	case errors.Is(err, ErrForbidden), errors.Is(err, privateevidence.ErrRejected), errors.Is(err, bankverification.ErrRejected), errors.Is(err, kycattestation.ErrRejected), errors.Is(err, ocrattestation.ErrRejected):
 		status, code, detail = http.StatusForbidden, "SUPPLY_FORBIDDEN", "The actor cannot access this supply resource."
 	case errors.Is(err, ErrConflict):
 		status, code, detail = http.StatusConflict, "SUPPLY_REVISION_CONFLICT", "The supply resource changed; refresh before retrying."
@@ -396,6 +405,14 @@ func (handler *Handler) problem(writer http.ResponseWriter, request *http.Reques
 		status, code, detail = http.StatusConflict, "SUPPLY_TRANSITION_INVALID", "The requested supply lifecycle transition is not allowed."
 	case errors.Is(err, ErrIdempotencyConflict):
 		status, code, detail = http.StatusConflict, "SUPPLY_IDEMPOTENCY_CONFLICT", "The idempotency key was already used for another command."
+	case errors.Is(err, privateevidence.ErrUnavailable):
+		status, code, detail = http.StatusServiceUnavailable, "SUPPLY_EVIDENCE_UNAVAILABLE", "Private document verification is unavailable. Retry later."
+	case errors.Is(err, bankverification.ErrUnavailable):
+		status, code, detail = http.StatusServiceUnavailable, "SUPPLY_BANK_VERIFICATION_UNAVAILABLE", "Bank verification is unavailable. Retry later."
+	case errors.Is(err, kycattestation.ErrUnavailable):
+		status, code, detail = http.StatusServiceUnavailable, "SUPPLY_KYC_ATTESTATION_UNAVAILABLE", "Identity document attestation is unavailable. Retry later."
+	case errors.Is(err, ocrattestation.ErrUnavailable):
+		status, code, detail = http.StatusServiceUnavailable, "SUPPLY_OCR_ATTESTATION_UNAVAILABLE", "Document OCR attestation is unavailable. Retry later."
 	}
 	writeSupplyProblem(writer, request, status, code, detail)
 }
@@ -415,10 +432,21 @@ func supplyMutation(writer http.ResponseWriter, request *http.Request) (Actor, i
 
 func supplyActor(writer http.ResponseWriter, request *http.Request) (Actor, bool) {
 	actor := Actor{
-		TenantID: strings.TrimSpace(request.Header.Get("X-Planext4u-Tenant")),
-		Country:  strings.TrimSpace(request.Header.Get("X-Planext4u-Country")),
-		Subject:  strings.TrimSpace(request.Header.Get("X-Planext4u-Subject")),
-		Roles:    strings.Split(request.Header.Get("X-Planext4u-Roles"), ","),
+		TenantID:    strings.TrimSpace(request.Header.Get("X-Planext4u-Tenant")),
+		Country:     strings.TrimSpace(request.Header.Get("X-Planext4u-Country")),
+		Subject:     strings.TrimSpace(request.Header.Get("X-Planext4u-Subject")),
+		Roles:       strings.Split(request.Header.Get("X-Planext4u-Roles"), ","),
+		MFAVerified: request.Header.Get("X-Planext4u-MFA") == "verified",
+	}
+	actor.OperatorSessionID = request.Header.Get("X-Planext4u-Operator-Session")
+	actor.SourceSessionID = request.Header.Get("X-Planext4u-Session")
+	if value := request.Header.Get("X-Planext4u-Operator-Revision"); value != "" {
+		revision, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || revision < 1 {
+			writeSupplyProblem(writer, request, 403, "SUPPLY_SCOPE_REQUIRED", "The authenticated operator scope is incomplete.")
+			return Actor{}, false
+		}
+		actor.OperatorRevision = revision
 	}
 	if !validActor(actor) {
 		writeSupplyProblem(writer, request, http.StatusForbidden, "SUPPLY_SCOPE_REQUIRED", "The authenticated supply scope is incomplete.")

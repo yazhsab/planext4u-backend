@@ -11,7 +11,30 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yazhsab/planext4u-backend/internal/order"
+	"github.com/yazhsab/planext4u-backend/internal/participantreview"
 )
+
+// Self-service money reads and payout requests must hold the owning identity
+// and the current participant source session through commit. A role supplied
+// by a caller is only a candidate; the identity owner verifies the live role,
+// country, session, disablement and effective deletion under row locks.
+func lockSettlementParticipantSession(ctx context.Context, tx pgx.Tx, actor Actor) error {
+	if hasRole(actor, "RIDER") {
+		if err := lockRiderSession(ctx, tx, actor); err == nil {
+			return nil
+		} else if !errors.Is(err, ErrForbidden) {
+			return err
+		}
+	}
+	if hasAnyRole(actor, "VENDOR", "RESTAURANT_VENDOR") {
+		err := participantreview.LockParticipant(ctx, tx, actor.TenantID, actor.Country, actor.Subject, actor.SourceSessionID, "VENDOR")
+		if errors.Is(err, participantreview.ErrForbidden) {
+			return ErrForbidden
+		}
+		return err
+	}
+	return ErrForbidden
+}
 
 func (service *PostgresService) SeedSettlement(actor Actor, accountID, referenceID, kind string, gross Money) (LedgerEntry, error) {
 	if !postgresFulfillmentActor(actor) || !hasAnyRole(actor, "SETTLEMENT_WORKER", "FINANCE", "SUPER_ADMIN") || !fulfillmentIsUUID(accountID) || !fulfillmentIsUUID(referenceID) || !safeID(kind) || gross.AmountMinor <= 0 || len(gross.Currency) != 3 {
@@ -83,35 +106,77 @@ func (service *PostgresService) seedPostgresSettlement(actor Actor, accountID, r
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), fulfillmentOperationTimeout)
 	defer cancel()
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return LedgerEntry{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	// A settlement worker is a separate service principal. Human finance and
+	// super-admin callers must retain current directory/session authority until
+	// the insert and idempotent readback commit together.
+	if len(actor.Roles) != 1 || !hasRole(actor, "SETTLEMENT_WORKER") {
+		if err := lockFinanceOperator(ctx, tx, actor, "SEED"); err != nil {
+			return LedgerEntry{}, err
+		}
+	}
 	now := service.Now()
 	value := LedgerEntry{ID: fulfillmentUUID("ledger", accountID+":"+referenceID+":"+kind), AccountID: accountID, ReferenceID: referenceID, Kind: kind, Gross: gross, Commission: Money{AmountMinor: commission, Currency: gross.Currency}, Tax: Money{AmountMinor: tax, Currency: gross.Currency}, Net: Money{AmountMinor: gross.AmountMinor - commission - tax, Currency: gross.Currency}, CalculationVersion: version, AvailableAt: now.Add(cooling), CreatedAt: now, tenantID: actor.TenantID, country: actor.Country}
-	_, err := service.pool.Exec(ctx, `INSERT INTO fulfillment.ledger_entries (id,tenant_id,country,account_identity_id,reference_id,kind,gross_minor,commission_minor,tax_minor,net_minor,currency,calculation_version,available_at,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (account_identity_id,reference_id,kind) DO NOTHING`, value.ID, actor.TenantID, actor.Country, accountID, referenceID, kind, gross.AmountMinor, commission, tax, value.Net.AmountMinor, gross.Currency, version, value.AvailableAt, now)
+	_, err = tx.Exec(ctx, `INSERT INTO fulfillment.ledger_entries (id,tenant_id,country,account_identity_id,reference_id,kind,gross_minor,commission_minor,tax_minor,net_minor,currency,calculation_version,available_at,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (account_identity_id,reference_id,kind) DO NOTHING`, value.ID, actor.TenantID, actor.Country, accountID, referenceID, kind, gross.AmountMinor, commission, tax, value.Net.AmountMinor, gross.Currency, version, value.AvailableAt, now)
 	if err != nil {
 		return LedgerEntry{}, mapFulfillmentError(err)
 	}
-	return loadPostgresLedgerEntry(ctx, service.pool, actor.TenantID, actor.Country, accountID, referenceID, kind)
+	committed, err := loadPostgresLedgerEntry(ctx, tx, actor.TenantID, actor.Country, accountID, referenceID, kind)
+	if err != nil {
+		return LedgerEntry{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return LedgerEntry{}, mapFulfillmentError(err)
+	}
+	return committed, nil
 }
 
 func (service *PostgresService) Ledger(actor Actor, accountID string) ([]LedgerEntry, error) {
-	if !postgresFulfillmentActor(actor) || !fulfillmentIsUUID(accountID) || !hasAnyRole(actor, "RIDER", "VENDOR", "RESTAURANT_VENDOR", "FINANCE", "OPS_ADMIN", "SUPER_ADMIN") || !hasAnyRole(actor, "FINANCE", "OPS_ADMIN", "SUPER_ADMIN") && actor.Subject != accountID {
+	self := actor.Subject == accountID && hasAnyRole(actor, "RIDER", "VENDOR", "RESTAURANT_VENDOR")
+	operator := hasAnyRole(actor, "FINANCE", "OPS_ADMIN", "SUPER_ADMIN")
+	if !postgresFulfillmentActor(actor) || !fulfillmentIsUUID(accountID) || !self && !operator {
 		return nil, ErrForbidden
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), fulfillmentOperationTimeout)
 	defer cancel()
-	rows, err := service.pool.Query(ctx, ledgerSelect+` WHERE tenant_id=$1 AND country=$2 AND account_identity_id=$3 ORDER BY created_at DESC`, actor.TenantID, actor.Country, accountID)
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = tx.Rollback(ctx) }()
+	if self {
+		if err := lockSettlementParticipantSession(ctx, tx, actor); err != nil {
+			return nil, err
+		}
+	} else if err := lockFinanceOperator(ctx, tx, actor, "READ"); err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, ledgerSelect+` WHERE tenant_id=$1 AND country=$2 AND account_identity_id=$3 ORDER BY created_at DESC`, actor.TenantID, actor.Country, accountID)
+	if err != nil {
+		return nil, err
+	}
 	values := []LedgerEntry{}
 	for rows.Next() {
 		value, err := scanPostgresLedgerEntry(rows)
 		if err != nil {
+			rows.Close()
 			return nil, err
 		}
 		values = append(values, value)
 	}
-	return values, rows.Err()
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, mapFulfillmentError(err)
+	}
+	return values, nil
 }
 
 func (service *PostgresService) RequestPayout(actor Actor, key string, entryIDs []string) (Payout, bool, error) {
@@ -127,11 +192,17 @@ func (service *PostgresService) RequestPayout(actor Actor, key string, entryIDs 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), fulfillmentOperationTimeout)
 	defer cancel()
-	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	// Ledger rows and the unique entry-claim constraint serialize payout
+	// requests. Read committed lets a queued source-session check observe a
+	// revocation committed while it waited for the identity owner's row lock.
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return Payout{}, false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockSettlementParticipantSession(ctx, tx, actor); err != nil {
+		return Payout{}, false, err
+	}
 	if err := fulfillmentCommandLock(ctx, tx, actor, "payout-request", key); err != nil {
 		return Payout{}, false, err
 	}
@@ -236,11 +307,19 @@ func (service *PostgresService) ExecutePayout(actor Actor, key, payoutID string,
 func (service *PostgresService) mutatePayout(actor Actor, key, payoutID string, revision int64, operation, detail string, mutation func(*Payout) error) (Payout, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), fulfillmentOperationTimeout)
 	defer cancel()
-	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	// Explicit payout row, command and operator locks serialize this command.
+	// A fresh read-committed statement after a queued operator lock observes
+	// revocation rather than authorizing from an older serializable snapshot.
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return Payout{}, false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if operation == "approve" || operation == "execute" && (len(actor.Roles) != 1 || !hasRole(actor, "PAYOUT_WORKER")) {
+		if err := lockFinanceOperator(ctx, tx, actor, strings.ToUpper(operation)); err != nil {
+			return Payout{}, false, err
+		}
+	}
 	scope := "payout-" + operation + ":" + payoutID
 	if err := fulfillmentCommandLock(ctx, tx, actor, scope, key); err != nil {
 		return Payout{}, false, err
@@ -289,25 +368,47 @@ func (service *PostgresService) mutatePayout(actor Actor, key, payoutID string, 
 }
 
 func (service *PostgresService) Payouts(actor Actor, accountID string) ([]Payout, error) {
-	if !postgresFulfillmentActor(actor) || !fulfillmentIsUUID(accountID) || !hasAnyRole(actor, "FINANCE", "OPS_ADMIN", "SUPER_ADMIN") && actor.Subject != accountID {
+	self := actor.Subject == accountID && hasAnyRole(actor, "RIDER", "VENDOR", "RESTAURANT_VENDOR")
+	operator := hasAnyRole(actor, "FINANCE", "OPS_ADMIN", "SUPER_ADMIN")
+	if !postgresFulfillmentActor(actor) || !fulfillmentIsUUID(accountID) || !self && !operator {
 		return nil, ErrForbidden
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), fulfillmentOperationTimeout)
 	defer cancel()
-	rows, err := service.pool.Query(ctx, payoutSelect+` WHERE tenant_id=$1 AND country=$2 AND account_identity_id=$3 ORDER BY created_at DESC`, actor.TenantID, actor.Country, accountID)
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = tx.Rollback(ctx) }()
+	if self {
+		if err := lockSettlementParticipantSession(ctx, tx, actor); err != nil {
+			return nil, err
+		}
+	} else if err := lockFinanceOperator(ctx, tx, actor, "READ"); err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, payoutSelect+` WHERE tenant_id=$1 AND country=$2 AND account_identity_id=$3 ORDER BY created_at DESC`, actor.TenantID, actor.Country, accountID)
+	if err != nil {
+		return nil, err
+	}
 	values := []Payout{}
 	for rows.Next() {
 		value, err := scanPostgresPayout(rows)
 		if err != nil {
+			rows.Close()
 			return nil, err
 		}
 		values = append(values, value)
 	}
-	return values, rows.Err()
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, mapFulfillmentError(err)
+	}
+	return values, nil
 }
 
 func (service *PostgresService) Reconcile(actor Actor, accountID string) (Reconciliation, error) {
@@ -319,16 +420,27 @@ func (service *PostgresService) Reconcile(actor Actor, accountID string) (Reconc
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), fulfillmentOperationTimeout)
 	defer cancel()
-	result := Reconciliation{AccountID: accountID, CalculationVersion: "durable-ledger-v1"}
-	err := service.pool.QueryRow(ctx, `SELECT coalesce(sum(net_minor),0),coalesce(max(currency),'') FROM fulfillment.ledger_entries WHERE tenant_id=$1 AND country=$2 AND account_identity_id=$3`, actor.TenantID, actor.Country, accountID).Scan(&result.LedgerNetMinor, &result.Currency)
+	tx, err := service.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return Reconciliation{}, err
 	}
-	err = service.pool.QueryRow(ctx, `SELECT coalesce(sum(amount_minor) FILTER (WHERE status='PAID'),0),coalesce(sum(amount_minor) FILTER (WHERE status NOT IN ('PAID','FAILED')),0) FROM fulfillment.payouts WHERE tenant_id=$1 AND country=$2 AND account_identity_id=$3`, actor.TenantID, actor.Country, accountID).Scan(&result.PaidMinor, &result.PendingMinor)
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockFinanceOperator(ctx, tx, actor, "RECONCILE"); err != nil {
+		return Reconciliation{}, err
+	}
+	result := Reconciliation{AccountID: accountID, CalculationVersion: "durable-ledger-v1"}
+	err = tx.QueryRow(ctx, `SELECT coalesce(sum(net_minor),0),coalesce(max(currency),'') FROM fulfillment.ledger_entries WHERE tenant_id=$1 AND country=$2 AND account_identity_id=$3`, actor.TenantID, actor.Country, accountID).Scan(&result.LedgerNetMinor, &result.Currency)
+	if err != nil {
+		return Reconciliation{}, err
+	}
+	err = tx.QueryRow(ctx, `SELECT coalesce(sum(amount_minor) FILTER (WHERE status='PAID'),0),coalesce(sum(amount_minor) FILTER (WHERE status NOT IN ('PAID','FAILED')),0) FROM fulfillment.payouts WHERE tenant_id=$1 AND country=$2 AND account_identity_id=$3`, actor.TenantID, actor.Country, accountID).Scan(&result.PaidMinor, &result.PendingMinor)
 	if err != nil {
 		return Reconciliation{}, err
 	}
 	result.VarianceMinor = result.LedgerNetMinor - result.PaidMinor - result.PendingMinor
+	if err := tx.Commit(ctx); err != nil {
+		return Reconciliation{}, mapFulfillmentError(err)
+	}
 	return result, nil
 }
 

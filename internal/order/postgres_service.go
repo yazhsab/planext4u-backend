@@ -42,7 +42,9 @@ func (service *PostgresService) Ready(ctx context.Context) error {
 	if err := service.pool.QueryRow(ctx, `
 		SELECT to_regclass('ordering.orders') IS NOT NULL
 		   AND to_regclass('ordering.idempotency_records') IS NOT NULL
-		   AND to_regclass('ordering.notification_intents') IS NOT NULL`).Scan(&ready); err != nil {
+		   AND to_regclass('ordering.notification_intents') IS NOT NULL
+		   AND to_regclass('ordering.vendor_work_intents') IS NOT NULL
+		   AND to_regclass('ordering.vendor_work_cancellation_intents') IS NOT NULL`).Scan(&ready); err != nil {
 		return fmt.Errorf("check ordering schema readiness: %w", err)
 	}
 	if !ready {
@@ -87,6 +89,11 @@ func (service *PostgresService) Create(scope Scope, idempotencyKey string, snaps
 	}
 	if err := queuePostgresOrderNotification(ctx, tx, value, now); err != nil {
 		return Order{}, false, err
+	}
+	if value.Status == StatusPlaced {
+		if err := queueVendorWorkIntents(ctx, tx, value, now); err != nil {
+			return Order{}, false, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Order{}, false, fmt.Errorf("commit order creation: %w", err)
@@ -275,6 +282,7 @@ func (service *PostgresService) mutate(scope Scope, idempotencyKey, rawFingerpri
 	if value.Revision != expectedRevision {
 		return Order{}, false, ErrRevisionConflict
 	}
+	previousStatus := value.Status
 	if err := apply(&value); err != nil {
 		return Order{}, false, err
 	}
@@ -289,6 +297,16 @@ func (service *PostgresService) mutate(scope Scope, idempotencyKey, rawFingerpri
 	}
 	if err := queuePostgresOrderNotification(ctx, tx, value, value.UpdatedAt); err != nil {
 		return Order{}, false, err
+	}
+	if previousStatus != StatusPlaced && value.Status == StatusPlaced {
+		if err := queueVendorWorkIntents(ctx, tx, value, value.UpdatedAt); err != nil {
+			return Order{}, false, err
+		}
+	}
+	if previousStatus != value.Status && (value.Status == StatusCancelRequested || value.Status == StatusCancelled) {
+		if err := queueVendorWorkCancellations(ctx, tx, value, value.UpdatedAt); err != nil {
+			return Order{}, false, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Order{}, false, fmt.Errorf("commit order mutation: %w", err)

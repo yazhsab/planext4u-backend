@@ -14,11 +14,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/yazhsab/planext4u-backend/internal/wallet"
+	"github.com/yazhsab/planext4u-backend/internal/workflow"
 )
 
 const checkoutStoreTimeout = 10 * time.Second
 
 type stateStore interface {
+	Journal() workflow.Store
+	PendingFinalizations(context.Context, int) ([]string, error)
+	FreezeRefillCreditExpiry(string, time.Time) (time.Time, error)
 	Ready(context.Context) error
 	Addresses(Scope) ([]Address, error)
 	Address(Scope, string) (Address, bool, error)
@@ -40,8 +44,13 @@ type stateStore interface {
 // side effects remain owned by their service schemas; this store retains the
 // durable links needed to resume/finalize those workflows after a restart.
 type PostgresStore struct {
-	pool  *pgxpool.Pool
-	clock func() time.Time
+	pool            *pgxpool.Pool
+	clock           func() time.Time
+	addressSessions bool
+}
+
+func (store *PostgresStore) Journal() workflow.Store {
+	return workflow.Store{Pool: store.pool, Schema: "commerce"}
 }
 
 func NewPostgresStore(pool *pgxpool.Pool, clock func() time.Time) (*PostgresStore, error) {
@@ -57,13 +66,56 @@ func (store *PostgresStore) Ready(ctx context.Context) error {
 		SELECT to_regclass('commerce.checkout_commands') IS NOT NULL
 		   AND to_regclass('commerce.checkout_processes') IS NOT NULL
 		   AND to_regclass('commerce.checkout_quotes') IS NOT NULL
+		   AND to_regclass('commerce.checkout_workflows') IS NOT NULL
 		   AND to_regclass('commerce.customer_addresses') IS NOT NULL`).Scan(&ready); err != nil {
 		return fmt.Errorf("check checkout schema readiness: %w", err)
 	}
 	if !ready {
 		return errors.New("checkout schema is unavailable")
 	}
+	if store.addressSessions {
+		var references bool
+		if err := store.pool.QueryRow(ctx, `SELECT to_regprocedure('identity.lock_address_session(text,character,text,text)') IS NOT NULL AND to_regprocedure('admin.lock_address_geography(uuid,character,uuid)') IS NOT NULL`).Scan(&references); err != nil {
+			return err
+		}
+		if !references {
+			return ErrGeographyUnavailable
+		}
+	}
 	return nil
+}
+
+func (store *PostgresStore) PendingFinalizations(ctx context.Context, limit int) ([]string, error) {
+	rows, err := store.pool.Query(ctx, `SELECT payment_id FROM (SELECT c.payment_id::text,p.updated_at FROM commerce.checkout_processes c
+ JOIN ordering.orders o ON o.id=c.order_id JOIN payment.payments p ON p.id=c.payment_id
+ JOIN inventory.reservations r ON r.id=c.reservation_id
+ WHERE c.process_type='CHECKOUT' AND (
+ (o.status='PENDING_PAYMENT' AND (p.status IN ('CAPTURED','RECONCILED','FAILED_FINAL','CANCELLED') OR r.expires_at<=$1))
+ OR (o.status='CANCELLED' AND p.status IN ('CAPTURED','RECONCILED'))
+ OR (o.status='RETURNED' AND p.status='REFUNDED') OR o.status='CANCEL_REQUESTED')
+ UNION ALL SELECT c.payment_id::text,p.updated_at FROM commerce.checkout_processes c JOIN payment.payments p ON p.id=c.payment_id WHERE c.process_type='WALLET_REFILL' AND p.status IN ('CAPTURED','RECONCILED') AND NOT EXISTS(SELECT 1 FROM wallet.ledger_entries l WHERE l.tenant_id=c.tenant_id AND l.country=c.country AND l.customer_identity_id=c.customer_identity_id AND l.category='WALLET_REFILL' AND l.source_reference=c.payment_id::text)
+ ) candidates ORDER BY updated_at LIMIT $2`, store.clock().UTC(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (store *PostgresStore) FreezeRefillCreditExpiry(paymentID string, proposed time.Time) (time.Time, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), checkoutStoreTimeout)
+	defer cancel()
+	var expiry time.Time
+	err := store.pool.QueryRow(ctx, `UPDATE commerce.checkout_processes SET refill_offer=CASE WHEN refill_offer ? 'credit_expires_at' THEN refill_offer ELSE jsonb_set(refill_offer,'{credit_expires_at}',to_jsonb($2::timestamptz)) END WHERE payment_id=$1 AND process_type='WALLET_REFILL' RETURNING (refill_offer->>'credit_expires_at')::timestamptz`, paymentID, proposed.UTC()).Scan(&expiry)
+	return expiry, err
 }
 
 func (store *PostgresStore) Addresses(scope Scope) ([]Address, error) {
@@ -72,25 +124,36 @@ func (store *PostgresStore) Addresses(scope Scope) ([]Address, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), checkoutStoreTimeout)
 	defer cancel()
-	rows, err := store.pool.Query(ctx, `
-		SELECT id::text,label,line1,line2,postal_code,locality,
-		       COALESCE(latitude,0),COALESCE(longitude,0),serviceable,is_default,revision
-		FROM commerce.customer_addresses
-		WHERE tenant_id=$1 AND country=$2 AND customer_identity_id=$3 AND active
-		ORDER BY is_default DESC,id`, scope.TenantID, scope.Country, scope.CustomerID)
+	tx, err := store.pool.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("load checkout addresses: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err = store.lockAddressSession(ctx, tx, scope); err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, `SELECT id::text,label,line1,line2,postal_code,locality,COALESCE(latitude,0),COALESCE(longitude,0),serviceable,is_default,revision,geography FROM commerce.customer_addresses WHERE tenant_id=$1 AND country=$2 AND customer_identity_id=$3 AND active ORDER BY is_default DESC,id`, scope.TenantID, scope.Country, scope.CustomerID)
+	if err != nil {
+		return nil, err
+	}
 	values := []Address{}
 	for rows.Next() {
-		value, err := scanCheckoutAddress(rows, scope)
-		if err != nil {
-			return nil, err
+		value, readErr := scanCheckoutAddress(rows, scope)
+		if readErr != nil {
+			rows.Close()
+			return nil, readErr
 		}
 		values = append(values, value)
 	}
-	return values, rows.Err()
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if err = store.lockAddressSession(ctx, tx, scope); err != nil {
+		return nil, err
+	}
+	return values, tx.Commit(ctx)
 }
 
 func (store *PostgresStore) Address(scope Scope, id string) (Address, bool, error) {
@@ -114,16 +177,25 @@ func (store *PostgresStore) CreateAddress(scope Scope, key, fingerprint string, 
 		return Address{}, false, fmt.Errorf("begin address creation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := store.lockAddressSession(ctx, tx, scope); err != nil {
+		return Address{}, false, err
+	}
 	if err := lockCheckoutCommand(ctx, tx, scope, "ADDRESS_CREATE", key); err != nil {
 		return Address{}, false, err
 	}
 	if replay, found, err := loadCheckoutCommand[Address](ctx, tx, scope, "ADDRESS_CREATE", key, fingerprint); err != nil {
 		return Address{}, false, err
 	} else if found {
+		if err := store.lockAddressSession(ctx, tx, scope); err != nil {
+			return Address{}, false, err
+		}
 		return replay, true, nil
 	}
+	if err := resolveAddressGeography(ctx, tx, scope, &value, nil); err != nil {
+		return Address{}, false, err
+	}
 	if value.Default {
-		if _, err := tx.Exec(ctx, `UPDATE commerce.customer_addresses SET is_default=false,updated_at=$4 WHERE tenant_id=$1 AND country=$2 AND customer_identity_id=$3 AND active`, scope.TenantID, scope.Country, scope.CustomerID, store.clock().UTC()); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE commerce.customer_addresses SET is_default=false,revision=revision+1,updated_at=$4 WHERE tenant_id=$1 AND country=$2 AND customer_identity_id=$3 AND active AND is_default`, scope.TenantID, scope.Country, scope.CustomerID, store.clock().UTC()); err != nil {
 			return Address{}, false, fmt.Errorf("clear default checkout address: %w", err)
 		}
 	} else {
@@ -139,14 +211,17 @@ func (store *PostgresStore) CreateAddress(scope Scope, key, fingerprint string, 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO commerce.customer_addresses
 			(id,tenant_id,country,customer_identity_id,label,postal_code,locality,active,created_at,updated_at,
-			 line1,line2,latitude,longitude,serviceable,is_default,revision)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8,$8,$9,$10,$11,$12,$13,$14,1)`,
+			 line1,line2,latitude,longitude,serviceable,is_default,revision,geography)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8,$8,$9,$10,$11,$12,$13,$14,1,$15)`,
 		value.ID, scope.TenantID, scope.Country, scope.CustomerID, value.Label,
 		value.PostalCode, value.Locality, now, value.Line1, value.Line2,
-		nullableCoordinate(value.Latitude), nullableCoordinate(value.Longitude), value.Serviceable, value.Default); err != nil {
+		nullableCoordinate(value.Latitude), nullableCoordinate(value.Longitude), value.Serviceable, value.Default, geographyJSON(value.Geography)); err != nil {
 		return Address{}, false, fmt.Errorf("insert checkout address: %w", err)
 	}
 	if err := storeCheckoutCommand(ctx, tx, scope, "ADDRESS_CREATE", key, fingerprint, value, now); err != nil {
+		return Address{}, false, err
+	}
+	if err := store.lockAddressSession(ctx, tx, scope); err != nil {
 		return Address{}, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -166,12 +241,18 @@ func (store *PostgresStore) UpdateAddress(scope Scope, key, fingerprint, id stri
 		return Address{}, false, fmt.Errorf("begin address update: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := store.lockAddressSession(ctx, tx, scope); err != nil {
+		return Address{}, false, err
+	}
 	if err := lockCheckoutCommand(ctx, tx, scope, "ADDRESS_UPDATE", key); err != nil {
 		return Address{}, false, err
 	}
 	if replay, found, err := loadCheckoutCommand[Address](ctx, tx, scope, "ADDRESS_UPDATE", key, fingerprint); err != nil {
 		return Address{}, false, err
 	} else if found {
+		if err := store.lockAddressSession(ctx, tx, scope); err != nil {
+			return Address{}, false, err
+		}
 		return replay, true, nil
 	}
 	current, found, err := loadCheckoutAddress(ctx, tx, scope, id, true)
@@ -184,8 +265,11 @@ func (store *PostgresStore) UpdateAddress(scope Scope, key, fingerprint, id stri
 	if current.Revision != expectedRevision {
 		return Address{}, false, ErrAddressConflict
 	}
+	if err := resolveAddressGeography(ctx, tx, scope, &value, current.Geography); err != nil {
+		return Address{}, false, err
+	}
 	if value.Default {
-		if _, err := tx.Exec(ctx, `UPDATE commerce.customer_addresses SET is_default=false,updated_at=$4 WHERE tenant_id=$1 AND country=$2 AND customer_identity_id=$3 AND active AND id<>$5`, scope.TenantID, scope.Country, scope.CustomerID, store.clock().UTC(), id); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE commerce.customer_addresses SET is_default=false,revision=revision+1,updated_at=$4 WHERE tenant_id=$1 AND country=$2 AND customer_identity_id=$3 AND active AND is_default AND id<>$5`, scope.TenantID, scope.Country, scope.CustomerID, store.clock().UTC(), id); err != nil {
 			return Address{}, false, fmt.Errorf("replace default checkout address: %w", err)
 		}
 	}
@@ -193,13 +277,16 @@ func (store *PostgresStore) UpdateAddress(scope Scope, key, fingerprint, id stri
 	now := store.clock().UTC()
 	if _, err := tx.Exec(ctx, `
 		UPDATE commerce.customer_addresses SET label=$2,line1=$3,line2=$4,postal_code=$5,locality=$6,
-			latitude=$7,longitude=$8,serviceable=$9,is_default=$10,revision=$11,updated_at=$12
+			latitude=$7,longitude=$8,serviceable=$9,is_default=$10,revision=$11,updated_at=$12,geography=$13
 		WHERE id=$1`, id, value.Label, value.Line1, value.Line2, value.PostalCode,
 		value.Locality, nullableCoordinate(value.Latitude), nullableCoordinate(value.Longitude),
-		value.Serviceable, value.Default, value.Revision, now); err != nil {
+		value.Serviceable, value.Default, value.Revision, now, geographyJSON(value.Geography)); err != nil {
 		return Address{}, false, fmt.Errorf("update checkout address: %w", err)
 	}
 	if err := storeCheckoutCommand(ctx, tx, scope, "ADDRESS_UPDATE", key, fingerprint, value, now); err != nil {
+		return Address{}, false, err
+	}
+	if err := store.lockAddressSession(ctx, tx, scope); err != nil {
 		return Address{}, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -219,12 +306,18 @@ func (store *PostgresStore) DeleteAddress(scope Scope, key, fingerprint, id stri
 		return false, fmt.Errorf("begin address deletion: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := store.lockAddressSession(ctx, tx, scope); err != nil {
+		return false, err
+	}
 	if err := lockCheckoutCommand(ctx, tx, scope, "ADDRESS_DELETE", key); err != nil {
 		return false, err
 	}
 	if _, found, err := loadCheckoutCommand[map[string]bool](ctx, tx, scope, "ADDRESS_DELETE", key, fingerprint); err != nil {
 		return false, err
 	} else if found {
+		if err := store.lockAddressSession(ctx, tx, scope); err != nil {
+			return false, err
+		}
 		return true, nil
 	}
 	current, found, err := loadCheckoutAddress(ctx, tx, scope, id, true)
@@ -243,12 +336,15 @@ func (store *PostgresStore) DeleteAddress(scope Scope, key, fingerprint, id stri
 	}
 	if current.Default {
 		if _, err := tx.Exec(ctx, `
-			UPDATE commerce.customer_addresses SET is_default=true,updated_at=$4
+			UPDATE commerce.customer_addresses SET is_default=true,revision=revision+1,updated_at=$4
 			WHERE id=(SELECT id FROM commerce.customer_addresses WHERE tenant_id=$1 AND country=$2 AND customer_identity_id=$3 AND active ORDER BY created_at,id LIMIT 1)`, scope.TenantID, scope.Country, scope.CustomerID, now); err != nil {
 			return false, fmt.Errorf("promote checkout address: %w", err)
 		}
 	}
 	if err := storeCheckoutCommand(ctx, tx, scope, "ADDRESS_DELETE", key, fingerprint, map[string]bool{"deleted": true}, now); err != nil {
+		return false, err
+	}
+	if err := store.lockAddressSession(ctx, tx, scope); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -408,7 +504,10 @@ func (store *PostgresStore) SaveRefill(scope Scope, key, fingerprint string, val
 	} else if found {
 		return replay, true, nil
 	}
-	offer, _ := json.Marshal(refill.offer)
+	offer, _ := json.Marshal(struct {
+		wallet.RefillOffer
+		ExpiresAfter time.Duration `json:"expires_after"`
+	}{refill.offer, refill.offer.ExpiresAfter})
 	now := store.clock().UTC()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO commerce.checkout_processes
@@ -475,11 +574,15 @@ func (store *PostgresStore) loadProcess(paymentID string) (process, string, wall
 	if debitID != nil {
 		value.walletDebitID = *debitID
 	}
-	var offer wallet.RefillOffer
+	var offer struct {
+		wallet.RefillOffer
+		ExpiresAfter time.Duration `json:"expires_after"`
+	}
 	if len(offerPayload) > 0 && json.Unmarshal(offerPayload, &offer) != nil {
 		return process{}, "", wallet.RefillOffer{}, false, fmt.Errorf("decode wallet refill process: %w", ErrInvalidRequest)
 	}
-	return value, kind, offer, true, nil
+	offer.RefillOffer.ExpiresAfter = offer.ExpiresAfter
+	return value, kind, offer.RefillOffer, true, nil
 }
 
 func (store *PostgresStore) loadRawCommand(scope Scope, commandType, key, fingerprint string) ([]byte, bool, error) {
@@ -508,7 +611,7 @@ type checkoutAddressQuerier interface {
 }
 
 func loadCheckoutAddress(ctx context.Context, querier checkoutAddressQuerier, scope Scope, id string, lock bool) (Address, bool, error) {
-	query := `SELECT id::text,label,line1,line2,postal_code,locality,COALESCE(latitude,0),COALESCE(longitude,0),serviceable,is_default,revision
+	query := `SELECT id::text,label,line1,line2,postal_code,locality,COALESCE(latitude,0),COALESCE(longitude,0),serviceable,is_default,revision,geography
 		FROM commerce.customer_addresses WHERE id=$1 AND tenant_id=$2 AND country=$3 AND customer_identity_id=$4 AND active`
 	if lock {
 		query += ` FOR UPDATE`
@@ -527,10 +630,16 @@ type checkoutScanner interface{ Scan(...any) error }
 
 func scanCheckoutAddress(scanner checkoutScanner, scope Scope) (Address, error) {
 	var value Address
+	var geography []byte
 	if err := scanner.Scan(&value.ID, &value.Label, &value.Line1, &value.Line2,
 		&value.PostalCode, &value.Locality, &value.Latitude, &value.Longitude,
-		&value.Serviceable, &value.Default, &value.Revision); err != nil {
+		&value.Serviceable, &value.Default, &value.Revision, &geography); err != nil {
 		return Address{}, err
+	}
+	if geography != nil {
+		if err := json.Unmarshal(geography, &value.Geography); err != nil {
+			return Address{}, err
+		}
 	}
 	value.TenantID, value.Country, value.CustomerID = scope.TenantID, scope.Country, scope.CustomerID
 	return value, nil

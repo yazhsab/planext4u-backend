@@ -180,9 +180,10 @@ func TestProfileConsentAndSessionOwnership(t *testing.T) {
 	}
 
 	granted, err := fixture.service.RecordConsent(context.Background(), trusted, ConsentUpdate{
-		Purpose:       ConsentAnalytics,
-		Granted:       true,
-		PolicyVersion: "privacy-2026-04",
+		ExpectedVersion: new(int64(0)),
+		Purpose:         ConsentAnalytics,
+		Granted:         true,
+		PolicyVersion:   "privacy-2026-04",
 	})
 	if err != nil || !granted.Granted || granted.Version != 1 {
 		t.Fatalf("grant consent = %#v, %v", granted, err)

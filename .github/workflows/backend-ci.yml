@@ -15,6 +15,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  local-dependencies:
+    name: Local persistent API and dependency health
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.15.0
+      - name: Build dependencies, migrate and start persistent APIs
+        run: node scripts/completion/stack.mjs up
+      - name: Require healthy dependencies, APIs and administrator BFF
+        if: always()
+        run: node scripts/completion/stack.mjs verify
+      - name: Preserve dependency health evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: local-runtime-health-${{ github.sha }}
+          path: |
+            .local/completion/stack/health.json
+            .local/completion/stack/setup.json
+          if-no-files-found: error
+
   admin-web:
     name: Administrator web verification
     runs-on: ubuntu-latest
@@ -26,20 +52,20 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.15.0
-          cache: npm
-          cache-dependency-path: admin-web/package-lock.json
+      - name: Install pinned package manager
+        run: npm install --global pnpm@11.25.0 --ignore-scripts
       - name: Install locked dependencies
         working-directory: admin-web
-        run: npm ci
+        run: pnpm install --frozen-lockfile
       - name: Install Chromium test runtime
         working-directory: admin-web
-        run: npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
       - name: Verify typed administrator client
         working-directory: admin-web
-        run: npm run verify
+        run: pnpm run verify
       - name: Verify desktop and mobile administrator workflows
         working-directory: admin-web
-        run: npm run test:e2e
+        run: pnpm run test:e2e
 
   verify:
     name: Go verification and SCA
@@ -74,8 +100,11 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 1.25.14
+          go-version: 1.26.10
           cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.15.0
       - name: Verify source, contracts, migrations and race safety
         run: make verify
       - name: Verify identity rotation, consent, tenancy and coverage against PostgreSQL
@@ -198,7 +227,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 1.25.14
+          go-version: 1.26.10
           cache: true
       - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
@@ -238,7 +267,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 1.25.14
+          go-version: 1.26.10
           cache: true
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:

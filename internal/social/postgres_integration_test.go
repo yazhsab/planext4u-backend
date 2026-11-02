@@ -59,7 +59,18 @@ func TestPostgresSocialDurabilityPrivacyConcurrencyRewardsAndRetention(t *testin
 		defer cleanupCancel()
 		_, _ = pool.Exec(cleanup, `DROP SCHEMA IF EXISTS social CASCADE`)
 	})
-	for _, path := range []string{"../../migrations/platform/000006_phase5_roles.up.sql", "../../migrations/social/000001_social_trust.up.sql", "../../migrations/social/000002_engagement_media_messaging.up.sql", "../../migrations/social/000003_durable_social_runtime.up.sql", "../../migrations/social/000004_shares_reward_leases_admin_grant.up.sql"} {
+	// The social policy migration grants access to the administrator runtime.
+	// Bootstrap that role here so this suite also works on an empty database,
+	// independently of the administrator integration suite's execution order.
+	for _, path := range []string{
+		"../../migrations/platform/000006_phase5_roles.up.sql",
+		"../../migrations/platform/000008_admin_roles.up.sql",
+		"../../migrations/social/000001_social_trust.up.sql",
+		"../../migrations/social/000002_engagement_media_messaging.up.sql",
+		"../../migrations/social/000003_durable_social_runtime.up.sql",
+		"../../migrations/social/000004_shares_reward_leases_admin_grant.up.sql",
+		"../../migrations/social/000005_ephemeral_privacy_scrub.up.sql",
+	} {
 		migration, readErr := os.ReadFile(path)
 		if readErr != nil {
 			t.Fatal(readErr)

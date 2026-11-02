@@ -1,5 +1,7 @@
 # Phase 2 backend exit review
 
+This is a historical 27 August backend/CI review. It predates the mobile-first Phase 2 acceptance register and does not certify current AC-2.1 through AC-2.5 or production readiness. See the [current Phase 2 status](../completion/phase-2/STATUS.md).
+
 - Review date: 2026-08-27
 - Engineering outcome: Passed
 - Cloud staging activation: Not executed; external repository/AWS configuration is absent
@@ -31,4 +33,4 @@ The OIDC roles, ECR repository, ECS cluster/service, certificate/DNS, service se
 
 ## Exit decision
 
-Phase 2 engineering is complete. Missing cloud-account configuration does not block Phase 3 source development, but staging or production readiness must not be declared until a successful delivery run and smoke artifact exist.
+At this historical review, contract-first Phase 3 source development was approved. The current mobile-first Phase 2 remains partial; its acceptance gate is tracked in the [current register](../completion/phase-2/phase-2.json). Staging and production readiness require provider/device and release proof as well as a successful delivery run and smoke artifact.

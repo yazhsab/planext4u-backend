@@ -40,6 +40,7 @@ func TestPostgresNotificationQueueReceiptsPreferencesAndEncryptedDevices(t *test
 		"../../migrations/messaging/000001_messaging.up.sql",
 		"../../migrations/messaging/000002_notification_outbox_writer.up.sql",
 		"../../migrations/messaging/000003_notification_schema_usage.up.sql",
+		"../../migrations/messaging/000004_notification_subject_scope.up.sql",
 		"../../migrations/notification/000001_notification.up.sql",
 		"../../migrations/notification/000002_push_devices.up.sql",
 		"../../migrations/notification/000003_delivery_data.up.sql",
@@ -105,6 +106,17 @@ func TestPostgresNotificationQueueReceiptsPreferencesAndEncryptedDevices(t *test
 	}
 	if deliveryCount != 1 || outboxCount != 1 {
 		t.Fatalf("delivery count=%d outbox count=%d", deliveryCount, outboxCount)
+	}
+	var privacyCountry, privacySubject string
+	var envelopeContainsSubject bool
+	if err := pool.QueryRow(ctx, `SELECT privacy_country,privacy_subject_id,
+	        envelope::text LIKE '%'||$2||'%' FROM messaging.outbox
+	        WHERE tenant_id=$1`, tenantID, command.SubjectID).
+		Scan(&privacyCountry, &privacySubject, &envelopeContainsSubject); err != nil {
+		t.Fatal(err)
+	}
+	if privacyCountry != command.Country || privacySubject != command.SubjectID || envelopeContainsSubject {
+		t.Fatalf("outbox privacy metadata country=%q subject=%q leaked=%v", privacyCountry, privacySubject, envelopeContainsSubject)
 	}
 	if err := service.Process(ctx, tenantID, delivery.ID); err != nil {
 		t.Fatal(err)

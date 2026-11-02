@@ -69,6 +69,38 @@ func TestBEOBS001HTTPToMessageTraceMetricsAndRedaction(t *testing.T) {
 	}
 }
 
+func TestScannerHealthGaugesRecordFailuresAndRecoveryWithoutPrivateLabels(t *testing.T) {
+	observability, _, reader := testTelemetry(t)
+	for _, ready := range []bool{true, false, true} {
+		checked := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
+		observability.RecordScannerHealth(context.Background(), ready, checked)
+		var metrics metricdata.ResourceMetrics
+		if err := reader.Collect(context.Background(), &metrics); err != nil {
+			t.Fatal(err)
+		}
+		found := map[string]int64{}
+		for _, scope := range metrics.ScopeMetrics {
+			for _, item := range scope.Metrics {
+				if gauge, ok := item.Data.(metricdata.Gauge[int64]); ok {
+					for _, point := range gauge.DataPoints {
+						if point.Attributes.Len() != 0 {
+							t.Fatal("private/unbounded scanner metric labels")
+						}
+						found[item.Name] = point.Value
+					}
+				}
+			}
+		}
+		value := int64(0)
+		if ready {
+			value = 1
+		}
+		if found["planext4u.media.scanner.ready"] != value || found["planext4u.media.scanner.checked_at"] != checked.Unix() {
+			t.Fatalf("scanner health: %v", found)
+		}
+	}
+}
+
 func TestBEOBS001OutboundPropagationAvoidsURLAndHeaderCapture(t *testing.T) {
 	t.Parallel()
 	telemetry, recorder, _ := testTelemetry(t)

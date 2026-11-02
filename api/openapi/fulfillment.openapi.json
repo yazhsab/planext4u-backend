@@ -399,6 +399,50 @@
         ],
         "type": "object"
       },
+      "EvidenceProblem": {
+        "properties": {
+          "error": {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "correlation_id": {
+                "type": "string"
+              },
+              "details": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "field_errors": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "message": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "correlation_id",
+              "retryable",
+              "field_errors",
+              "details"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
       "FieldCheckIn": {
         "additionalProperties": false,
         "properties": {
@@ -429,6 +473,60 @@
           "point",
           "recorded_at",
           "territory_id"
+        ],
+        "type": "object"
+      },
+      "HostedBankEmptyCommand": {
+        "additionalProperties": false,
+        "maxProperties": 0,
+        "properties": {},
+        "type": "object"
+      },
+      "HostedBankLink": {
+        "additionalProperties": false,
+        "description": "Owner/session-bound bank link. Recovery revalidates a live login authenticated within 15 minutes. Current reads omit launch URLs. A masked result does not approve KYC and the owning application independently resolves its provider proof.",
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/VerifiedBankAccount"
+          },
+          "application_role": {
+            "enum": [
+              "RIDER"
+            ],
+            "type": "string"
+          },
+          "attempt_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "launch_url": {
+            "description": "Short-lived owner-only approved hosted URL. Never cache, persist or log. Present only while awaiting user input.",
+            "format": "uri",
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "CREATING",
+              "AWAITING_USER",
+              "VERIFYING",
+              "VERIFIED",
+              "DECLINED",
+              "CANCELLED",
+              "EXPIRED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "application_role",
+          "status",
+          "expires_at"
         ],
         "type": "object"
       },
@@ -579,6 +677,44 @@
         ],
         "type": "object"
       },
+      "OfflineCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "maxLength": 128,
+            "minLength": 16,
+            "type": "string"
+          },
+          "device_sequence": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "LOCATION",
+              "PICKUP"
+            ],
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "revision": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "device_sequence",
+          "kind"
+        ],
+        "type": "object"
+      },
       "OfflineResult": {
         "additionalProperties": false,
         "properties": {
@@ -602,6 +738,119 @@
           "command_id",
           "device_sequence",
           "status"
+        ],
+        "type": "object"
+      },
+      "RegionalParticipantReviewSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "participant_id", "kind", "revision", "status", "display_name", "category", "updated_at", "actions"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "participant_id": {"type": "string", "format": "uuid"},
+          "kind": {"type": "string", "enum": ["RIDER"]},
+          "revision": {"type": "integer", "minimum": 1},
+          "status": {"type": "string"},
+          "display_name": {"type": "string"},
+          "category": {"type": "string"},
+          "updated_at": {"type": "string", "format": "date-time"},
+          "actions": {"type": "array", "maxItems": 1, "items": {"type": "string", "enum": ["REJECT"]}}
+        }
+      },
+      "RegionalParticipantReviewPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+          "items": {"type": "array", "maxItems": 50, "items": {"$ref": "#/components/schemas/RegionalParticipantReviewSummary"}},
+          "next_after": {"type": "string", "format": "uuid"}
+        }
+      },
+      "ParticipantReviewPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ParticipantReviewSummary"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "next_after": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "ParticipantReviewSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "actions": {
+            "items": {
+              "enum": [
+                "REJECT"
+              ],
+              "type": "string"
+            },
+            "maxItems": 1,
+            "type": "array"
+          },
+          "bank_status": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "document_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "VENDOR",
+              "RIDER"
+            ],
+            "type": "string"
+          },
+          "participant_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "participant_id",
+          "kind",
+          "revision",
+          "status",
+          "display_name",
+          "category",
+          "document_count",
+          "bank_status",
+          "updated_at",
+          "actions"
         ],
         "type": "object"
       },
@@ -727,6 +976,23 @@
         ],
         "type": "object"
       },
+      "RecoverRiderOfflineCommandsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "commands": {
+            "items": {
+              "$ref": "#/components/schemas/OfflineCommand"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "commands"
+        ],
+        "type": "object"
+      },
       "RegionalDashboard": {
         "additionalProperties": false,
         "properties": {
@@ -750,7 +1016,8 @@
             "type": "integer"
           },
           "payouts_pending": {
-            "$ref": "#/components/schemas/Money"
+            "$ref": "#/components/schemas/Money",
+            "description": "Country-wide pending payout amount; present only for global operations administrators. Omitted for delegated regional/franchise viewers."
           },
           "recent_field_check_ins": {
             "items": {
@@ -774,11 +1041,161 @@
           "generated_at",
           "latest_locations",
           "online_riders",
-          "payouts_pending",
           "recent_field_check_ins",
           "region_id",
           "territories",
           "unassigned_tasks"
+        ],
+        "type": "object"
+      },
+      "RegionalExport": {
+        "additionalProperties": false,
+        "properties": {
+          "at_risk_tasks": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "completed_today": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "country": {
+            "pattern": "^[A-Z]{2}$",
+            "type": "string"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "online_riders": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "region_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "type": "string"
+          },
+          "territories": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unassigned_tasks": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "territories",
+          "online_riders",
+          "unassigned_tasks",
+          "at_risk_tasks",
+          "completed_today",
+          "country",
+          "region_id",
+          "generated_at"
+        ],
+        "type": "object"
+      },
+      "RegisterRiderDocumentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "kind": {
+            "enum": [
+              "IDENTITY",
+              "DRIVER_LICENSE",
+              "VEHICLE_REGISTRATION",
+              "INSURANCE",
+              "LICENSE"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "RegisterRiderRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "bank_reference": {
+            "pattern": "^bankref_[A-Za-z0-9_-]{8,100}$",
+            "type": "string",
+            "x-planext4u-sensitive": true
+          },
+          "documents": {
+            "description": "BICYCLE requires IDENTITY. Motor vehicles require IDENTITY, DRIVER_LICENSE, VEHICLE_REGISTRATION and INSURANCE. Kinds and private asset references must be distinct. LICENSE is a legacy spelling of DRIVER_LICENSE and cannot satisfy a second kind.",
+            "items": {
+              "$ref": "#/components/schemas/RegisterRiderDocumentRequest"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "type": "array"
+          },
+          "full_name": {
+            "maxLength": 120,
+            "minLength": 2,
+            "type": "string"
+          },
+          "phone_masked": {
+            "description": "Optional legacy display mask. A caller mask is never provider-verified contact proof. The normal mobile app omits it.",
+            "pattern": "^\\*{2,8}[0-9]{4}$",
+            "type": "string"
+          },
+          "vehicle_number": {
+            "pattern": "^[A-Z0-9 -]{4,20}$",
+            "type": "string"
+          },
+          "vehicle_type": {
+            "description": "BIKE is a legacy alias with the same complete evidence requirements as MOTORBIKE.",
+            "enum": [
+              "BICYCLE",
+              "MOTORBIKE",
+              "CAR",
+              "VAN",
+              "BIKE"
+            ],
+            "type": "string"
+          },
+          "zones": {
+            "items": {
+              "pattern": "^[0-9]{4,10}$",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "bank_reference",
+          "documents",
+          "full_name",
+          "vehicle_number",
+          "vehicle_type",
+          "zones"
+        ],
+        "type": "object"
+      },
+      "ReviewRiderRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "approved": {
+            "type": "boolean"
+          },
+          "reason": {
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "approved",
+          "reason"
         ],
         "type": "object"
       },
@@ -869,14 +1286,37 @@
           "id": {
             "type": "string"
           },
+          "last_command_sequence": {
+            "type": "integer"
+          },
+          "last_location_sequence": {
+            "type": "integer"
+          },
           "max_concurrent": {
             "type": "integer"
           },
           "phone_masked": {
             "type": "string"
           },
+          "review_reason": {
+            "type": "string"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "revision": {
             "type": "integer"
+          },
+          "rework_allowed": {
+            "type": "boolean"
           },
           "rider_id": {
             "type": "string"
@@ -916,7 +1356,139 @@
           "created_at",
           "updated_at",
           "allowed_actions",
-          "vehicle_number"
+          "vehicle_number",
+          "last_command_sequence",
+          "last_location_sequence",
+          "rework_allowed"
+        ],
+        "type": "object"
+      },
+      "RiderReviewAccess": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expires_at",
+          "kind",
+          "url"
+        ],
+        "type": "object"
+      },
+      "RiderReviewDocumentAccessRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["purpose"],
+        "properties": {
+          "purpose": {"type": "string", "enum": ["ONBOARDING_REVIEW"]}
+        }
+      },
+      "RiderReviewDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "bank_status": {
+            "type": "string"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/RiderReviewDocument"
+            },
+            "type": "array"
+          },
+          "full_name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "phone_masked": {
+            "type": "string"
+          },
+          "review_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "review_reason": {
+            "type": "string"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "rider_id": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RiderStatus"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "vehicle_number_masked": {
+            "type": "string"
+          },
+          "vehicle_type": {
+            "type": "string"
+          },
+          "zones": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "bank_status",
+          "documents",
+          "full_name",
+          "id",
+          "phone_masked",
+          "review_actions",
+          "revision",
+          "rider_id",
+          "status",
+          "updated_at",
+          "vehicle_number_masked",
+          "vehicle_type",
+          "zones"
+        ],
+        "type": "object"
+      },
+      "RiderReviewDocument": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "ocr_status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "ocr_status"
         ],
         "type": "object"
       },
@@ -928,6 +1500,18 @@
           "SUSPENDED"
         ],
         "type": "string"
+      },
+      "StartRiderDutyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "zone_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "zone_id"
+        ],
+        "type": "object"
       },
       "Stop": {
         "additionalProperties": false,
@@ -988,158 +1572,6 @@
         ],
         "type": "object"
       },
-      "OfflineCommand": {
-        "additionalProperties": false,
-        "properties": {
-          "command_id": {
-            "maxLength": 128,
-            "minLength": 16,
-            "type": "string"
-          },
-          "device_sequence": {
-            "minimum": 1,
-            "type": "integer"
-          },
-          "kind": {
-            "enum": [
-              "LOCATION",
-              "PICKUP"
-            ],
-            "type": "string"
-          },
-          "payload": {
-            "additionalProperties": true,
-            "type": "object"
-          },
-          "revision": {
-            "minimum": 1,
-            "type": "integer"
-          },
-          "task_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "command_id",
-          "device_sequence",
-          "kind"
-        ],
-        "type": "object"
-      },
-      "RecoverRiderOfflineCommandsRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "commands": {
-            "items": {
-              "$ref": "#/components/schemas/OfflineCommand"
-            },
-            "maxItems": 100,
-            "minItems": 1,
-            "type": "array"
-          }
-        },
-        "required": [
-          "commands"
-        ],
-        "type": "object"
-      },
-      "RegisterRiderDocumentRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "asset_id": {
-            "type": "string",
-            "x-planext4u-sensitive": true
-          },
-          "kind": {
-            "pattern": "^[A-Z_]{2,40}$",
-            "type": "string"
-          }
-        },
-        "required": [
-          "asset_id",
-          "kind"
-        ],
-        "type": "object"
-      },
-      "RegisterRiderRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "bank_reference": {
-            "pattern": "^bankref_[A-Za-z0-9_-]{8,100}$",
-            "type": "string",
-            "x-planext4u-sensitive": true
-          },
-          "documents": {
-            "items": {
-              "$ref": "#/components/schemas/RegisterRiderDocumentRequest"
-            },
-            "minItems": 2,
-            "type": "array"
-          },
-          "full_name": {
-            "minLength": 3,
-            "type": "string"
-          },
-          "phone_masked": {
-            "pattern": "^\\*{2,8}[0-9]{4}$",
-            "type": "string"
-          },
-          "vehicle_number": {
-            "minLength": 5,
-            "type": "string"
-          },
-          "vehicle_type": {
-            "pattern": "^[A-Z_]{3,24}$",
-            "type": "string"
-          },
-          "zones": {
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "type": "array"
-          }
-        },
-        "required": [
-          "bank_reference",
-          "documents",
-          "full_name",
-          "phone_masked",
-          "vehicle_number",
-          "vehicle_type",
-          "zones"
-        ],
-        "type": "object"
-      },
-      "ReviewRiderRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "approved": {
-            "type": "boolean"
-          },
-          "reason": {
-            "minLength": 8,
-            "type": "string"
-          }
-        },
-        "required": [
-          "approved",
-          "reason"
-        ],
-        "type": "object"
-      },
-      "StartRiderDutyRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "zone_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "zone_id"
-        ],
-        "type": "object"
-      },
       "UpdateRiderLocationRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1167,6 +1599,34 @@
           "sequence"
         ],
         "type": "object"
+      },
+      "VerifiedBankAccount": {
+        "additionalProperties": false,
+        "properties": {
+          "holder_name": {
+            "maxLength": 200,
+            "minLength": 3,
+            "type": "string"
+          },
+          "ifsc": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "last4": {
+            "pattern": "^[0-9]{4}$",
+            "type": "string"
+          },
+          "reference": {
+            "pattern": "^bankref_[A-Za-z0-9_-]{8,100}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "holder_name",
+          "last4"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -1179,7 +1639,7 @@
   },
   "info": {
     "title": "Planext4u Fulfillment API",
-    "version": "1.0.0"
+    "version": "1.4.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1334,6 +1794,48 @@
             "description": "Dashboard"
           }
         }
+      }
+    },
+    "/v1/operations/regions/{region_id}/summary-export": {
+      "get": {
+        "description": "Internal owner operation for a current fresh-MFA administrator source session. Directory/session revision and read plus export scopes are locked and rechecked. Country authority is derived from the directory, not fulfillment role headers. UTC completion-day boundary matches the dashboard. No payout, location or attendance details. An append-only owning audit must commit before success.",
+        "operationId": "exportRegionalOperationalSummary",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "region_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionalExport"
+                }
+              }
+            },
+            "description": "Authorized current regional counters"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Current source session or read/export scope denied"
+          },
+          "422": {
+            "description": "Caller authority query or invalid request"
+          },
+          "500": {
+            "description": "Export or mandatory audit did not complete"
+          }
+        },
+        "summary": "Export current server-authorized regional counters"
       }
     },
     "/v1/operations/territories": {
@@ -1528,7 +2030,133 @@
         }
       }
     },
+    "/v1/rider/application/resubmissions": {
+      "post": {
+        "operationId": "resubmitRider",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "description": "Current rider application revision.",
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "pattern": "^\"?[1-9][0-9]*\"?$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRiderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiderProfile"
+                }
+              }
+            },
+            "description": "Registered"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceProblem"
+                }
+              }
+            },
+            "description": "The private identity reference does not belong to the verified owner/scope, is not ready, or has the wrong purpose."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceProblem"
+                }
+              }
+            },
+            "description": "Private media verification is unconfigured or unavailable. No lifecycle transition is committed; retryable."
+          }
+        },
+        "summary": "Resubmit corrected onboarding evidence for independent review"
+      }
+    },
     "/v1/rider/applications": {
+      "get": {
+        "description": "Requires a server-validated current MFA operator source session and directory revision. Country administrators see their country; regional staff see only active participant bindings inherited from assigned territories. Owner reads and actions recheck current authority.",
+        "operationId": "listRiderApplications",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {"$ref": "#/components/schemas/ParticipantReviewPage"},
+                    {"$ref": "#/components/schemas/RegionalParticipantReviewPage"}
+                  ]
+                }
+              }
+            },
+            "description": "Country or minimal regional participant projection, selected by current reviewer role"
+          },
+          "401": {
+            "description": "Current source session or read/export scope denied"
+          },
+          "403": {
+            "description": "Current source session or read/export scope denied"
+          },
+          "422": {
+            "description": "Current source session or read/export scope denied"
+          },
+          "503": {
+            "description": "Current source session or read/export scope denied"
+          }
+        },
+        "summary": "List safe applications in the current country and delegated territory",
+        "tags": [
+          "Participant onboarding"
+        ]
+      },
       "post": {
         "operationId": "registerRider",
         "parameters": [
@@ -1556,13 +2184,65 @@
               }
             },
             "description": "Registered"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceProblem"
+                }
+              }
+            },
+            "description": "The private identity reference does not belong to the verified owner/scope, is not ready, or has the wrong purpose."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceProblem"
+                }
+              }
+            },
+            "description": "Private media verification is unconfigured or unavailable. No lifecycle transition is committed; retryable."
           }
         }
       }
     },
     "/v1/rider/applications/{rider_id}/review": {
+      "get": {
+        "description": "Requires a current MFA operator source session and country authority. Private asset IDs and bank references are omitted.",
+        "operationId": "getRiderReviewDetail",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RiderID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiderReviewDetail"
+                }
+              }
+            },
+            "description": "Redacted review detail"
+          },
+          "403": {
+            "description": "Current country reviewer authority denied"
+          },
+          "404": {
+            "description": "Application not found in the selected tenant and country"
+          }
+        },
+        "summary": "Read a redacted rider application for a current country reviewer",
+        "tags": [
+          "Participant onboarding"
+        ]
+      },
       "post": {
         "operationId": "reviewRider",
+		"description": "Approval requires current country reviewer authority with MFA, private media readiness, an independent KYC attestation for the exact rider document set, and bank verification. Only a successful approval marks rider document OCR statuses VERIFIED. Rejected or unavailable proofs leave application revision, state and documents unchanged. A separate independent OCR resolver is not yet part of the rider review path; provider configuration is deployment dependent.",
         "parameters": [
           {
             "$ref": "#/components/parameters/RiderID"
@@ -1594,6 +2274,405 @@
               }
             },
             "description": "Reviewed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceProblem"
+                }
+              }
+            },
+            "description": "Private evidence, independent KYC proof or bank verification is rejected for the rider owner/scope; no approval is committed."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceProblem"
+                }
+              }
+            },
+            "description": "Private media, independent KYC attestation or bank verification is unavailable; no approval or document status change is committed."
+          }
+        }
+      }
+    },
+    "/v1/rider/applications/{rider_id}/review/documents/{kind}/access": {
+      "post": {
+        "description": "A current country reviewer obtains a two-minute private document grant. The document kind is resolved from the stored application; no client asset ID is accepted. Access attempts are audited.",
+        "operationId": "accessRiderReviewDocument",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RiderID"
+          },
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Z][A-Z0-9_]{1,63}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/RiderReviewDocumentAccessRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiderReviewAccess"
+                }
+              }
+            },
+            "description": "Short-lived private grant without an asset ID"
+          },
+          "403": {
+            "description": "Reviewer, scope or private media access denied"
+          },
+          "404": {
+            "description": "Application or stored document not found"
+          },
+          "409": {
+            "description": "The application is no longer in review or document kinds are ambiguous"
+          },
+          "503": {
+            "description": "Private media or audit is unavailable; no grant is returned"
+          }
+        },
+        "summary": "Open one stored rider onboarding document for a current reviewer",
+        "tags": [
+          "Participant onboarding"
+        ]
+      }
+    },
+    "/v1/rider/bank-links": {
+      "post": {
+        "operationId": "startRiderHostedBankLink",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HostedBankEmptyCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostedBankLink"
+                }
+              }
+            },
+            "description": "Current owner-only bank link; Cache-Control private, no-store and Referrer-Policy no-referrer."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid command; client authority/raw bank details are rejected."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Current owner/session unavailable, revoked, expired or not recently authenticated."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No bank link in this owner/country/application role."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Provider proof rejected; no result accepted."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Provider or mandatory persistence/audit unavailable; retry the durable attempt."
+          }
+        },
+        "summary": "Explicitly start or resume one durable hosted bank verification"
+      }
+    },
+    "/v1/rider/bank-links/current": {
+      "get": {
+        "operationId": "getRiderHostedBankLink",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostedBankLink"
+                }
+              }
+            },
+            "description": "Current owner-only bank link; Cache-Control private, no-store and Referrer-Policy no-referrer."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid command; client authority/raw bank details are rejected."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Current owner/session unavailable, revoked, expired or not recently authenticated."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No bank link in this owner/country/application role."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Provider proof rejected; no result accepted."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Provider or mandatory persistence/audit unavailable; retry the durable attempt."
+          }
+        }
+      }
+    },
+    "/v1/rider/bank-links/{attempt_id}": {
+      "delete": {
+        "description": "Idempotently cancels by durable attempt ID, including an uncertain create. Cancellation never initiates a new provider verification; an already verified result is preserved.",
+        "operationId": "cancelRiderHostedBankLink",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attempt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostedBankLink"
+                }
+              }
+            },
+            "description": "Current owner-only bank link; Cache-Control private, no-store and Referrer-Policy no-referrer."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid command; client authority/raw bank details are rejected."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Current owner/session unavailable, revoked, expired or not recently authenticated."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No bank link in this owner/country/application role."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Provider proof rejected; no result accepted."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Provider or mandatory persistence/audit unavailable; retry the durable attempt."
+          }
+        }
+      }
+    },
+    "/v1/rider/bank-links/{attempt_id}/resume": {
+      "post": {
+        "operationId": "resumeRiderHostedBankLink",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attempt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HostedBankEmptyCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostedBankLink"
+                }
+              }
+            },
+            "description": "Current owner-only bank link; Cache-Control private, no-store and Referrer-Policy no-referrer."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid command; client authority/raw bank details are rejected."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Current owner/session unavailable, revoked, expired or not recently authenticated."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No bank link in this owner/country/application role."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Provider proof rejected; no result accepted."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "common.openapi.json#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Provider or mandatory persistence/audit unavailable; retry the durable attempt."
           }
         }
       }

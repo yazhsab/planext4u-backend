@@ -284,7 +284,7 @@ func (service *Service) RestaurantTransition(actor Actor, key, orderID string, r
 }
 
 func (service *Service) DispatchTransition(actor Actor, key, orderID string, revision int64, status OrderStatus) (Order, bool, error) {
-	if !validActor(actor) || !hasAnyRole(actor, "DISPATCH", "RIDER", "OPS_ADMIN", "SUPER_ADMIN") || !validKey(key) {
+	if !validActor(actor) || !hasAnyRole(actor, "DISPATCH", "OPS_ADMIN", "SUPER_ADMIN") || !validKey(key) {
 		return Order{}, false, ErrForbidden
 	}
 	service.mu.Lock()
@@ -382,7 +382,7 @@ func (service *Service) authorizeOrder(actor Actor, value *Order) error {
 	if hasRole(actor, "RESTAURANT_VENDOR") && service.restaurants[value.RestaurantID].OwnerID == actor.Subject {
 		return nil
 	}
-	if hasAnyRole(actor, "DISPATCH", "OPS_ADMIN", "SUPER_ADMIN", "RIDER") {
+	if hasAnyRole(actor, "DISPATCH", "OPS_ADMIN", "SUPER_ADMIN") {
 		return nil
 	}
 	return ErrForbidden
@@ -424,15 +424,21 @@ func beforeCutoff(now time.Time, cutoff int) bool {
 	return minute < cutoff
 }
 
+var (
+	foodCountryPattern = regexp.MustCompile(`^[A-Z]{2}$`)
+	foodPostalPattern  = regexp.MustCompile(`^[A-Za-z0-9 -]{3,12}$`)
+	foodIDPattern      = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
+)
+
 func validActor(value Actor) bool {
-	return safeID(value.TenantID) && regexp.MustCompile(`^[A-Z]{2}$`).MatchString(value.Country) && safeID(value.Subject) && len(value.Roles) > 0
+	return safeID(value.TenantID) && foodCountryPattern.MatchString(value.Country) && safeID(value.Subject) && len(value.Roles) > 0
 }
 func validKey(value string) bool { return len(value) >= 16 && len(value) <= 128 && safeID(value) }
 func validPostal(value string) bool {
-	return regexp.MustCompile(`^[A-Za-z0-9 -]{3,12}$`).MatchString(value)
+	return foodPostalPattern.MatchString(value)
 }
 func safeID(value string) bool {
-	return regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`).MatchString(value)
+	return foodIDPattern.MatchString(value)
 }
 func hasRole(actor Actor, role string) bool {
 	for _, candidate := range actor.Roles {

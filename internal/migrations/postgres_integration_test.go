@@ -17,9 +17,11 @@ import (
 
 func TestBEMigrate001PostgresFromZeroUpgradeIsolationAndRollback(t *testing.T) {
 	databaseURL := os.Getenv("MIGRATION_DATABASE_TEST_URL")
-	parsed, err := url.Parse(databaseURL)
-	if err != nil || (parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost") || (parsed.Path != "/planext4u_local" && parsed.Path != "/planext4u_test") {
-		t.Skip("MIGRATION_DATABASE_TEST_URL must target an explicitly allowed disposable local database")
+	if databaseURL == "" {
+		t.Skip("MIGRATION_DATABASE_TEST_URL is not set")
+	}
+	if !dedicatedMigrationDatabase(databaseURL) {
+		t.Fatal("migration tests require the dedicated unexposed disposable migration instance; application/shared clusters are forbidden")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
@@ -27,14 +29,16 @@ func TestBEMigrate001PostgresFromZeroUpgradeIsolationAndRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer connection.Close(ctx)
+	t.Cleanup(func() { _ = connection.Close(context.Background()) })
 	migrations, err := Discover("../../migrations")
 	if err != nil {
 		t.Fatal(err)
 	}
 	runner, _ := NewRunner(connection)
-	_ = runner.Down(ctx, migrations, "all", len(migrations))
-	_, _ = connection.Exec(ctx, `DROP SCHEMA IF EXISTS platform_migrations CASCADE`)
+	var existing int
+	if err := connection.QueryRow(ctx, `SELECT count(*) FROM pg_namespace WHERE nspname=ANY($1)`, serviceOrder).Scan(&existing); err != nil || existing != 0 {
+		t.Fatal("migration verification instance is not from zero")
+	}
 	t.Cleanup(func() {
 		cleanup, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
@@ -44,6 +48,11 @@ func TestBEMigrate001PostgresFromZeroUpgradeIsolationAndRollback(t *testing.T) {
 	if err := runner.Up(ctx, migrations, "all"); err != nil {
 		t.Fatalf("from-zero migration: %v", err)
 	}
+	var applied int
+	if err := connection.QueryRow(ctx, `SELECT count(*) FROM platform_migrations.applied`).Scan(&applied); err != nil || applied != len(migrations) {
+		t.Fatalf("applied migration count=%d, want %d: %v", applied, len(migrations), err)
+	}
+	t.Logf("Applied all %d discovered migrations on a fresh dedicated instance", applied)
 	if err := runner.Up(ctx, migrations, "all"); err != nil {
 		t.Fatalf("idempotent upgrade: %v", err)
 	}
@@ -93,5 +102,64 @@ func TestBEMigrate001PostgresFromZeroUpgradeIsolationAndRollback(t *testing.T) {
 	}
 	if err := runner.Up(ctx, modified, "catalog"); err == nil || !strings.Contains(err.Error(), "checksum drift") {
 		t.Fatalf("checksum drift error = %v", err)
+	}
+	if _, err := connection.Exec(ctx, `INSERT INTO supply.privacy_erasure_runs
+	 (request_id,tenant_id,subject_id,policy_version,countries,application_rows,document_rows,submission_rows,occurred_at)
+	 VALUES('synthetic-rollback-guard','tenant-synthetic','subject-synthetic','policy',ARRAY['IN'],0,0,0,clock_timestamp())`); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Down(ctx, migrations, "all", len(migrations)); err == nil || !strings.Contains(err.Error(), "privacy evidence") {
+		t.Fatalf("complete rollback accepted retained privacy evidence: %v", err)
+	}
+	if err := connection.QueryRow(ctx, `SELECT count(*) FROM platform_migrations.applied`).Scan(&applied); err != nil || applied != len(migrations) {
+		t.Fatalf("privacy rollback preflight changed %d applied migrations: %v", applied, err)
+	}
+	if _, err := connection.Exec(ctx, `DELETE FROM supply.privacy_erasure_runs WHERE request_id='synthetic-rollback-guard'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Down(ctx, migrations, "identity", 1); err == nil || !strings.Contains(err.Error(), "dependent owner services") {
+		t.Fatalf("identity rollback ignored installed dependent services: %v", err)
+	}
+	if err := runner.Down(ctx, migrations, "all", len(migrations)); err != nil {
+		t.Fatalf("complete from-zero rollback: %v", err)
+	}
+	if err := connection.QueryRow(ctx, `SELECT count(*) FROM pg_namespace WHERE nspname=ANY($1)`, serviceOrder).Scan(&existing); err != nil || existing != 0 {
+		t.Fatalf("rollback left %d owned schemas: %v", existing, err)
+	}
+	if err := connection.QueryRow(ctx, `SELECT count(*) FROM platform_migrations.applied`).Scan(&applied); err != nil || applied != 0 {
+		t.Fatalf("rollback left %d ledger records: %v", applied, err)
+	}
+}
+
+func dedicatedMigrationDatabase(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() != "migration-postgres" || parsed.Path != "/planext4u_migration_verification" || parsed.RawQuery != "sslmode=disable" {
+		return false
+	}
+	config, err := pgx.ParseConfig(raw)
+	if err != nil || config.Host != "migration-postgres" || config.Port != 5432 || config.Database != "planext4u_migration_verification" || config.User != "planext4u_verify" {
+		return false
+	}
+	for _, fallback := range config.Fallbacks {
+		if fallback.Host != config.Host || fallback.Port != config.Port {
+			return false
+		}
+	}
+	return true
+}
+
+func TestMigrationVerificationRefusesApplicationAndConnectionOverrides(t *testing.T) {
+	for _, raw := range []string{
+		"postgres://planext4u_local:synthetic@127.0.0.1:54320/planext4u_local?sslmode=disable",
+		"postgres://planext4u_verify:synthetic@postgres:5432/planext4u_phase0_verification?sslmode=disable",
+		"postgres://planext4u_verify:synthetic@migration-postgres:5432/planext4u_migration_verification?host=production.example",
+		"postgres://planext4u_verify:synthetic@migration-postgres:5432/planext4u_migration_verification?dbname=planext4u_local",
+	} {
+		if dedicatedMigrationDatabase(raw) {
+			t.Fatal("unsafe migration target accepted")
+		}
+	}
+	if !dedicatedMigrationDatabase("postgres://planext4u_verify:synthetic@migration-postgres:5432/planext4u_migration_verification?sslmode=disable") {
+		t.Fatal("dedicated fixture target rejected")
 	}
 }

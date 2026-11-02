@@ -5,21 +5,25 @@ import "time"
 type Role string
 
 const (
-	RoleSuperAdmin   Role = "SUPER_ADMIN"
-	RoleCountryAdmin Role = "COUNTRY_ADMIN"
-	RoleContentAdmin Role = "CONTENT_ADMIN"
-	RoleSupportAdmin Role = "SUPPORT_ADMIN"
-	RoleAuditor      Role = "AUDITOR"
+	RoleSuperAdmin    Role = "SUPER_ADMIN"
+	RoleCountryAdmin  Role = "COUNTRY_ADMIN"
+	RoleFinance       Role = "FINANCE"
+	RoleContentAdmin  Role = "CONTENT_ADMIN"
+	RoleSupportAdmin  Role = "SUPPORT_ADMIN"
+	RoleAuditor       Role = "AUDITOR"
+	RoleRegionalStaff Role = "REGIONAL_STAFF"
 )
 
 const (
-	CapabilityShellRead      = "admin.shell.read"
-	CapabilityAuditRead      = "admin.audit.read"
-	CapabilityOperationsRead = "admin.operations.read"
-	CapabilityContentManage  = "admin.content.manage"
-	CapabilitySupportManage  = "admin.support.manage"
-	CapabilityConfigManage   = "admin.config.manage"
-	CapabilityGovernanceRead = "admin.governance.read"
+	CapabilityShellRead       = "admin.shell.read"
+	CapabilityAuditRead       = "admin.audit.read"
+	CapabilityOperationsRead  = "admin.operations.read"
+	CapabilityContentManage   = "admin.content.manage"
+	CapabilitySupportManage   = "admin.support.manage"
+	CapabilityConfigManage    = "admin.config.manage"
+	CapabilityGovernanceRead  = "admin.governance.read"
+	CapabilityPrivacyGovern   = "admin.privacy.govern"
+	CapabilityOperatorsManage = "admin.operators.manage"
 )
 
 type Principal struct {
@@ -32,6 +36,7 @@ type Principal struct {
 	SelectedCountry  string
 	AuthenticatedAt  time.Time
 	AuthMethods      []string
+	OperatorRevision int64
 }
 
 type ResolvedSession struct {

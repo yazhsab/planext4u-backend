@@ -60,21 +60,25 @@ func TestPostgresAdminOperationsAreDurableIdempotentIsolatedAndFourEyesControlle
 		Reason: "Create the approved local catalog item", Payload: map[string]any{"name": "Local millet flour"},
 		CorrelationID: "correlation-admin-standard-001",
 	}
-	created, err := service.Submit(requester, standardCommand)
-	if err != nil || created.Status != StatusExecuted || created.Revision != 1 {
-		t.Fatalf("created=%#v err=%v", created, err)
+
+	for attempt := 0; attempt < 2; attempt++ {
+		if _, err := service.Submit(requester, standardCommand); !errors.Is(err, ErrAdapterUnavailable) {
+			t.Fatalf("unsupported catalog execution: %v", err)
+		}
 	}
-	replayed, err := service.Submit(requester, standardCommand)
-	if err != nil || replayed.ID != created.ID {
-		t.Fatalf("replayed=%#v err=%v", replayed, err)
+	var changes, records, executions, failures int
+	for query, dest := range map[string]*int{
+		`SELECT count(*) FROM admin.changes`:                                 &changes,
+		`SELECT count(*) FROM admin.domain_records`:                          &records,
+		`SELECT count(*) FROM admin.domain_executions`:                       &executions,
+		`SELECT count(*) FROM admin.operation_events WHERE outcome='FAILED'`: &failures,
+	} {
+		if err := pool.QueryRow(ctx, query).Scan(dest); err != nil {
+			t.Fatal(err)
+		}
 	}
-	var standardEvents int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM admin.operation_events WHERE correlation_id=$1`, standardCommand.CorrelationID).Scan(&standardEvents); err != nil || standardEvents != 1 {
-		t.Fatalf("standard events=%d err=%v", standardEvents, err)
-	}
-	record, found, err := executor.Record(ctx, requester.TenantID, requester.Country, DomainCatalog, standardCommand.TargetID)
-	if err != nil || !found || record.State != "DRAFT" || record.Revision != 1 {
-		t.Fatalf("record=%#v found=%t err=%v", record, found, err)
+	if changes != 0 || records != 0 || executions != 0 || failures != 2 {
+		t.Fatalf("changes=%d projections=%d executions=%d failures=%d", changes, records, executions, failures)
 	}
 
 	highRiskCommand := Command{
@@ -90,30 +94,28 @@ func TestPostgresAdminOperationsAreDurableIdempotentIsolatedAndFourEyesControlle
 		t.Fatalf("self approval error=%v", err)
 	}
 	approver := postgresAdminPrincipal(postgresAdminSubjectTwo, postgresAdminTenantOne, now)
-	approved, err := service.Approve(approver, pending.ID, pending.Revision)
-	if err != nil || approved.Status != StatusExecuted || approved.Revision != 2 || approved.ApprovedBy != approver.SubjectID {
-		t.Fatalf("approved=%#v err=%v", approved, err)
+
+	for attempt := 0; attempt < 2; attempt++ {
+		if _, err := service.Approve(approver, pending.ID, pending.Revision); !errors.Is(err, ErrAdapterUnavailable) {
+			t.Fatalf("unsupported wallet execution: %v", err)
+		}
 	}
-	if _, err := service.Approve(approver, pending.ID, pending.Revision); !errors.Is(err, ErrRevisionConflict) {
-		t.Fatalf("stale approval error=%v", err)
-	}
-	walletRecord, found, err := executor.Record(ctx, requester.TenantID, requester.Country, DomainWallet, highRiskCommand.TargetID)
-	if err != nil || !found || walletRecord.State != "ADJUSTED" || walletRecord.Revision != 1 {
-		t.Fatalf("wallet record=%#v found=%t err=%v", walletRecord, found, err)
+	if _, found, err := executor.Record(ctx, requester.TenantID, requester.Country, DomainWallet, highRiskCommand.TargetID); err != nil || found {
+		t.Fatalf("fabricated wallet record found=%t err=%v", found, err)
 	}
 
 	restartedExecutor, _ := NewPostgresDomainExecutor(pool, func() time.Time { return now.Add(time.Minute) })
 	restarted, _ := NewPostgresService(pool, func() time.Time { return now.Add(time.Minute) }, restartedExecutor)
-	changes, err := restarted.List(requester)
+	listed, err := restarted.List(requester)
 	foundApproved := false
-	for _, change := range changes {
-		foundApproved = foundApproved || change.ID == pending.ID && change.Status == StatusExecuted && change.Revision == 2
+	for _, change := range listed {
+		foundApproved = foundApproved || change.ID == pending.ID && change.Status == StatusPending && change.Revision == 1
 	}
-	if err != nil || len(changes) != 2 || !foundApproved {
-		t.Fatalf("restarted changes=%#v err=%v", changes, err)
+	if err != nil || len(listed) != 1 || !foundApproved {
+		t.Fatalf("restarted changes=%#v err=%v", listed, err)
 	}
 	events, err := restarted.Audit(requester)
-	if err != nil || len(events) != 3 {
+	if err != nil || len(events) != 5 {
 		t.Fatalf("events=%#v err=%v", events, err)
 	}
 	otherTenant := postgresAdminPrincipal(postgresAdminSubjectThree, postgresAdminTenantTwo, now)

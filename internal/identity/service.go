@@ -27,6 +27,7 @@ type ServiceConfig struct {
 	RefreshHasher    RefreshTokenHasher
 	Now              func() time.Time
 	IDFactory        IDFactory
+	ContactMatching  *ContactMatchingSettings
 }
 
 type Service struct {
@@ -40,6 +41,7 @@ type Service struct {
 	refreshHasher    RefreshTokenHasher
 	now              func() time.Time
 	newID            IDFactory
+	contacts         *contactMatchingSettings
 }
 
 func NewService(config ServiceConfig) (*Service, error) {
@@ -66,7 +68,25 @@ func NewService(config ServiceConfig) (*Service, error) {
 			return uuid.NewString(), nil
 		}
 	}
+	var contacts *contactMatchingSettings
+	if config.ContactMatching != nil {
+		settings, err := validatedContactSettings(*config.ContactMatching)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := config.Repository.(contactRepository); !ok {
+			return nil, ErrInvalidConfiguration
+		}
+		if _, ok := config.ProviderVerifier.(ContactPhoneDirectory); !ok {
+			return nil, ErrInvalidConfiguration
+		}
+		if _, ok := config.ProviderVerifier.(ProviderAccountVerifier); !ok {
+			return nil, ErrInvalidConfiguration
+		}
+		contacts = &settings
+	}
 	return &Service{
+		contacts:         contacts,
 		tenantID:         config.TenantID,
 		allowedCountries: allowedCountries,
 		sessionTTL:       config.SessionTTL,
@@ -81,6 +101,9 @@ func NewService(config ServiceConfig) (*Service, error) {
 }
 
 func (service *Service) Exchange(ctx context.Context, input ExchangeInput) (Authentication, error) {
+	if input.EnrollAs != "" && input.EnrollAs != RoleCustomer && input.EnrollAs != RoleVendor && input.EnrollAs != RoleRider {
+		return Authentication{}, ErrInvalidInput
+	}
 	input.Provider = strings.TrimSpace(input.Provider)
 	input.Country = strings.ToUpper(strings.TrimSpace(input.Country))
 	if !validProvider(input.Provider) ||
@@ -116,6 +139,7 @@ func (service *Service) Exchange(ctx context.Context, input ExchangeInput) (Auth
 	}
 	now := service.now().UTC()
 	account, session, err := service.repository.StartSession(ctx, StartSessionParams{
+		EnrollAs:        input.EnrollAs,
 		Provider:        verified,
 		IdentityID:      identityID,
 		SessionID:       sessionID,
@@ -320,7 +344,7 @@ func (service *Service) Consents(ctx context.Context, trusted TrustedIdentity) (
 	if err != nil {
 		return nil, err
 	}
-	return service.repository.ListConsents(ctx, principal.Subject)
+	return service.repository.ListConsents(ctx, principal.Subject, principal.Country)
 }
 
 func (service *Service) RecordConsent(ctx context.Context, trusted TrustedIdentity, update ConsentUpdate) (Consent, error) {
@@ -328,7 +352,7 @@ func (service *Service) RecordConsent(ctx context.Context, trusted TrustedIdenti
 	if err != nil {
 		return Consent{}, err
 	}
-	if !validConsentPurpose(update.Purpose) ||
+	if update.Granted && (update.ExpectedVersion == nil || *update.ExpectedVersion < 0) || !validConsentPurpose(update.Purpose) ||
 		!validSafeIdentifier(update.PolicyVersion, 64) {
 		return Consent{}, ErrInvalidInput
 	}
@@ -338,32 +362,64 @@ func (service *Service) RecordConsent(ctx context.Context, trusted TrustedIdenti
 	}
 	now := service.now().UTC()
 	return service.repository.RecordConsent(ctx, principal.Subject, Consent{
-		EvidenceID:    evidenceID,
-		Purpose:       update.Purpose,
-		Granted:       update.Granted,
-		PolicyVersion: update.PolicyVersion,
-		RecordedAt:    now,
+		ExpectedVersion: update.ExpectedVersion,
+		Country:         principal.Country,
+		EvidenceID:      evidenceID,
+		Purpose:         update.Purpose,
+		Granted:         update.Granted,
+		PolicyVersion:   update.PolicyVersion,
+		RecordedAt:      now,
 	}, now)
 }
 
 func (service *Service) ExportData(ctx context.Context, trusted TrustedIdentity) (DataExport, error) {
-	principal, profile, err := service.Principal(ctx, trusted)
+	return service.ExportDataVersion(ctx, trusted, 1)
+}
+
+func (service *Service) ExportDataVersion(ctx context.Context, trusted TrustedIdentity, version int) (DataExport, error) {
+	if version != 1 && version != 2 && version != 3 && version != 4 {
+		return DataExport{}, ErrInvalidInput
+	}
+	if _, _, err := service.Principal(ctx, trusted); err != nil {
+		return DataExport{}, err
+	}
+	var value DataExport
+	var err error
+	if version == 4 {
+		versioned, ok := service.repository.(interface {
+			ExportSnapshotV4(context.Context, TrustedIdentity, time.Time) (DataExport, error)
+		})
+		if !ok {
+			return DataExport{}, ErrProviderUnavailable
+		}
+		value, err = versioned.ExportSnapshotV4(ctx, trusted, service.now().UTC())
+	} else if version == 3 {
+		versioned, ok := service.repository.(interface {
+			ExportSnapshotV3(context.Context, TrustedIdentity, time.Time) (DataExport, error)
+		})
+		if !ok {
+			return DataExport{}, ErrProviderUnavailable
+		}
+		value, err = versioned.ExportSnapshotV3(ctx, trusted, service.now().UTC())
+	} else if version == 2 {
+		versioned, ok := service.repository.(interface {
+			ExportSnapshotV2(context.Context, TrustedIdentity, time.Time) (DataExport, error)
+		})
+		if !ok {
+			return DataExport{}, ErrProviderUnavailable
+		}
+		value, err = versioned.ExportSnapshotV2(ctx, trusted, service.now().UTC())
+	} else {
+		value, err = service.repository.ExportSnapshot(ctx, trusted, service.now().UTC())
+	}
 	if err != nil {
 		return DataExport{}, err
 	}
-	sessions, err := service.repository.ListSessions(ctx, principal.Subject)
-	if err != nil {
+	// Discard the result if the account/session was revoked during assembly.
+	if _, _, err = service.Principal(ctx, trusted); err != nil {
 		return DataExport{}, err
 	}
-	consents, err := service.repository.ListConsents(ctx, principal.Subject)
-	if err != nil {
-		return DataExport{}, err
-	}
-	views := make([]SessionView, len(sessions))
-	for index, session := range sessions {
-		views[index] = sessionView(session, session.ID == principal.Session)
-	}
-	return DataExport{GeneratedAt: service.now().UTC(), IdentityID: principal.Subject, TenantID: principal.TenantID, Country: principal.Country, Roles: append([]Role(nil), principal.Roles...), Profile: profile, Sessions: views, Consents: consents}, nil
+	return value, nil
 }
 
 func (service *Service) RequestDeletion(ctx context.Context, trusted TrustedIdentity, reason string) (DeletionRequest, error) {
@@ -380,7 +436,7 @@ func (service *Service) RequestDeletion(ctx context.Context, trusted TrustedIden
 		return DeletionRequest{}, fmt.Errorf("create deletion request ID: %w", err)
 	}
 	now := service.now().UTC()
-	return service.repository.CreateDeletionRequest(ctx, DeletionRequest{ID: id, IdentityID: principal.Subject, Status: "SCHEDULED", Reason: reason, RequestedAt: now, EffectiveAt: now.Add(30 * 24 * time.Hour)})
+	return service.repository.CreateDeletionRequest(ctx, trusted, DeletionRequest{ID: id, IdentityID: principal.Subject, Status: "SCHEDULED", Reason: reason, RequestedAt: now, EffectiveAt: now.Add(30 * 24 * time.Hour)})
 }
 
 func (service *Service) authentication(account Identity, session Session, refreshToken string) (Authentication, error) {
@@ -446,7 +502,7 @@ func sessionView(session Session, current bool) SessionView {
 
 func validConsentPurpose(purpose ConsentPurpose) bool {
 	switch purpose {
-	case ConsentAnalytics, ConsentMarketing, ConsentLocationServiceability, ConsentLocationDelivery:
+	case ConsentAnalytics, ConsentMarketing, ConsentLocationServiceability, ConsentLocationDelivery, ConsentContactMatching:
 		return true
 	default:
 		return false

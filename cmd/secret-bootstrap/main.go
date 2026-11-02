@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -36,6 +37,10 @@ func run(args, environment []string, setenv setenvFunc, unsetenv unsetenvFunc, m
 	if len(args) < 2 || !filepath.IsAbs(args[1]) || setenv == nil || unsetenv == nil || mkdir == nil || writeFile == nil || chown == nil || setgroups == nil || setgid == nil || setuid == nil || execute == nil {
 		return errors.New("invalid bootstrap invocation")
 	}
+	groups, err := supplementaryGroups(environment)
+	if err != nil {
+		return err
+	}
 	secrets := fileSecrets(environment)
 	if len(secrets) > 0 {
 		if err := mkdir(secretDirectory, 0o700); err != nil {
@@ -62,7 +67,7 @@ func run(args, environment []string, setenv setenvFunc, unsetenv unsetenvFunc, m
 			return err
 		}
 	}
-	if err := setgroups([]int{}); err != nil {
+	if err := setgroups(groups); err != nil {
 		return err
 	}
 	if err := setgid(65532); err != nil {
@@ -72,6 +77,32 @@ func run(args, environment []string, setenv setenvFunc, unsetenv unsetenvFunc, m
 		return err
 	}
 	return execute(args[1], args[1:], os.Environ())
+}
+
+// No inherited supplementary groups survive the privilege drop. A deployment
+// may explicitly grant a bounded numeric group for a private mounted socket.
+func supplementaryGroups(environment []string) ([]int, error) {
+	groups := []int{}
+	seen := map[int]bool{}
+	configured := false
+	for _, entry := range environment {
+		key, value, _ := strings.Cut(entry, "=")
+		if key != "PLANEXT4U_SUPPLEMENTARY_GROUPS" {
+			continue
+		}
+		if configured {
+			return nil, errors.New("duplicate supplementary group configuration")
+		}
+		configured = true
+		for _, part := range strings.Split(value, ",") {
+			group, err := strconv.Atoi(part)
+			if err != nil || strconv.Itoa(group) != part || group < 1 || group > 65535 || group == 65532 || seen[group] || len(groups) >= 8 {
+				return nil, errors.New("invalid supplementary group configuration")
+			}
+			groups, seen[group] = append(groups, group), true
+		}
+	}
+	return groups, nil
 }
 
 func fileSecrets(environment []string) map[string]string {

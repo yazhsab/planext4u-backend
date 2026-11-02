@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -40,6 +41,7 @@ type runtimeConfig struct {
 	region              string
 	bucket              string
 	s3Endpoint          *url.URL
+	s3PublicEndpoint    *url.URL
 	s3ForcePathStyle    bool
 	s3AccessKeyFile     string
 	s3SecretKeyFile     string
@@ -47,6 +49,9 @@ type runtimeConfig struct {
 	scannerTokenFile    string
 	scannerTimeout      time.Duration
 	uploadTTL           time.Duration
+	scannerMode         string
+	clamSocket          string
+	clamMaxSignatureAge time.Duration
 }
 
 func main() { os.Exit(run()) }
@@ -98,15 +103,14 @@ func run() int {
 		logger.Error("check media object store", "error", "media bucket is unavailable")
 		return 1
 	}
-	scannerToken, err := readRegularFile(runtime.scannerTokenFile, 4096)
-	if err != nil {
-		logger.Error("load malware scanner credential", "error", "scanner credential is unavailable or invalid")
-		return 2
-	}
-	scanner, err := media.NewHTTPMalwareScanner(runtime.scannerURL, &http.Client{Timeout: runtime.scannerTimeout}, strings.TrimSpace(string(scannerToken)))
+	scanner, err := configureScanner(runtime, objectStore)
 	if err != nil {
 		logger.Error("configure malware scanner", "error", err)
 		return 2
+	}
+	if ready, ok := scanner.(interface{ Ready(context.Context) error }); ok && ready.Ready(startupContext) != nil {
+		logger.Error("check malware scanner", "error", "scanner is unavailable or incompatible")
+		return 1
 	}
 	service, err := media.NewService(repository, objectStore, objectStore, scanner, runtime.uploadTTL, time.Now)
 	if err != nil {
@@ -142,6 +146,13 @@ func run() int {
 	readiness := func(ctx context.Context) error {
 		if err := repository.Ready(ctx); err != nil {
 			return err
+		}
+		if ready, ok := scanner.(interface{ Ready(context.Context) error }); ok {
+			err := ready.Ready(ctx)
+			observability.RecordScannerHealth(ctx, err == nil, time.Now().UTC())
+			if err != nil {
+				return err
+			}
 		}
 		return objectStore.Ready(ctx)
 	}
@@ -183,17 +194,36 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 		bucket: requiredValue(lookup, "MEDIA_BUCKET"), s3AccessKeyFile: requiredValue(lookup, "S3_ACCESS_KEY_ID_FILE"),
 		s3SecretKeyFile:  requiredValue(lookup, "S3_SECRET_ACCESS_KEY_FILE"),
 		scannerTokenFile: requiredValue(lookup, "MALWARE_SCANNER_TOKEN_FILE"), scannerTimeout: 10 * time.Second,
-		uploadTTL: 10 * time.Minute, databaseMaxConns: 50, databaseMinConns: 5, databaseMaxLifetime: 30 * time.Minute,
+		uploadTTL: 10 * time.Minute, databaseMaxConns: 50, databaseMinConns: 5, databaseMaxLifetime: 30 * time.Minute, clamMaxSignatureAge: 48 * time.Hour,
 	}
+	result.scannerMode = requiredValue(lookup, "MALWARE_SCANNER_MODE")
+	if result.scannerMode == "" {
+		result.scannerMode = "http"
+	}
+	result.clamSocket = requiredValue(lookup, "CLAMAV_SOCKET")
 	if raw := requiredValue(lookup, "S3_ENDPOINT"); raw != "" {
 		result.s3Endpoint, err = parseEndpoint(raw)
 		if err != nil {
 			return runtimeConfig{}, fmt.Errorf("S3_ENDPOINT is invalid")
 		}
 	}
-	result.scannerURL, err = parseEndpoint(requiredValue(lookup, "MALWARE_SCANNER_URL"))
-	if err != nil {
-		return runtimeConfig{}, fmt.Errorf("MALWARE_SCANNER_URL is invalid")
+	if raw := requiredValue(lookup, "S3_PUBLIC_ENDPOINT"); raw != "" {
+		result.s3PublicEndpoint, err = parseEndpoint(raw)
+		if err != nil || (result.s3PublicEndpoint.Path != "" && result.s3PublicEndpoint.Path != "/") || result.s3Endpoint == nil {
+			return runtimeConfig{}, errors.New("S3_PUBLIC_ENDPOINT must be a root endpoint with an explicit S3_ENDPOINT")
+		}
+	}
+	if result.scannerMode == "http" {
+		result.scannerURL, err = parseEndpoint(requiredValue(lookup, "MALWARE_SCANNER_URL"))
+		if err != nil || result.scannerTokenFile == "" || result.clamSocket != "" || requiredValue(lookup, "CLAMAV_MAX_SIGNATURE_AGE") != "" {
+			return runtimeConfig{}, errors.New("HTTP scanner settings are missing or ambiguous")
+		}
+	} else if result.scannerMode == "clamav" {
+		if !filepath.IsAbs(result.clamSocket) || filepath.Clean(result.clamSocket) != result.clamSocket || len(result.clamSocket) > 100 || strings.ContainsAny(result.clamSocket, "\x00\r\n") || result.scannerTokenFile != "" || requiredValue(lookup, "MALWARE_SCANNER_URL") != "" {
+			return runtimeConfig{}, errors.New("private ClamAV socket settings are missing or ambiguous")
+		}
+	} else {
+		return runtimeConfig{}, errors.New("unsupported malware scanner mode")
 	}
 	if raw := requiredValue(lookup, "S3_FORCE_PATH_STYLE"); raw != "" {
 		result.s3ForcePathStyle, err = strconv.ParseBool(raw)
@@ -202,9 +232,10 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 		}
 	}
 	for key, destination := range map[string]*time.Duration{
-		"DATABASE_MAX_LIFETIME":   &result.databaseMaxLifetime,
-		"MALWARE_SCANNER_TIMEOUT": &result.scannerTimeout,
-		"MEDIA_UPLOAD_TTL":        &result.uploadTTL,
+		"DATABASE_MAX_LIFETIME":    &result.databaseMaxLifetime,
+		"MALWARE_SCANNER_TIMEOUT":  &result.scannerTimeout,
+		"MEDIA_UPLOAD_TTL":         &result.uploadTTL,
+		"CLAMAV_MAX_SIGNATURE_AGE": &result.clamMaxSignatureAge,
 	} {
 		if raw := requiredValue(lookup, key); raw != "" {
 			*destination, err = time.ParseDuration(raw)
@@ -227,16 +258,28 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 	staticCredentialFilesValid := (result.s3AccessKeyFile == "") == (result.s3SecretKeyFile == "")
 	if (result.databaseURLFile == "") == (result.databaseURL == "") || !staticCredentialFilesValid ||
 		!regexp.MustCompile(`^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$`).MatchString(result.region) || result.bucket == "" ||
-		result.scannerTokenFile == "" || result.scannerTimeout < time.Second || result.scannerTimeout > time.Minute ||
+		result.scannerTimeout < time.Second || result.scannerTimeout > time.Minute ||
+		result.clamMaxSignatureAge < time.Hour || result.clamMaxSignatureAge > 7*24*time.Hour ||
 		result.uploadTTL < time.Minute || result.uploadTTL > 30*time.Minute || result.databaseMaxConns < 1 || result.databaseMaxConns > 500 ||
 		result.databaseMinConns < 0 || result.databaseMinConns > result.databaseMaxConns || result.databaseMaxLifetime < time.Minute || result.databaseMaxLifetime > 24*time.Hour {
 		return runtimeConfig{}, errors.New("required media service settings are missing or outside their safe range")
 	}
 	if base.Environment != platformconfig.EnvironmentDevelopment &&
-		((result.s3Endpoint != nil && result.s3Endpoint.Scheme != "https") || result.scannerURL.Scheme != "https") {
+		((result.s3Endpoint != nil && result.s3Endpoint.Scheme != "https") || (result.s3PublicEndpoint != nil && result.s3PublicEndpoint.Scheme != "https") || (result.scannerMode == "http" && result.scannerURL.Scheme != "https")) {
 		return runtimeConfig{}, errors.New("media dependencies must use HTTPS outside development")
 	}
 	return result, nil
+}
+
+func configureScanner(runtime runtimeConfig, objects media.ScanObjectReader) (media.MalwareScanner, error) {
+	if runtime.scannerMode == "clamav" {
+		return media.NewClamAVScannerWithFreshness(objects, runtime.clamSocket, runtime.scannerTimeout, runtime.clamMaxSignatureAge, time.Now)
+	}
+	token, err := readRegularFile(runtime.scannerTokenFile, 4096)
+	if err != nil {
+		return nil, errors.New("scanner credential is unavailable or invalid")
+	}
+	return media.NewHTTPMalwareScanner(runtime.scannerURL, &http.Client{Timeout: runtime.scannerTimeout}, strings.TrimSpace(string(token)))
 }
 
 func configureObjectStore(ctx context.Context, runtime runtimeConfig) (*media.S3Adapter, error) {
@@ -269,7 +312,14 @@ func configureObjectStore(ctx context.Context, runtime runtimeConfig) (*media.S3
 			options.BaseEndpoint = aws.String(runtime.s3Endpoint.String())
 		}
 	})
-	return media.NewS3Adapter(client, runtime.bucket, time.Now)
+	publicClient := client
+	if runtime.s3PublicEndpoint != nil {
+		publicClient = s3.NewFromConfig(configuration, func(options *s3.Options) {
+			options.UsePathStyle = runtime.s3ForcePathStyle
+			options.BaseEndpoint = aws.String(runtime.s3PublicEndpoint.String())
+		})
+	}
+	return media.NewS3AdapterWithPresignClient(client, publicClient, runtime.bucket, time.Now)
 }
 
 func loadDatabaseURL(runtime runtimeConfig) (string, error) {

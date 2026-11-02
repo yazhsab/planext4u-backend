@@ -15,12 +15,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	pay "github.com/yazhsab/planext4u-backend/internal/payment"
 	"github.com/yazhsab/planext4u-backend/internal/wallet"
+	"github.com/yazhsab/planext4u-backend/internal/workflow"
 )
 
 const foodOperationTimeout = 30 * time.Second
 
 type PaymentService interface {
 	Create(pay.Scope, string, string, pay.Method, pay.Money) (pay.Payment, bool, error)
+	Get(pay.Scope, string) (pay.Payment, error)
 	RequestRefund(pay.Scope, string, pay.Money) (pay.Payment, error)
 	CancelUncaptured(pay.Scope, string) (pay.Payment, error)
 }
@@ -31,10 +33,11 @@ type WalletService interface {
 }
 
 type PostgresService struct {
-	pool     *pgxpool.Pool
-	payments PaymentService
-	wallet   WalletService
-	clock    func() time.Time
+	pool        *pgxpool.Pool
+	payments    PaymentService
+	wallet      WalletService
+	clock       func() time.Time
+	afterEffect func(string) error
 }
 
 func NewPostgresService(pool *pgxpool.Pool, payments PaymentService, walletService WalletService, clock func() time.Time) (*PostgresService, error) {
@@ -48,7 +51,7 @@ func (service *PostgresService) Now() time.Time { return service.clock().UTC() }
 
 func (service *PostgresService) Ready(ctx context.Context) error {
 	var ready bool
-	if err := service.pool.QueryRow(ctx, `SELECT to_regclass('food.restaurants') IS NOT NULL AND to_regclass('food.policies') IS NOT NULL AND to_regclass('food.orders') IS NOT NULL AND to_regclass('food.idempotency_records') IS NOT NULL`).Scan(&ready); err != nil {
+	if err := service.pool.QueryRow(ctx, `SELECT to_regclass('food.checkout_workflows') IS NOT NULL AND to_regclass('food.restaurants') IS NOT NULL AND to_regclass('food.policies') IS NOT NULL AND to_regclass('food.orders') IS NOT NULL AND to_regclass('food.idempotency_records') IS NOT NULL`).Scan(&ready); err != nil {
 		return fmt.Errorf("check food schema readiness: %w", err)
 	}
 	if !ready {
@@ -168,7 +171,8 @@ func (service *PostgresService) SetCart(actor Actor, key string, request CartReq
 	}
 	now := service.Now()
 	tax := subtotal * policy.taxBasisPoints / 10000
-	value := Cart{ID: foodUUID("cart", actor.TenantID+":"+actor.Subject+":"+key), CustomerID: actor.Subject, Restaurant: publicRestaurant(restaurant), PostalCode: request.PostalCode, Revision: 1, Lines: lines, Subtotal: Money{AmountMinor: subtotal, Currency: restaurant.MinimumOrder.Currency}, DeliveryFee: restaurant.DeliveryFee, Tax: Money{AmountMinor: tax, Currency: restaurant.MinimumOrder.Currency}, Total: Money{AmountMinor: subtotal + restaurant.DeliveryFee.AmountMinor + tax, Currency: restaurant.MinimumOrder.Currency}, PricingVersion: policy.version, ExpiresAt: now.Add(policy.cartTTL), UpdatedAt: now, tenantID: actor.TenantID, country: actor.Country}
+	value := Cart{ID: foodUUID("cart", actor.TenantID+":"+actor.Country+":"+actor.Subject+":"+key), CustomerID: actor.Subject, Restaurant: publicRestaurant(restaurant), PostalCode: request.PostalCode, Revision: 1, Lines: lines, Subtotal: Money{AmountMinor: subtotal, Currency: restaurant.MinimumOrder.Currency}, DeliveryFee: restaurant.DeliveryFee, Tax: Money{AmountMinor: tax, Currency: restaurant.MinimumOrder.Currency}, Total: Money{AmountMinor: subtotal + restaurant.DeliveryFee.AmountMinor + tax, Currency: restaurant.MinimumOrder.Currency}, PricingVersion: policy.version, ExpiresAt: now.Add(policy.cartTTL), UpdatedAt: now, tenantID: actor.TenantID, country: actor.Country}
+	value.PaymentMethods = service.AvailablePaymentMethods(actor)
 	encodedLines, _ := json.Marshal(value.Lines)
 	if _, err := tx.Exec(ctx, `INSERT INTO food.carts (id,tenant_id,country,customer_identity_id,restaurant_id,revision,postal_code,lines,subtotal_minor,delivery_fee_minor,tax_minor,total_minor,currency,pricing_version,expires_at,updated_at) VALUES ($1,$2,$3,$4,$5,1,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, value.ID, actor.TenantID, actor.Country, actor.Subject, request.RestaurantID, request.PostalCode, encodedLines, value.Subtotal.AmountMinor, value.DeliveryFee.AmountMinor, value.Tax.AmountMinor, value.Total.AmountMinor, value.Total.Currency, value.PricingVersion, value.ExpiresAt, value.UpdatedAt); err != nil {
 		return Cart{}, false, mapFoodError(err)
@@ -184,95 +188,12 @@ func (service *PostgresService) SetCart(actor Actor, key string, request CartReq
 
 func (service *PostgresService) CreateOrder(actor Actor, key string, request CreateOrderRequest) (Order, bool, error) {
 	method := pay.Method(request.PaymentMethod)
-	if !postgresFoodActor(actor) || !hasRole(actor, "CUSTOMER") || !validKey(key) || !postgresFoodUUID(request.CartID) || (method != pay.MethodWallet && method != pay.MethodRazorpay && method != pay.MethodPaystack) {
+	if !postgresFoodActor(actor) || !hasRole(actor, "CUSTOMER") || !validKey(key) || !postgresFoodUUID(request.CartID) || !allowedFoodMethod(actor.Country, method) {
 		return Order{}, false, ErrInvalidRequest
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), foodOperationTimeout)
 	defer cancel()
-	connection, err := service.pool.Acquire(ctx)
-	if err != nil {
-		return Order{}, false, err
-	}
-	defer connection.Release()
-	lockKey := actor.TenantID + ":" + actor.Subject + ":food-order:" + key
-	if _, err := connection.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1,0))`, lockKey); err != nil {
-		return Order{}, false, err
-	}
-	defer func() {
-		_, _ = connection.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtextextended($1,0))`, lockKey)
-	}()
-	tx, err := connection.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err != nil {
-		return Order{}, false, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	fingerprint := digest(request)
-	var replay Order
-	if found, err := loadFoodReplay(ctx, tx, actor, "order", key, fingerprint, &replay); err != nil {
-		return Order{}, false, err
-	} else if found {
-		replay.tenantID, replay.country = actor.TenantID, actor.Country
-		return replay, true, nil
-	}
-	cart, err := loadCart(ctx, tx, request.CartID, true)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Order{}, false, ErrNotFound
-	}
-	if err != nil {
-		return Order{}, false, err
-	}
-	if cart.CustomerID != actor.Subject || cart.tenantID != actor.TenantID || cart.country != actor.Country {
-		return Order{}, false, ErrForbidden
-	}
-	if !cart.ExpiresAt.After(service.Now()) {
-		return Order{}, false, ErrConflict
-	}
-	restaurant, err := loadRestaurant(ctx, tx, cart.Restaurant.ID, actor.TenantID, actor.Country, true)
-	if err != nil {
-		return Order{}, false, err
-	}
-	if !restaurant.Open || !beforeCutoff(service.Now(), restaurant.AcceptUntilMinute) {
-		return Order{}, false, ErrRestaurantClosed
-	}
-	policy, err := loadFoodPolicy(ctx, tx, actor.TenantID, actor.Country)
-	if err != nil {
-		return Order{}, false, err
-	}
-	orderID := foodUUID("order", actor.TenantID+":"+actor.Subject+":"+key)
-	walletDebitID := ""
-	if method == pay.MethodWallet {
-		if service.wallet == nil {
-			return Order{}, false, ErrForbidden
-		}
-		points := (cart.Total.AmountMinor + policy.walletPointValueMinor - 1) / policy.walletPointValueMinor
-		entry, _, err := service.wallet.Redeem(wallet.Scope{TenantID: actor.TenantID, Country: actor.Country, CustomerID: actor.Subject}, key+"-wallet", orderID, points)
-		if err != nil {
-			return Order{}, false, err
-		}
-		walletDebitID = entry.ID
-	}
-	paymentValue, _, err := service.payments.Create(pay.Scope{TenantID: actor.TenantID, Country: actor.Country, CustomerID: actor.Subject}, key+"-payment", orderID, method, pay.Money{AmountMinor: cart.Total.AmountMinor, Currency: cart.Total.Currency})
-	if err != nil {
-		if walletDebitID != "" {
-			_, _, _ = service.wallet.ReverseDebit(wallet.Scope{TenantID: actor.TenantID, Country: actor.Country, CustomerID: actor.Subject}, key+"-wallet-rollback", walletDebitID, orderID)
-		}
-		return Order{}, false, err
-	}
-	now := service.Now()
-	value := Order{ID: orderID, CustomerID: actor.Subject, RestaurantID: restaurant.ID, Revision: 1, Status: StatusPendingRestaurant, Lines: cloneLines(cart.Lines), Subtotal: cart.Subtotal, DeliveryFee: cart.DeliveryFee, Tax: cart.Tax, Total: cart.Total, Payment: Payment{Method: request.PaymentMethod, Status: string(paymentValue.Status), Reference: paymentValue.ID}, PostalCode: cart.PostalCode, PricingVersion: cart.PricingVersion, AcceptBy: now.Add(policy.acceptanceTTL), AllowedActions: restaurantActions(StatusPendingRestaurant), Timeline: []OrderEvent{{Status: StatusPendingRestaurant, Actor: actor.Subject, CreatedAt: now}}, CreatedAt: now, UpdatedAt: now, tenantID: actor.TenantID, country: actor.Country, walletDebitID: walletDebitID}
-	if err := insertFoodOrder(ctx, tx, value, cart.ID); err != nil {
-		return Order{}, false, err
-	}
-	if err := appendFoodTimeline(ctx, tx, value.ID, value.Timeline); err != nil {
-		return Order{}, false, err
-	}
-	if err := storeFoodReplay(ctx, tx, actor, "order", key, fingerprint, value, now); err != nil {
-		return Order{}, false, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return Order{}, false, mapFoodError(err)
-	}
-	return value, false, nil
+	return service.createDurably(ctx, actor, key, request)
 }
 
 func (service *PostgresService) Orders(actor Actor) ([]Order, error) {
@@ -346,6 +267,14 @@ func (service *PostgresService) RestaurantTransition(actor Actor, key, orderID s
 		if err != nil || restaurant.OwnerID != actor.Subject {
 			return ErrForbidden
 		}
+		p, err := service.payments.Get(pay.Scope{TenantID: value.tenantID, Country: value.country, CustomerID: value.CustomerID}, value.Payment.Reference)
+		if err != nil {
+			return err
+		}
+		if p.Status != pay.StatusCaptured && p.Status != pay.StatusReconciled {
+			return ErrInvalidTransition
+		}
+		value.Payment.Status = string(p.Status)
 		if !allowedRestaurantTransition(value.Status, request.Status) {
 			return ErrInvalidTransition
 		}
@@ -357,9 +286,7 @@ func (service *PostgresService) RestaurantTransition(actor Actor, key, orderID s
 		}
 		if request.Status == StatusRejected {
 			value.RejectionReason = strings.TrimSpace(request.Reason)
-			if err := service.compensate(value, key); err != nil {
-				return err
-			}
+			value.Payment.RefundState = "PENDING"
 		}
 		value.Timeline = append(value.Timeline, OrderEvent{Status: request.Status, Actor: actor.Subject, Reason: strings.TrimSpace(request.Reason), CreatedAt: service.Now()})
 		return nil
@@ -370,7 +297,23 @@ func (service *PostgresService) DispatchTransition(actor Actor, key, orderID str
 	if !postgresFoodActor(actor) || !hasAnyRole(actor, "DISPATCH", "RIDER", "OPS_ADMIN", "SUPER_ADMIN") || !validKey(key) {
 		return Order{}, false, ErrForbidden
 	}
-	return service.mutateOrder(actor, key, orderID, revision, "dispatch-transition", status, func(_ context.Context, _ pgx.Tx, value *Order) error {
+	return service.mutateOrder(actor, key, orderID, revision, "dispatch-transition", status, func(ctx context.Context, tx pgx.Tx, value *Order) error {
+		if !hasAnyRole(actor, "DISPATCH", "OPS_ADMIN", "SUPER_ADMIN") {
+			if status == StatusRiderAssigned {
+				return ErrForbidden
+			}
+			if err := authorizeAssignedRider(ctx, tx, actor, *value, string(status)); err != nil {
+				return err
+			}
+		}
+		p, err := service.payments.Get(pay.Scope{TenantID: value.tenantID, Country: value.country, CustomerID: value.CustomerID}, value.Payment.Reference)
+		if err != nil {
+			return err
+		}
+		value.Payment.Status = string(p.Status)
+		if value.Payment.Status != string(pay.StatusCaptured) && value.Payment.Status != string(pay.StatusReconciled) {
+			return ErrInvalidTransition
+		}
 		allowed := map[OrderStatus]OrderStatus{StatusReady: StatusRiderAssigned, StatusRiderAssigned: StatusPickedUp, StatusPickedUp: StatusDelivered}
 		if allowed[value.Status] != status {
 			return ErrInvalidTransition
@@ -385,6 +328,19 @@ func (service *PostgresService) DispatchTransition(actor Actor, key, orderID str
 type foodOrderMutation func(context.Context, pgx.Tx, *Order) error
 
 func (service *PostgresService) mutateOrder(actor Actor, key, orderID string, revision int64, operation string, input any, mutation foodOrderMutation) (Order, bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), foodOperationTimeout)
+	defer cancel()
+	var value Order
+	var replay bool
+	err := workflow.WithCapacity(ctx, service.pool, func() error {
+		var err error
+		value, replay, err = service.mutateOrderWithCapacity(actor, key, orderID, revision, operation, input, mutation)
+		return err
+	})
+	return value, replay, err
+}
+
+func (service *PostgresService) mutateOrderWithCapacity(actor Actor, key, orderID string, revision int64, operation string, input any, mutation foodOrderMutation) (Order, bool, error) {
 	if !postgresFoodUUID(orderID) || revision < 1 {
 		return Order{}, false, ErrInvalidRequest
 	}
@@ -438,6 +394,16 @@ func (service *PostgresService) mutateOrder(actor Actor, key, orderID string, re
 	if err := tx.Commit(ctx); err != nil {
 		return Order{}, false, mapFoodError(err)
 	}
+	if err := service.effect("order-mutated"); err != nil {
+		return Order{}, false, err
+	}
+	if value.Payment.RefundState == "PENDING" {
+		recovered, err := service.recoverCompensation(ctx, value.ID)
+		if err != nil {
+			return Order{}, false, err
+		}
+		value = recovered
+	}
 	return value, false, nil
 }
 
@@ -450,9 +416,23 @@ func (service *PostgresService) compensate(value *Order, key string) error {
 		if _, _, err := service.wallet.ReverseDebit(wallet.Scope{TenantID: value.tenantID, Country: value.country, CustomerID: value.CustomerID}, key+"-wallet-refund", value.walletDebitID, value.ID); err != nil && !errors.Is(err, wallet.ErrAlreadyReversed) {
 			return err
 		}
+		if err := service.effect("wallet-reversed"); err != nil {
+			return err
+		}
 	}
-	var paymentValue pay.Payment
-	var err error
+	paymentValue, err := service.payments.Get(paymentScope, value.Payment.Reference)
+	if err != nil {
+		return err
+	}
+	value.Payment.Status = string(paymentValue.Status)
+	if paymentValue.Status == pay.StatusRefunded || paymentValue.Status == pay.StatusRefundSubmitted || paymentValue.Status == pay.StatusCancelled {
+		value.Payment.Status = string(paymentValue.Status)
+		value.Payment.RefundState = "SUBMITTED"
+		if paymentValue.Status != pay.StatusRefundSubmitted {
+			value.Payment.RefundState = "COMPLETE"
+		}
+		return nil
+	}
 	if value.Payment.Status == string(pay.StatusCaptured) || value.Payment.Status == string(pay.StatusReconciled) {
 		paymentValue, err = service.payments.RequestRefund(paymentScope, value.Payment.Reference, pay.Money{AmountMinor: value.Total.AmountMinor, Currency: value.Total.Currency})
 	} else {
@@ -462,15 +442,21 @@ func (service *PostgresService) compensate(value *Order, key string) error {
 		return err
 	}
 	value.Payment.Status, value.Payment.RefundState = string(paymentValue.Status), "SUBMITTED"
-	return nil
+	if paymentValue.Status == pay.StatusRefunded || paymentValue.Status == pay.StatusCancelled {
+		value.Payment.RefundState = "COMPLETE"
+	}
+	return service.effect("payment-compensated")
 }
 
 func (service *PostgresService) authorizeOrder(ctx context.Context, actor Actor, value Order) error {
 	if value.tenantID != actor.TenantID || value.country != actor.Country {
 		return ErrForbidden
 	}
-	if hasRole(actor, "CUSTOMER") && value.CustomerID == actor.Subject || hasAnyRole(actor, "DISPATCH", "OPS_ADMIN", "SUPER_ADMIN", "RIDER") {
+	if hasRole(actor, "CUSTOMER") && value.CustomerID == actor.Subject || hasAnyRole(actor, "DISPATCH", "OPS_ADMIN", "SUPER_ADMIN") {
 		return nil
+	}
+	if hasRole(actor, "RIDER") {
+		return authorizeAssignedRider(ctx, service.pool, actor, value, "")
 	}
 	if hasRole(actor, "RESTAURANT_VENDOR") {
 		var owns bool
@@ -485,7 +471,7 @@ func (service *PostgresService) Expire(ctx context.Context, limit int) (int, err
 	if ctx == nil || limit < 1 || limit > 1000 {
 		return 0, ErrInvalidRequest
 	}
-	rows, err := service.pool.Query(ctx, `SELECT id::text,tenant_id::text,country,customer_identity_id::text,revision FROM food.orders WHERE status='PENDING_RESTAURANT' AND accept_by <= $1 ORDER BY accept_by LIMIT $2`, service.Now(), limit)
+	rows, err := service.pool.Query(ctx, `SELECT id::text,tenant_id::text,country,customer_identity_id::text,revision FROM food.orders WHERE status IN ('PENDING_RESTAURANT','AWAITING_PAYMENT') AND accept_by <= $1 ORDER BY accept_by LIMIT $2`, service.Now(), limit)
 	if err != nil {
 		return 0, err
 	}
@@ -504,25 +490,27 @@ func (service *PostgresService) Expire(ctx context.Context, limit int) (int, err
 	}
 	rows.Close()
 	processed := 0
+	var failures []error
 	for _, candidate := range values {
 		actor := Actor{TenantID: candidate.tenant, Country: candidate.country, Subject: candidate.customer, Roles: []string{"CUSTOMER"}}
 		key := "food-timeout-" + strings.ReplaceAll(candidate.id, "-", "")
-		_, replay, err := service.mutateOrder(actor, key, candidate.id, candidate.revision, "timeout", candidate.id, func(_ context.Context, _ pgx.Tx, value *Order) error {
-			if value.Status != StatusPendingRestaurant || value.AcceptBy.After(service.Now()) {
+		_, replay, err := service.mutateOrder(actor, key, candidate.id, candidate.revision, "timeout", candidate.id, func(ctx context.Context, tx pgx.Tx, value *Order) error {
+			if (value.Status != StatusPendingRestaurant && value.Status != StatusAwaitingPayment) || value.AcceptBy.After(service.Now()) {
 				return ErrInvalidTransition
 			}
 			value.Status, value.RejectionReason, value.AllowedActions = StatusTimedOut, "Restaurant acceptance window expired", nil
-			if err := service.compensate(value, key); err != nil {
-				return err
-			}
+			value.Payment.RefundState = "PENDING"
 			value.Timeline = append(value.Timeline, OrderEvent{Status: StatusTimedOut, Actor: candidate.customer, Reason: value.RejectionReason, CreatedAt: service.Now()})
 			return nil
 		})
+		if err != nil && !errors.Is(err, ErrConflict) {
+			failures = append(failures, err)
+		}
 		if err == nil && !replay {
 			processed++
 		}
 	}
-	return processed, nil
+	return processed, errors.Join(failures...)
 }
 
 type foodQuerier interface {
@@ -739,7 +727,7 @@ func loadFoodOrder(ctx context.Context, query foodQuerier, orderID string, forUp
 }
 
 func updateFoodOrder(ctx context.Context, tx pgx.Tx, value Order) error {
-	_, err := tx.Exec(ctx, `UPDATE food.orders SET revision=$2,status=$3,payment_status=$4,estimated_ready_at=$5,rejection_reason=NULLIF($6,''),refund_state=NULLIF($7,''),updated_at=$8 WHERE id=$1`, value.ID, value.Revision, value.Status, value.Payment.Status, value.EstimatedReadyAt, value.RejectionReason, value.Payment.RefundState, value.UpdatedAt)
+	_, err := tx.Exec(ctx, `UPDATE food.orders SET revision=$2,status=$3,payment_status=$4,estimated_ready_at=$5,rejection_reason=NULLIF($6,''),refund_state=NULLIF($7,''),updated_at=$8,accept_by=$9 WHERE id=$1`, value.ID, value.Revision, value.Status, value.Payment.Status, value.EstimatedReadyAt, value.RejectionReason, value.Payment.RefundState, value.UpdatedAt, value.AcceptBy)
 	return err
 }
 

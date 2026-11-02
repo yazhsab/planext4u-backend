@@ -38,6 +38,28 @@ func TestAdminRuntimeConfigurationFailsClosed(t *testing.T) {
 	}
 }
 
+func TestAdminFulfillmentOriginConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		environment, origin string
+		allowed             bool
+	}{
+		{"development", "http://transaction:8086", true},
+		{"production", "https://transaction.internal", true},
+		{"production", "http://transaction.internal", false},
+		{"development", "https://someone:password@transaction.internal", false},
+		{"development", "https://transaction.internal/api", false},
+		{"development", "https://transaction.internal?tenant=foreign", false},
+	} {
+		t.Run(test.environment+"-"+test.origin, func(t *testing.T) {
+			values := map[string]string{"APP_ENV": test.environment, "DATABASE_URL": "postgres://synthetic:local-only@database/p4u?sslmode=verify-full", "ADMIN_EXCHANGE_SECRET_FILE": "/synthetic/key", "ADMIN_ALLOWED_ORIGINS": "https://admin.planext4u.net", "FULFILLMENT_BASE_URL": test.origin}
+			config, err := loadRuntimeConfig(func(key string) (string, bool) { v, ok := values[key]; return v, ok })
+			if (err == nil) != test.allowed || err == nil && config.fulfillmentURL == nil {
+				t.Fatalf("origin acceptance=%v expected=%v", err, test.allowed)
+			}
+		})
+	}
+}
+
 func TestAdminDatabaseRequiresVerifiedTLSOutsideDevelopment(t *testing.T) {
 	t.Parallel()
 	runtime := runtimeConfig{
@@ -46,6 +68,31 @@ func TestAdminDatabaseRequiresVerifiedTLSOutsideDevelopment(t *testing.T) {
 	}
 	if _, err := databaseConfig("postgres://admin:secret@database.example/p4u?sslmode=require", runtime); err == nil || !strings.Contains(err.Error(), "verify-full") {
 		t.Fatalf("TLS validation error=%v", err)
+	}
+}
+
+func TestAdminFirebaseLoginRequiresUnambiguousTenantConfiguration(t *testing.T) {
+	for name, extra := range map[string]map[string]string{
+		"project without platform tenant": {"FIREBASE_PROJECT_ID": "test-project"},
+		"invalid platform tenant":         {"FIREBASE_PROJECT_ID": "test-project", "TENANT_ID": "invalid"},
+		"auth tenant without project":     {"FIREBASE_AUTH_TENANT_ID": "test-auth-tenant"},
+		"credentials without project":     {"FIREBASE_CREDENTIALS_FILE": "/private/test.json"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			values := map[string]string{"DATABASE_URL": "postgres://admin:local@localhost/p4u?sslmode=disable", "ADMIN_EXCHANGE_SECRET_FILE": "/private/test.key", "ADMIN_ALLOWED_ORIGINS": "https://localhost:4173"}
+			for key, value := range extra {
+				values[key] = value
+			}
+			lookup := func(key string) (string, bool) { value, ok := values[key]; return value, ok }
+			if _, err := loadRuntimeConfig(lookup); err == nil {
+				t.Fatal("ambiguous Firebase sign-in configuration accepted")
+			}
+			values["FIREBASE_PROJECT_ID"] = "test-project"
+			values["TENANT_ID"] = "00000000-0000-4000-8000-000000000001"
+			if _, err := loadRuntimeConfig(lookup); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

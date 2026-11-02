@@ -8,6 +8,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/yazhsab/planext4u-backend/internal/bankverification"
+	"github.com/yazhsab/planext4u-backend/internal/kycattestation"
+	"github.com/yazhsab/planext4u-backend/internal/privateevidence"
 )
 
 type Application interface {
@@ -56,7 +60,11 @@ func NewHandler(service Application) (http.Handler, error) {
 	}
 	handler := &Handler{service: service}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/rider/applications", handler.participantApplications)
+	mux.HandleFunc("GET /v1/rider/applications/{rider_id}/review", handler.riderReview)
+	mux.HandleFunc("POST /v1/rider/applications/{rider_id}/review/documents/{kind}/access", handler.riderReviewDocumentAccess)
 	mux.HandleFunc("POST /v1/rider/applications", handler.registerRider)
+	mux.HandleFunc("POST /v1/rider/application/resubmissions", handler.resubmitRider)
 	mux.HandleFunc("GET /v1/rider/profile", handler.rider)
 	mux.HandleFunc("POST /v1/rider/applications/{rider_id}/review", handler.reviewRider)
 	mux.HandleFunc("POST /v1/rider/duty/start", handler.startDuty)
@@ -90,6 +98,7 @@ func NewHandler(service Application) (http.Handler, error) {
 	mux.HandleFunc("POST /v1/operations/territories/{territory_id}/field-check-in", handler.fieldCheckIn)
 	mux.HandleFunc("GET /v1/operations/attendance", handler.attendance)
 	mux.HandleFunc("GET /v1/operations/regions/{region_id}/dashboard", handler.regionalDashboard)
+	mux.HandleFunc("GET /v1/operations/regions/{region_id}/summary-export", handler.regionalSummaryExport)
 	mux.HandleFunc("GET /v1/operations/audit", handler.audits)
 	return mux, nil
 }
@@ -652,6 +661,31 @@ func (handler *Handler) regionalDashboard(writer http.ResponseWriter, request *h
 	writeFulfillmentJSON(writer, http.StatusOK, value)
 }
 
+func (handler *Handler) regionalSummaryExport(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := fulfillmentActorFromRequest(writer, request)
+	if !ok {
+		return
+	}
+	if request.URL.RawQuery != "" {
+		handler.problem(writer, request, ErrInvalidRequest)
+		return
+	}
+	exporter, ok := handler.service.(interface {
+		RegionalSummaryExport(Actor, string) (RegionalExport, error)
+	})
+	if !ok {
+		handler.problem(writer, request, ErrForbidden)
+		return
+	}
+	result, err := exporter.RegionalSummaryExport(actor, request.PathValue("region_id"))
+	if err != nil {
+		handler.problem(writer, request, err)
+		return
+	}
+	writer.Header().Set("Cache-Control", "private, no-store")
+	writeFulfillmentJSON(writer, http.StatusOK, result)
+}
+
 func (handler *Handler) audits(writer http.ResponseWriter, request *http.Request) {
 	actor, ok := fulfillmentActorFromRequest(writer, request)
 	if !ok {
@@ -668,11 +702,13 @@ func (handler *Handler) audits(writer http.ResponseWriter, request *http.Request
 func (handler *Handler) problem(writer http.ResponseWriter, request *http.Request, err error) {
 	status, code, detail := http.StatusInternalServerError, "FULFILLMENT_INTERNAL", "The fulfillment request could not be completed."
 	switch {
+	case errors.Is(err, ErrDeliveryConsentRequired):
+		status, code, detail = http.StatusForbidden, "FULFILLMENT_DELIVERY_CONSENT_REQUIRED", "Allow the current delivery location policy before starting duty or sharing location."
 	case errors.Is(err, ErrInvalidRequest):
 		status, code, detail = http.StatusUnprocessableEntity, "FULFILLMENT_REQUEST_INVALID", "The fulfillment request is invalid."
 	case errors.Is(err, ErrNotFound):
 		status, code, detail = http.StatusNotFound, "FULFILLMENT_NOT_FOUND", "The fulfillment resource was not found."
-	case errors.Is(err, ErrForbidden):
+	case errors.Is(err, ErrForbidden), errors.Is(err, privateevidence.ErrRejected), errors.Is(err, bankverification.ErrRejected), errors.Is(err, kycattestation.ErrRejected):
 		status, code, detail = http.StatusForbidden, "FULFILLMENT_FORBIDDEN", "The actor cannot access this fulfillment resource."
 	case errors.Is(err, ErrMFARequired):
 		status, code, detail = http.StatusForbidden, "FULFILLMENT_MFA_REQUIRED", "A verified MFA session is required."
@@ -688,6 +724,12 @@ func (handler *Handler) problem(writer http.ResponseWriter, request *http.Reques
 		status, code, detail = http.StatusGone, "FULFILLMENT_LOCATION_STALE", "The rider location is stale or out of order."
 	case errors.Is(err, ErrChatExpired):
 		status, code, detail = http.StatusGone, "FULFILLMENT_CHAT_EXPIRED", "The order chat window has expired."
+	case errors.Is(err, privateevidence.ErrUnavailable):
+		status, code, detail = http.StatusServiceUnavailable, "FULFILLMENT_EVIDENCE_UNAVAILABLE", "Private document verification is unavailable. Retry later."
+	case errors.Is(err, bankverification.ErrUnavailable):
+		status, code, detail = http.StatusServiceUnavailable, "FULFILLMENT_BANK_VERIFICATION_UNAVAILABLE", "Bank verification is unavailable. Retry later."
+	case errors.Is(err, kycattestation.ErrUnavailable):
+		status, code, detail = http.StatusServiceUnavailable, "FULFILLMENT_KYC_ATTESTATION_UNAVAILABLE", "Identity document attestation is unavailable. Retry later."
 	}
 	writeFulfillmentProblem(writer, request, status, code, detail)
 }
@@ -707,6 +749,16 @@ func fulfillmentMutation(writer http.ResponseWriter, request *http.Request) (Act
 
 func fulfillmentActorFromRequest(writer http.ResponseWriter, request *http.Request) (Actor, bool) {
 	actor := Actor{TenantID: strings.TrimSpace(request.Header.Get("X-Planext4u-Tenant")), Country: strings.TrimSpace(request.Header.Get("X-Planext4u-Country")), Subject: strings.TrimSpace(request.Header.Get("X-Planext4u-Subject")), Roles: strings.Split(request.Header.Get("X-Planext4u-Roles"), ","), MFAVerified: strings.EqualFold(request.Header.Get("X-Planext4u-MFA"), "verified")}
+	actor.OperatorSessionID = request.Header.Get("X-Planext4u-Operator-Session")
+	actor.SourceSessionID = request.Header.Get("X-Planext4u-Session")
+	if raw := request.Header.Get("X-Planext4u-Operator-Revision"); raw != "" {
+		revision, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || revision < 1 {
+			writeFulfillmentProblem(writer, request, http.StatusForbidden, "FULFILLMENT_SCOPE_REQUIRED", "The authenticated operator scope is incomplete.")
+			return Actor{}, false
+		}
+		actor.OperatorRevision = revision
+	}
 	if !validActor(actor) {
 		writeFulfillmentProblem(writer, request, http.StatusForbidden, "FULFILLMENT_SCOPE_REQUIRED", "The authenticated fulfillment scope is incomplete.")
 		return Actor{}, false

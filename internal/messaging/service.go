@@ -88,10 +88,11 @@ func (service *Service) Consume(ctx context.Context, consumer string, message Me
 }
 
 func (service *Service) DeadLetters(ctx context.Context, principal ReplayPrincipal, limit int) ([]OutboxRecord, error) {
-	if !principal.Capabilities["messaging.dlq.read"] || !safeID(principal.TenantID) || limit < 1 || limit > 200 {
+	if !principal.Capabilities["messaging.dlq.read"] || !safeID(principal.TenantID) ||
+		!regexp.MustCompile(`^[A-Z]{2}$`).MatchString(principal.Country) || limit < 1 || limit > 200 {
 		return nil, ErrForbidden
 	}
-	return service.outbox.DeadLetters(ctx, principal.TenantID, limit)
+	return service.outbox.DeadLetters(ctx, principal.TenantID, principal.Country, limit)
 }
 
 func (service *Service) Replay(ctx context.Context, principal ReplayPrincipal, messageID, reason, correlationID string) error {
@@ -105,7 +106,7 @@ func (service *Service) Replay(ctx context.Context, principal ReplayPrincipal, m
 		Reason: strings.TrimSpace(reason), CorrelationID: correlationID, OccurredAt: now}); err != nil {
 		return err
 	}
-	return service.outbox.Replay(ctx, principal.TenantID, messageID, now)
+	return service.outbox.Replay(ctx, principal.TenantID, principal.Country, messageID, now)
 }
 
 func backoff(attempt int) time.Duration {

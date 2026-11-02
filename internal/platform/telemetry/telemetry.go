@@ -32,15 +32,17 @@ type Config struct {
 }
 
 type Telemetry struct {
-	tracer          trace.Tracer
-	propagator      propagation.TextMapPropagator
-	requestCount    metric.Int64Counter
-	requestDuration metric.Float64Histogram
-	activeRequests  metric.Int64UpDownCounter
-	dependencyCount metric.Int64Counter
-	dependencyTime  metric.Float64Histogram
-	queueLag        metric.Float64Histogram
-	shutdown        func(context.Context) error
+	tracer           trace.Tracer
+	propagator       propagation.TextMapPropagator
+	requestCount     metric.Int64Counter
+	requestDuration  metric.Float64Histogram
+	activeRequests   metric.Int64UpDownCounter
+	dependencyCount  metric.Int64Counter
+	dependencyTime   metric.Float64Histogram
+	queueLag         metric.Float64Histogram
+	scannerReady     metric.Int64Gauge
+	scannerCheckedAt metric.Int64Gauge
+	shutdown         func(context.Context) error
 }
 
 func Setup(ctx context.Context, config Config) (*Telemetry, error) {
@@ -114,8 +116,26 @@ func New(tracerProvider trace.TracerProvider, meterProvider metric.MeterProvider
 	if err != nil {
 		return nil, err
 	}
+	scannerReady, err := meter.Int64Gauge("planext4u.media.scanner.ready", metric.WithDescription("Loaded malware engine protocol and signature freshness pass (1) or fail (0)"))
+	if err != nil {
+		return nil, err
+	}
+	scannerCheckedAt, err := meter.Int64Gauge("planext4u.media.scanner.checked_at", metric.WithDescription("Unix seconds of the latest malware readiness check"))
+	if err != nil {
+		return nil, err
+	}
 	return &Telemetry{tracer: tracerProvider.Tracer(instrumentationName), propagator: propagator, requestCount: requestCount, requestDuration: requestDuration,
-		activeRequests: activeRequests, dependencyCount: dependencyCount, dependencyTime: dependencyTime, queueLag: queueLag, shutdown: func(context.Context) error { return nil }}, nil
+		activeRequests: activeRequests, dependencyCount: dependencyCount, dependencyTime: dependencyTime, queueLag: queueLag, scannerReady: scannerReady, scannerCheckedAt: scannerCheckedAt, shutdown: func(context.Context) error { return nil }}, nil
+}
+
+// No asset, owner, scanner reply, credentials or unbounded labels enter metrics.
+func (telemetry *Telemetry) RecordScannerHealth(ctx context.Context, ready bool, checkedAt time.Time) {
+	value := int64(0)
+	if ready {
+		value = 1
+	}
+	telemetry.scannerReady.Record(ctx, value)
+	telemetry.scannerCheckedAt.Record(ctx, checkedAt.Unix())
 }
 
 func (telemetry *Telemetry) Shutdown(ctx context.Context) error { return telemetry.shutdown(ctx) }

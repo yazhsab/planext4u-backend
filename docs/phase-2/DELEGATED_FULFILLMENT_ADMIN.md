@@ -1,0 +1,13 @@
+# Delegated fulfillment reads in the canonical admin
+
+The canonical organization workspace can show delivery territories and regional counters through the owning fulfillment service. This continuation complements the organization-to-territory bindings and direct owner-service permission checks.
+
+`GET /admin/api/v1/fulfillment/territories` and `GET /admin/api/v1/fulfillment/regions/{region_id}` resolve the current operator session and selected allowed country. SUPER_ADMIN/COUNTRY_ADMIN map to country-scoped OPS_ADMIN reads; REGIONAL_STAFF maps to REGIONAL_ADMIN reads. The client cannot supply the upstream tenant, subject, country, role or MFA state. Authority query parameters are rejected. The owner resolves current staff assignments and active ancestors on every read. Country-wide payout fields remain omitted for delegates.
+
+The HTTP adapter has a bounded timeout/body size and refuses redirects. Browser cookies and bearer tokens are not forwarded. HTTP 403/404 owner denials are preserved; network failures, incomplete/malformed counters and other owner failures become visible 503 responses. Missing counters cannot become fabricated zero totals. The ordinary frontend supports assigned-region selection, refresh, empty/unavailable states and removes cached operational data after a refresh denies access. English/Tamil strings use the established admin localization keys. Read access does not require organization-tree management permission.
+
+Configure `FULFILLMENT_BASE_URL` with the owning transaction-service origin. HTTPS is required outside development. The local stack supplies `http://transaction:8086`. The destination must be deployment-controlled and follow the existing trusted internal service-network boundary. It is not a public browser proxy or a caller-selectable URL.
+
+Go tests cover server-derived headers/role mapping, caller authority rejection, owner denial/unavailability, missing counters and redirect refusal. UI tests cover scoped region reads, revoked-data removal, empty assignments, malformed owner counters and resource-only access without tree visibility. The actual HTTPS browser continuation creates a normal job role/staff assignment, verifies owner reads and the ordinary regional screen, suspends the assignment and checks both direct denial and removal from the open screen. Synthetic fixture identities/local MFA assertions remain distinct from real Firebase operator sign-in evidence.
+
+The scoped [field check-in command](DELEGATED_FIELD_CHECK_INS.md) now has separate backend, admin and actual-browser evidence. Fulfillment exports, other commands and delegated scope across every other owning resource API remain separate work. This workspace does not complete all of AC-2.2.

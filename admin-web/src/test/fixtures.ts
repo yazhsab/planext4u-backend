@@ -123,6 +123,7 @@ export const reportExport: ReportExport = {
 };
 
 export const cmsPageDraftPage: CMSPageDraftPage = {
+  published_revision: 2,
   items: [{
     tenant_id: "tenant-synthetic-001",
     country: "IN",
@@ -144,6 +145,7 @@ export const cmsPageDraftPage: CMSPageDraftPage = {
 };
 
 export const cmsWorkspaceDraft: CMSWorkspaceDraft = {
+  published_revision: 2,
   tenant_id: "tenant-synthetic-001",
   country: "IN",
   revision: 4,

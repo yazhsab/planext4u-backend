@@ -44,76 +44,10 @@ func (executor *PostgresDomainExecutor) Execute(principal Principal, change Chan
 	if !postgresPrincipal(principal) || principal.TenantID != change.TenantID || principal.Country != change.Country || change.Status == StatusRejected {
 		return ErrForbidden
 	}
-	encoded, err := json.Marshal(change.Command)
-	if err != nil {
-		return ErrInvalidRequest
-	}
-	digest := sha256.Sum256(encoded)
-	fingerprint := hex.EncodeToString(digest[:])
-	ctx, cancel := context.WithTimeout(context.Background(), adminOperationTimeout)
-	defer cancel()
-	tx, err := executor.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err != nil {
-		return fmt.Errorf("begin admin domain execution: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, change.ID); err != nil {
-		return fmt.Errorf("lock admin domain execution: %w", err)
-	}
-	var previous string
-	err = tx.QueryRow(ctx, `SELECT request_fingerprint FROM admin.domain_executions WHERE change_id=$1`, change.ID).Scan(&previous)
-	if err == nil {
-		if previous != fingerprint {
-			return ErrRevisionConflict
-		}
-		return nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("load admin domain execution: %w", err)
-	}
-	current := DomainRecord{TenantID: change.TenantID, Country: change.Country, Domain: change.Command.Domain, TargetID: change.Command.TargetID, Payload: map[string]any{}}
-	var payload []byte
-	err = tx.QueryRow(ctx, `
-		SELECT state,revision,payload,last_change,updated_by::text,updated_at
-		FROM admin.domain_records
-		WHERE tenant_id=$1 AND country=$2 AND domain=$3 AND target_id=$4 FOR UPDATE`,
-		change.TenantID, change.Country, change.Command.Domain, change.Command.TargetID).Scan(
-		&current.State, &current.Revision, &payload, &current.LastChange, &current.UpdatedBy, &current.UpdatedAt)
-	if err == nil {
-		if json.Unmarshal(payload, &current.Payload) != nil {
-			return ErrExecutionFailed
-		}
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("load admin domain record: %w", err)
-	}
-	state, nextPayload, err := applyDomainCommand(current, change.Command)
-	if err != nil {
-		return err
-	}
-	payload, _ = json.Marshal(nextPayload)
-	now := executor.clock().UTC()
-	if current.Revision == 0 {
-		_, err = tx.Exec(ctx, `
-			INSERT INTO admin.domain_records
-			(tenant_id,country,domain,target_id,state,revision,payload,last_change,updated_by,updated_at)
-			VALUES ($1,$2,$3,$4,$5,1,$6::jsonb,$7,$8,$9)`, change.TenantID, change.Country, change.Command.Domain,
-			change.Command.TargetID, state, payload, change.ID, principal.SubjectID, now)
-	} else {
-		_, err = tx.Exec(ctx, `
-			UPDATE admin.domain_records SET state=$5,revision=revision+1,payload=$6::jsonb,last_change=$7,updated_by=$8,updated_at=$9
-			WHERE tenant_id=$1 AND country=$2 AND domain=$3 AND target_id=$4`, change.TenantID, change.Country, change.Command.Domain,
-			change.Command.TargetID, state, payload, change.ID, principal.SubjectID, now)
-	}
-	if err != nil {
-		return fmt.Errorf("persist admin domain record: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO admin.domain_executions (change_id,request_fingerprint,executed_at) VALUES ($1,$2,$3)`, change.ID, fingerprint, now); err != nil {
-		return fmt.Errorf("persist admin domain execution: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit admin domain execution: %w", err)
-	}
-	return nil
+	// A projection is not evidence that an owning service applied a command.
+	// Keep the legacy reader for historical records, but never manufacture a
+	// successful business execution here. Real adapters are explicitly routed.
+	return ErrAdapterUnavailable
 }
 
 func (executor *PostgresDomainExecutor) Record(ctx context.Context, tenantID, country string, domain Domain, targetID string) (DomainRecord, bool, error) {
@@ -189,7 +123,7 @@ func (service *PostgresService) Submit(principal Principal, command Command) (Ch
 	}
 	if status == StatusExecuted {
 		if err := service.executor.Execute(principal, value); err != nil {
-			return Change{}, ErrExecutionFailed
+			return Change{}, service.executionFailure(principal, command, err)
 		}
 	}
 	commandPayload, _ := json.Marshal(value.Command)
@@ -243,7 +177,7 @@ func (service *PostgresService) Approve(principal Principal, changeID string, ex
 		return Change{}, ErrInvalidState
 	}
 	if err := service.executor.Execute(principal, value); err != nil {
-		return Change{}, ErrExecutionFailed
+		return Change{}, service.executionFailure(principal, value.Command, err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), adminOperationTimeout)
 	defer cancel()
@@ -430,4 +364,17 @@ func postgresPrincipal(value Principal) bool {
 func canonicalUUID(value string) bool {
 	parsed, err := uuid.Parse(value)
 	return err == nil && parsed.String() == value
+}
+
+// Failure events survive independently of a rejected/failed execution. Pending
+// approvals retain their revision so the same approved command can be retried.
+func (service *PostgresService) executionFailure(principal Principal, command Command, cause error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), adminOperationTimeout)
+	defer cancel()
+	reason := "OWNER_EXECUTION_FAILED"
+	if errors.Is(cause, ErrAdapterUnavailable) {
+		reason = "OWNER_ADAPTER_UNAVAILABLE"
+	}
+	auditErr := appendEvent(ctx, service.pool, principal, command, "FAILED", reason, service.clock().UTC())
+	return errors.Join(ErrExecutionFailed, cause, auditErr)
 }

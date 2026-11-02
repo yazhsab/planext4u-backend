@@ -61,10 +61,10 @@ func (store *PostgresSessionStore) Issue(principal Principal, ttl time.Duration)
 	defer cancel()
 	if _, err := store.pool.Exec(ctx, `
 		INSERT INTO admin.sessions
-		(token_digest,session_id,subject_id,tenant_id,display_name,roles,allowed_countries,selected_country,authenticated_at,auth_methods,csrf_token,expires_at,created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		(token_digest,session_id,subject_id,tenant_id,display_name,roles,allowed_countries,selected_country,authenticated_at,auth_methods,csrf_token,expires_at,created_at,operator_revision)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
 		tokenDigest(token), principal.SessionID, principal.SubjectID, principal.TenantID, principal.DisplayName, roles,
-		principal.AllowedCountries, principal.SelectedCountry, principal.AuthenticatedAt, principal.AuthMethods, csrf, now.Add(ttl), now); err != nil {
+		principal.AllowedCountries, principal.SelectedCountry, principal.AuthenticatedAt, principal.AuthMethods, csrf, now.Add(ttl), now, principal.OperatorRevision); err != nil {
 		var postgresError *pgconn.PgError
 		if errors.As(err, &postgresError) && postgresError.Code == "23505" {
 			return "", ErrSessionExists
@@ -86,10 +86,10 @@ func (store *PostgresSessionStore) Resolve(request *http.Request) (ResolvedSessi
 	var csrf string
 	err = store.pool.QueryRow(ctx, `
 		SELECT subject_id::text,session_id::text,tenant_id::text,display_name,roles,allowed_countries,
-		       selected_country,authenticated_at,auth_methods,csrf_token
+		       selected_country,authenticated_at,auth_methods,csrf_token,operator_revision
 		FROM admin.sessions WHERE token_digest=$1 AND expires_at>$2`, tokenDigest(cookie.Value), store.clock().UTC()).Scan(
 		&principal.SubjectID, &principal.SessionID, &principal.TenantID, &principal.DisplayName, &roles, &principal.AllowedCountries,
-		&principal.SelectedCountry, &principal.AuthenticatedAt, &principal.AuthMethods, &csrf)
+		&principal.SelectedCountry, &principal.AuthenticatedAt, &principal.AuthMethods, &csrf, &principal.OperatorRevision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ResolvedSession{}, ErrAuthenticationRequired
 	}

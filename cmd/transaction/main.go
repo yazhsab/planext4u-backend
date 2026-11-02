@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/yazhsab/planext4u-backend/internal/bankverification"
 	"github.com/yazhsab/planext4u-backend/internal/booking"
 	"github.com/yazhsab/planext4u-backend/internal/checkout"
 	"github.com/yazhsab/planext4u-backend/internal/commerce"
@@ -25,13 +26,16 @@ import (
 	"github.com/yazhsab/planext4u-backend/internal/food"
 	"github.com/yazhsab/planext4u-backend/internal/fulfillment"
 	"github.com/yazhsab/planext4u-backend/internal/inventory"
+	"github.com/yazhsab/planext4u-backend/internal/kycattestation"
 	"github.com/yazhsab/planext4u-backend/internal/localverticals"
+	"github.com/yazhsab/planext4u-backend/internal/ocrattestation"
 	"github.com/yazhsab/planext4u-backend/internal/order"
 	"github.com/yazhsab/planext4u-backend/internal/payment"
 	platformconfig "github.com/yazhsab/planext4u-backend/internal/platform/config"
 	"github.com/yazhsab/planext4u-backend/internal/platform/logging"
 	"github.com/yazhsab/planext4u-backend/internal/platform/server"
 	"github.com/yazhsab/planext4u-backend/internal/platform/telemetry"
+	"github.com/yazhsab/planext4u-backend/internal/privateevidence"
 	"github.com/yazhsab/planext4u-backend/internal/social"
 	"github.com/yazhsab/planext4u-backend/internal/supply"
 	"github.com/yazhsab/planext4u-backend/internal/wallet"
@@ -47,26 +51,37 @@ type providerRuntime struct {
 }
 
 type runtimeConfig struct {
-	service                platformconfig.Config
-	databaseURLFile        string
-	databaseURL            string
-	databaseMaxConns       int32
-	databaseMinConns       int32
-	databaseMaxLifetime    time.Duration
-	tenantID               string
-	countries              []string
-	walletProgramFile      string
-	bookingOTPKeyFile      string
-	emergencyDataKeyFile   string
-	localContactKeyFile    string
-	rewardPolicy           wallet.RewardPolicy
-	providerTimeout        time.Duration
-	razorpay               providerRuntime
-	paystack               providerRuntime
-	notificationURL        *url.URL
-	notificationSecretFile string
-	workerInterval         time.Duration
-	reconciliationAge      time.Duration
+	service                   platformconfig.Config
+	databaseURLFile           string
+	databaseURL               string
+	databaseMaxConns          int32
+	databaseMinConns          int32
+	databaseMaxLifetime       time.Duration
+	tenantID                  string
+	countries                 []string
+	walletProgramFile         string
+	bookingOTPKeyFile         string
+	emergencyDataKeyFile      string
+	localContactKeyFile       string
+	rewardPolicy              wallet.RewardPolicy
+	providerTimeout           time.Duration
+	razorpay                  providerRuntime
+	paystack                  providerRuntime
+	notificationURL           *url.URL
+	privateMediaURL           *url.URL
+	bankVerificationURL       *url.URL
+	bankVerificationTokenFile string
+	kycVerificationURL        *url.URL
+	kycVerificationTokenFile  string
+	ocrVerificationURL        *url.URL
+	ocrVerificationTokenFile  string
+	bankLinkURL               *url.URL
+	bankLinkTokenFile         string
+	bankLinkLaunchOrigins     []string
+	notificationSecretFile    string
+	workerInterval            time.Duration
+	reconciliationAge         time.Duration
+	vendorWorkDeliveryEnabled bool
 }
 
 type walletProgramFile struct {
@@ -160,7 +175,73 @@ func run() int {
 		logger.Error("configure durable booking service", "error", err)
 		return 2
 	}
-	supplyService, err := supply.NewPostgresService(pool, time.Now)
+	evidenceVerifier, err := privateevidence.NewHTTPVerifier(runtime.privateMediaURL, &http.Client{Timeout: 3 * time.Second})
+	if err != nil {
+		logger.Error("configure private evidence verification", "error", err)
+		return 2
+	}
+	bankToken := ""
+	if runtime.bankVerificationTokenFile != "" {
+		contents, tokenErr := readRegularFile(runtime.bankVerificationTokenFile, 4096)
+		if tokenErr != nil {
+			logger.Error("bank verification credential unavailable")
+			return 2
+		}
+		bankToken = strings.TrimSpace(string(contents))
+	}
+	bankVerifier, err := bankverification.NewHTTPVerifier(runtime.bankVerificationURL, &http.Client{Timeout: 3 * time.Second}, bankToken, time.Now)
+	if err != nil {
+		logger.Error("invalid bank verification configuration")
+		return 2
+	}
+	kycToken := ""
+	if runtime.kycVerificationTokenFile != "" {
+		contents, tokenErr := readRegularFile(runtime.kycVerificationTokenFile, 4096)
+		if tokenErr != nil {
+			logger.Error("KYC attestation credential unavailable")
+			return 2
+		}
+		kycToken = strings.TrimSpace(string(contents))
+	}
+	kycVerifier, err := kycattestation.NewHTTPVerifier(runtime.kycVerificationURL, &http.Client{Timeout: 3 * time.Second}, kycToken, time.Now)
+	if err != nil {
+		logger.Error("invalid KYC attestation configuration")
+		return 2
+	}
+	ocrToken := ""
+	if runtime.ocrVerificationTokenFile != "" {
+		contents, tokenErr := readRegularFile(runtime.ocrVerificationTokenFile, 4096)
+		if tokenErr != nil {
+			logger.Error("OCR attestation credential unavailable")
+			return 2
+		}
+		ocrToken = strings.TrimSpace(string(contents))
+	}
+	ocrVerifier, err := ocrattestation.NewHTTPVerifier(runtime.ocrVerificationURL, &http.Client{Timeout: 3 * time.Second}, ocrToken, time.Now)
+	if err != nil {
+		logger.Error("invalid OCR attestation configuration")
+		return 2
+	}
+	bankLinkToken := ""
+	if runtime.bankLinkTokenFile != "" {
+		contents, tokenErr := readRegularFile(runtime.bankLinkTokenFile, 4096)
+		if tokenErr != nil {
+			logger.Error("bank link credential unavailable")
+			return 2
+		}
+		bankLinkToken = strings.TrimSpace(string(contents))
+	}
+	bankLinker, err := bankverification.NewHTTPLinker(bankverification.LinkerConfig{Endpoint: runtime.bankLinkURL, Client: &http.Client{Timeout: 3 * time.Second}, Token: bankLinkToken, Clock: time.Now, LaunchOrigins: runtime.bankLinkLaunchOrigins, AllowLoopbackHTTP: runtime.service.Environment == platformconfig.EnvironmentDevelopment, AllowPrivateEndpointHTTP: runtime.service.Environment == platformconfig.EnvironmentDevelopment})
+	if err != nil {
+		logger.Error("invalid hosted bank link configuration")
+		return 2
+	}
+	bankLinkService, err := bankverification.NewPostgresService(pool, bankLinker, time.Now)
+	if err != nil {
+		logger.Error("configure durable hosted bank links")
+		return 2
+	}
+	supplyService, err := supply.NewPostgresServiceWithOCR(pool, time.Now, evidenceVerifier, bankVerifier, kycVerifier, ocrVerifier)
 	if err != nil {
 		logger.Error("configure durable vendor supply service", "error", err)
 		return 2
@@ -170,7 +251,7 @@ func run() int {
 		logger.Error("configure durable food service", "error", err)
 		return 2
 	}
-	fulfillmentService, err := fulfillment.NewPostgresService(pool, time.Now)
+	fulfillmentService, err := fulfillment.NewPostgresServiceWithProviders(pool, time.Now, evidenceVerifier, bankVerifier, kycVerifier)
 	if err != nil {
 		logger.Error("configure durable fulfillment service", "error", err)
 		return 2
@@ -219,7 +300,7 @@ func run() int {
 		logger.Error("configure durable order service", "error", err)
 		return 2
 	}
-	checkoutStore, _ := checkout.NewPostgresStore(pool, time.Now)
+	checkoutStore, _ := checkout.NewAuthenticatedPostgresStore(pool, time.Now)
 	configuration, _ := checkout.NewPostgresConfigurationProvider(pool)
 	commercialTerms, _ := checkout.NewPostgresCommercialTermsResolver(pool)
 	payers, _ := checkout.NewPostgresPayerResolver(pool)
@@ -231,10 +312,12 @@ func run() int {
 		logger.Error("configure checkout orchestration", "error", err)
 		return 2
 	}
+	checkoutService.SetPaymentOwners(foodService.HandlePayment, bookingService.HandlePayment)
 	cartHandler, _ := commerce.NewHandler(cartService)
 	checkoutHandler, _ := checkout.NewHandler(checkoutService)
 	bookingHandler, _ := booking.NewHandler(bookingService)
 	supplyHandler, _ := supply.NewHandler(supplyService)
+	bankLinkHandler, _ := bankverification.NewHandler(bankLinkService)
 	foodHandler, _ := food.NewHandler(foodService)
 	fulfillmentHandler, _ := fulfillment.NewHandler(fulfillmentService)
 	emergencyHandler, _ := emergency.NewHandler(emergencyService)
@@ -254,6 +337,9 @@ func run() int {
 		application.Handle(prefix, bookingHandler)
 	}
 	application.Handle("/v1/vendor/", supplyHandler)
+	for _, prefix := range []string{"/v1/vendor/bank-links", "/v1/vendor/bank-links/", "/v1/rider/bank-links", "/v1/rider/bank-links/"} {
+		application.Handle(prefix, bankLinkHandler)
+	}
 	for _, prefix := range []string{"/v1/restaurants", "/v1/restaurants/", "/v1/food-carts", "/v1/food-orders", "/v1/food-orders/"} {
 		application.Handle(prefix, foodHandler)
 	}
@@ -272,8 +358,11 @@ func run() int {
 	dependenciesReady := func(ctx context.Context) error {
 		checks := []func(context.Context) error{
 			pool.Ping, catalogProvider.Ready, cartService.Ready, inventoryService.Ready,
-			paymentService.Ready, walletService.Ready, bookingService.Ready, supplyService.Ready, foodService.Ready, fulfillmentService.Ready, emergencyService.Ready, localVerticalService.Ready, socialService.Ready, orderService.Ready, checkoutStore.Ready,
+			paymentService.Ready, walletService.Ready, bookingService.Ready, supplyService.Ready, bankLinkService.Ready, foodService.Ready, fulfillmentService.Ready, emergencyService.Ready, localVerticalService.Ready, socialService.Ready, orderService.Ready, checkoutStore.Ready,
 			configuration.Ready, commercialTerms.Ready, payers.Ready,
+		}
+		if runtime.vendorWorkDeliveryEnabled {
+			checks = append(checks, supplyService.OrderWorkIngressReady, supplyService.OrderWorkCancellationReady)
 		}
 		for _, check := range checks {
 			if err := check(ctx); err != nil {
@@ -294,7 +383,7 @@ func run() int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go recoveryLoop(ctx, logger, inventoryService, paymentService, orderService, bookingService, foodService, emergencyService, localVerticalService, socialService, checkoutService, notifier != nil, runtime)
+	go recoveryLoop(ctx, logger, inventoryService, paymentService, orderService, supplyService, bookingService, foodService, emergencyService, localVerticalService, socialService, bankLinkService, checkoutService, notifier != nil, runtime)
 	traceRatio := 1.0
 	if runtime.service.Environment == platformconfig.EnvironmentProduction {
 		traceRatio = 0.10
@@ -321,10 +410,50 @@ func run() int {
 	return 0
 }
 
-func recoveryLoop(ctx context.Context, logger *slog.Logger, stock *inventory.PostgresService, payments *payment.PostgresService, orders *order.PostgresService, bookings *booking.PostgresService, foodOrders *food.PostgresService, emergencies *emergency.PostgresService, localMarkets *localverticals.PostgresService, socialNetwork *social.PostgresService, checkoutService *checkout.Service, notifications bool, runtime runtimeConfig) {
+func recoveryLoop(ctx context.Context, logger *slog.Logger, stock *inventory.PostgresService, payments *payment.PostgresService, orders *order.PostgresService, supplyOwner *supply.PostgresService, bookings *booking.PostgresService, foodOrders *food.PostgresService, emergencies *emergency.PostgresService, localMarkets *localverticals.PostgresService, socialNetwork *social.PostgresService, bankLinks *bankverification.PostgresService, checkoutService *checkout.Service, notifications bool, runtime runtimeConfig) {
 	ticker := time.NewTicker(runtime.workerInterval)
 	defer ticker.Stop()
 	for {
+		if expired, err := bankLinks.Expire(ctx, 100); err != nil && ctx.Err() == nil {
+			logger.Warn("expire private bank link data", "error", "expiry transaction unavailable")
+		} else if expired > 0 {
+			logger.Info("expired private bank links", "count", expired)
+		}
+		if _, err := checkoutService.RecoverPlacements(ctx, 100); err != nil && ctx.Err() == nil {
+			logger.Warn("recover checkout workflows", "error", err)
+		}
+		if err := checkoutService.RecoverPaymentFinalizations(ctx, 100); err != nil && ctx.Err() == nil {
+			logger.Warn("recover checkout payment finalization", "error", err)
+		}
+		if runtime.vendorWorkDeliveryEnabled {
+			cancelled, discrepancies, cancelErr := deliverVendorWorkCancellations(ctx, orders, supplyOwner, 100)
+			if cancelErr != nil {
+				if ctx.Err() == nil {
+					logger.Warn("deliver vendor order cancellations", "error", cancelErr)
+				}
+			} else {
+				if cancelled > 0 {
+					logger.Info("delivered vendor order cancellations", "count", cancelled)
+				}
+				if discrepancies > 0 {
+					logger.Error("vendor work completed before cancellation reached supply", "count", discrepancies)
+				}
+				if delivered, err := deliverVendorWorkIntents(ctx, orders, orders, supplyOwner, 100); err != nil && ctx.Err() == nil {
+					logger.Warn("deliver vendor order work", "error", err)
+				} else if delivered > 0 {
+					logger.Info("delivered vendor order work", "count", delivered)
+				}
+			}
+		}
+		if _, err := foodOrders.RecoverCheckouts(ctx, 100); err != nil && ctx.Err() == nil {
+			logger.Warn("recover food checkout workflows", "error", err)
+		}
+		if err := foodOrders.RecoverPayments(ctx, 100); err != nil && ctx.Err() == nil {
+			logger.Warn("recover food payment finalization", "error", err)
+		}
+		if err := bookings.RecoverPayments(ctx, 100); err != nil && ctx.Err() == nil {
+			logger.Warn("recover booking payment finalization", "error", err)
+		}
 		if released := stock.Expire(); released > 0 {
 			logger.Info("released expired inventory reservations", "count", released)
 		}
@@ -380,7 +509,7 @@ func recoveryLoop(ctx context.Context, logger *slog.Logger, stock *inventory.Pos
 				}
 				continue
 			}
-			if _, _, finalizeErr := checkoutService.FinalizeProviderPayment("reconcile-"+value.ID, value.ID); finalizeErr != nil && ctx.Err() == nil {
+			if finalizeErr := checkoutService.ApplyPayment(ctx, "reconcile-"+value.ID, value); finalizeErr != nil && ctx.Err() == nil {
 				logger.Warn("finalize reconciled payment", "payment_id", value.ID, "error", finalizeErr)
 			}
 		}
@@ -471,6 +600,15 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 		rewardPolicy:           wallet.RewardPolicy{DailyDeviceCap: 100, Cooldown: time.Minute, ReferralSenderPoints: 100, ReferralRecipientPoints: 50, ReferralExpiry: 365 * 24 * time.Hour},
 		notificationSecretFile: requiredValue(lookup, "ORDER_NOTIFICATION_HMAC_KEY_FILE"),
 	}
+	if raw := requiredValue(lookup, "ORDER_VENDOR_WORK_DELIVERY_ENABLED"); raw != "" {
+		if raw != "true" && raw != "false" {
+			return runtimeConfig{}, errors.New("ORDER_VENDOR_WORK_DELIVERY_ENABLED must be true or false")
+		}
+		result.vendorWorkDeliveryEnabled = raw == "true"
+	}
+	if result.vendorWorkDeliveryEnabled && base.Environment != platformconfig.EnvironmentDevelopment {
+		return runtimeConfig{}, errors.New("vendor work delivery is available only for local development until end-to-end reconciliation is verified")
+	}
 	result.razorpay, err = loadProviderRuntime(lookup, "RAZORPAY", "RAZORPAY_KEY_ID")
 	if err != nil {
 		return runtimeConfig{}, err
@@ -483,6 +621,62 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 		result.notificationURL, err = parseServiceURL(raw, base.Environment)
 		if err != nil {
 			return runtimeConfig{}, fmt.Errorf("NOTIFICATION_BASE_URL is invalid")
+		}
+	}
+	if raw := requiredValue(lookup, "PRIVATE_MEDIA_BASE_URL"); raw != "" {
+		result.privateMediaURL, err = parseServiceURL(raw, base.Environment)
+		if err != nil || result.privateMediaURL.Path != "" && result.privateMediaURL.Path != "/" {
+			return runtimeConfig{}, errors.New("PRIVATE_MEDIA_BASE_URL is invalid")
+		}
+	}
+	result.bankVerificationTokenFile = requiredValue(lookup, "BANK_VERIFICATION_TOKEN_FILE")
+	if raw := requiredValue(lookup, "BANK_VERIFICATION_BASE_URL"); raw != "" {
+		result.bankVerificationURL, err = parseServiceURL(raw, base.Environment)
+		if err != nil || result.bankVerificationURL.Path != "" && result.bankVerificationURL.Path != "/" || base.Environment != platformconfig.EnvironmentDevelopment && result.bankVerificationURL.Scheme != "https" {
+			return runtimeConfig{}, errors.New("BANK_VERIFICATION_BASE_URL is invalid")
+		}
+	}
+	if (result.bankVerificationURL == nil) != (result.bankVerificationTokenFile == "") {
+		return runtimeConfig{}, errors.New("bank verification endpoint and credential must be configured together")
+	}
+	result.kycVerificationTokenFile = requiredValue(lookup, "KYC_VERIFICATION_TOKEN_FILE")
+	if raw := requiredValue(lookup, "KYC_VERIFICATION_BASE_URL"); raw != "" {
+		result.kycVerificationURL, err = parseServiceURL(raw, base.Environment)
+		if err != nil || result.kycVerificationURL.Path != "" && result.kycVerificationURL.Path != "/" || base.Environment != platformconfig.EnvironmentDevelopment && result.kycVerificationURL.Scheme != "https" {
+			return runtimeConfig{}, errors.New("KYC_VERIFICATION_BASE_URL is invalid")
+		}
+	}
+	if (result.kycVerificationURL == nil) != (result.kycVerificationTokenFile == "") {
+		return runtimeConfig{}, errors.New("KYC attestation endpoint and credential must be configured together")
+	}
+	result.ocrVerificationTokenFile = requiredValue(lookup, "OCR_VERIFICATION_TOKEN_FILE")
+	if raw := requiredValue(lookup, "OCR_VERIFICATION_BASE_URL"); raw != "" {
+		result.ocrVerificationURL, err = parseServiceURL(raw, base.Environment)
+		if err != nil || result.ocrVerificationURL.Path != "" && result.ocrVerificationURL.Path != "/" || base.Environment != platformconfig.EnvironmentDevelopment && result.ocrVerificationURL.Scheme != "https" {
+			return runtimeConfig{}, errors.New("OCR_VERIFICATION_BASE_URL is invalid")
+		}
+	}
+	if (result.ocrVerificationURL == nil) != (result.ocrVerificationTokenFile == "") {
+		return runtimeConfig{}, errors.New("OCR attestation endpoint and credential must be configured together")
+	}
+	result.bankLinkTokenFile = requiredValue(lookup, "BANK_LINK_TOKEN_FILE")
+	if raw := requiredValue(lookup, "BANK_LINK_BASE_URL"); raw != "" {
+		result.bankLinkURL, err = parseServiceURL(raw, base.Environment)
+		if err != nil {
+			return runtimeConfig{}, errors.New("BANK_LINK_BASE_URL is invalid")
+		}
+	}
+	if raw := requiredValue(lookup, "BANK_LINK_LAUNCH_ORIGINS"); raw != "" {
+		if len(raw) > 4096 || json.Unmarshal([]byte(raw), &result.bankLinkLaunchOrigins) != nil || len(result.bankLinkLaunchOrigins) == 0 {
+			return runtimeConfig{}, errors.New("BANK_LINK_LAUNCH_ORIGINS is invalid")
+		}
+	}
+	if result.bankLinkURL != nil || result.bankLinkTokenFile != "" || len(result.bankLinkLaunchOrigins) > 0 {
+		if result.bankLinkTokenFile == "" || result.bankVerificationURL == nil {
+			return runtimeConfig{}, errors.New("hosted bank links require their credential and an independent verification resolver")
+		}
+		if _, err = bankverification.NewHTTPLinker(bankverification.LinkerConfig{Endpoint: result.bankLinkURL, Client: &http.Client{Timeout: 3 * time.Second}, Token: strings.Repeat("x", 32), Clock: time.Now, LaunchOrigins: result.bankLinkLaunchOrigins, AllowLoopbackHTTP: base.Environment == platformconfig.EnvironmentDevelopment, AllowPrivateEndpointHTTP: base.Environment == platformconfig.EnvironmentDevelopment}); err != nil {
+			return runtimeConfig{}, errors.New("hosted bank link endpoint and launch origins are invalid")
 		}
 	}
 	for key, destination := range map[string]*time.Duration{"PROVIDER_TIMEOUT": &result.providerTimeout, "DATABASE_MAX_LIFETIME": &result.databaseMaxLifetime, "WORKER_INTERVAL": &result.workerInterval, "RECONCILIATION_AGE": &result.reconciliationAge, "REWARD_COOLDOWN": &result.rewardPolicy.Cooldown, "REFERRAL_EXPIRY": &result.rewardPolicy.ReferralExpiry} {

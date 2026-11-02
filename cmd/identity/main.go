@@ -27,6 +27,10 @@ type runtimeConfig struct {
 	httpAddress         string
 	databaseURLFile     string
 	providerBaseURL     *url.URL
+	providerMode        string
+	firebaseProject     string
+	firebaseAuthTenant  string
+	firebaseCredentials string
 	providerTimeout     time.Duration
 	tenantID            string
 	allowedCountries    []string
@@ -35,6 +39,10 @@ type runtimeConfig struct {
 	keyID               string
 	privateKeyFile      string
 	refreshHMACKeyFile  string
+	contactHMACKeyFile  string
+	contactKeyID        string
+	contactSnapshotTTL  time.Duration
+	contactMaxContacts  int
 	guestHMACKeyFile    string
 	accessTTL           time.Duration
 	sessionTTL          time.Duration
@@ -119,16 +127,33 @@ func run() int {
 		logger.Error("check identity schema", "error", "identity schema is unavailable")
 		return 1
 	}
-	providerVerifier, err := identity.NewHTTPProviderVerifier(identity.HTTPProviderVerifierConfig{
-		BaseURL:          config.providerBaseURL,
-		AllowedProviders: providersForEnvironment(config.environment),
-		Timeout:          config.providerTimeout,
-	})
+	if err := repository.DeletionReady(startupContext); err != nil {
+		logger.Error("check deletion coordination schema", "error", "deletion coordination schema is unavailable")
+		return 1
+	}
+	if config.contactHMACKeyFile != "" {
+		if err := repository.ContactReady(startupContext); err != nil {
+			logger.Error("check contact matching schema", "error", "contact matching schema is unavailable")
+			return 1
+		}
+	}
+	var providerVerifier identity.ProviderVerifier
+	if config.providerMode == "firebase" {
+		providerVerifier, err = identity.OpenFirebaseTenantVerifier(startupContext, config.firebaseProject, config.firebaseCredentials, config.firebaseAuthTenant)
+	} else {
+		var httpVerifier *identity.HTTPProviderVerifier
+		httpVerifier, err = identity.NewHTTPProviderVerifier(identity.HTTPProviderVerifierConfig{
+			BaseURL: config.providerBaseURL, AllowedProviders: providersForEnvironment(config.environment), Timeout: config.providerTimeout,
+		})
+		if err == nil {
+			defer httpVerifier.CloseIdleConnections()
+		}
+		providerVerifier = httpVerifier
+	}
 	if err != nil {
 		logger.Error("configure identity provider", "error", err)
 		return 2
 	}
-	defer providerVerifier.CloseIdleConnections()
 	tokenIssuer, err := identity.NewJWTIssuer(identity.JWTIssuerConfig{
 		Issuer:    config.issuer,
 		Audience:  config.audience,
@@ -140,7 +165,17 @@ func run() int {
 		logger.Error("configure access-token issuer", "error", err)
 		return 2
 	}
+	var contactSettings *identity.ContactMatchingSettings
+	if config.contactHMACKeyFile != "" {
+		key, keyErr := readSecretFile(config.contactHMACKeyFile, 64)
+		if keyErr != nil {
+			logger.Error("configure contact matching", "error", "contact key is unavailable")
+			return 2
+		}
+		contactSettings = &identity.ContactMatchingSettings{HMACKey: key, KeyID: config.contactKeyID, SnapshotTTL: config.contactSnapshotTTL, MaxContacts: config.contactMaxContacts}
+	}
 	service, err := identity.NewService(identity.ServiceConfig{
+		ContactMatching:  contactSettings,
 		TenantID:         config.tenantID,
 		AllowedCountries: config.allowedCountries,
 		SessionTTL:       config.sessionTTL,
@@ -157,7 +192,13 @@ func run() int {
 	handler, err := identity.NewHandlerWithGuestSessions(service, func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		return repository.Ready(ctx) == nil
+		if repository.Ready(ctx) != nil {
+			return false
+		}
+		if repository.DeletionReady(ctx) != nil {
+			return false
+		}
+		return config.contactHMACKeyFile == "" || repository.ContactReady(ctx) == nil
 	}, identity.GuestSessionHTTPConfig{
 		Secret: guestHMACKey, MaxSkew: config.guestMaxSkew,
 		RateLimit: config.guestRateLimit, RateWindow: config.guestRateWindow,
@@ -177,6 +218,8 @@ func run() int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go expireContacts(ctx, repository, logger)
+	go prepareDeletionTasks(ctx, repository, logger)
 	errorsChannel := make(chan error, 1)
 	go func() { errorsChannel <- server.ListenAndServe() }()
 	logger.Info("identity service starting", "environment", config.environment, "address", config.httpAddress)
@@ -208,6 +251,10 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 		httpAddress:         valueOrDefault(lookup, "HTTP_ADDRESS", ":8083"),
 		databaseURLFile:     requiredValue(lookup, "DATABASE_URL_FILE"),
 		providerTimeout:     3 * time.Second,
+		providerMode:        valueOrDefault(lookup, "IDENTITY_PROVIDER_MODE", "http"),
+		firebaseProject:     requiredValue(lookup, "FIREBASE_PROJECT_ID"),
+		firebaseAuthTenant:  requiredValue(lookup, "FIREBASE_AUTH_TENANT_ID"),
+		firebaseCredentials: requiredValue(lookup, "FIREBASE_CREDENTIALS_FILE"),
 		tenantID:            requiredValue(lookup, "TENANT_ID"),
 		allowedCountries:    splitValues(valueOrDefault(lookup, "ALLOWED_COUNTRIES", "IN")),
 		issuer:              requiredValue(lookup, "JWT_ISSUER"),
@@ -215,6 +262,10 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 		keyID:               requiredValue(lookup, "JWT_KEY_ID"),
 		privateKeyFile:      requiredValue(lookup, "JWT_PRIVATE_KEY_FILE"),
 		refreshHMACKeyFile:  requiredValue(lookup, "REFRESH_HMAC_KEY_FILE"),
+		contactHMACKeyFile:  requiredValue(lookup, "CONTACT_MATCHING_HMAC_KEY_FILE"),
+		contactKeyID:        valueOrDefault(lookup, "CONTACT_MATCHING_KEY_ID", "v1"),
+		contactSnapshotTTL:  24 * time.Hour,
+		contactMaxContacts:  10000,
 		guestHMACKeyFile:    requiredValue(lookup, "GUEST_SESSION_HMAC_KEY_FILE"),
 		accessTTL:           10 * time.Minute,
 		sessionTTL:          30 * 24 * time.Hour,
@@ -227,7 +278,14 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 		databaseMinConns:    5,
 		databaseMaxLifetime: 30 * time.Minute,
 	}
-	providerURL, err := url.Parse(requiredValue(lookup, "PROVIDER_BASE_URL"))
+	if config.providerMode != "http" && config.providerMode != "firebase" || config.providerMode == "firebase" && config.firebaseProject == "" {
+		return runtimeConfig{}, fmt.Errorf("IDENTITY_PROVIDER_MODE must be http or firebase; firebase requires FIREBASE_PROJECT_ID")
+	}
+	providerAddress := requiredValue(lookup, "PROVIDER_BASE_URL")
+	if config.providerMode == "firebase" {
+		providerAddress = "https://identitytoolkit.googleapis.com"
+	}
+	providerURL, err := url.Parse(providerAddress)
 	if err != nil || !providerURL.IsAbs() || providerURL.Host == "" ||
 		(providerURL.Scheme != "http" && providerURL.Scheme != "https") ||
 		providerURL.User != nil || providerURL.RawQuery != "" || providerURL.Fragment != "" {
@@ -235,13 +293,14 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 	}
 	config.providerBaseURL = providerURL
 	durationValues := map[string]*time.Duration{
-		"PROVIDER_TIMEOUT":          &config.providerTimeout,
-		"ACCESS_TTL":                &config.accessTTL,
-		"SESSION_TTL":               &config.sessionTTL,
-		"GUEST_SESSION_MAX_SKEW":    &config.guestMaxSkew,
-		"GUEST_SESSION_RATE_WINDOW": &config.guestRateWindow,
-		"SHUTDOWN_TIMEOUT":          &config.shutdownTimeout,
-		"DATABASE_MAX_LIFETIME":     &config.databaseMaxLifetime,
+		"CONTACT_MATCHING_SNAPSHOT_TTL": &config.contactSnapshotTTL,
+		"PROVIDER_TIMEOUT":              &config.providerTimeout,
+		"ACCESS_TTL":                    &config.accessTTL,
+		"SESSION_TTL":                   &config.sessionTTL,
+		"GUEST_SESSION_MAX_SKEW":        &config.guestMaxSkew,
+		"GUEST_SESSION_RATE_WINDOW":     &config.guestRateWindow,
+		"SHUTDOWN_TIMEOUT":              &config.shutdownTimeout,
+		"DATABASE_MAX_LIFETIME":         &config.databaseMaxLifetime,
 	}
 	for key, destination := range durationValues {
 		if value, exists := lookup(key); exists && strings.TrimSpace(value) != "" {
@@ -270,6 +329,18 @@ func loadRuntimeConfig(lookup func(string) (string, bool)) (runtimeConfig, error
 			return runtimeConfig{}, fmt.Errorf("GUEST_SESSION_RATE_LIMIT must be an integer")
 		}
 		config.guestRateLimit = parsed
+	}
+	if value, exists := lookup("CONTACT_MATCHING_MAX_CONTACTS"); exists {
+		parsed, parseErr := strconv.Atoi(value)
+		if parseErr != nil {
+			return runtimeConfig{}, fmt.Errorf("CONTACT_MATCHING_MAX_CONTACTS must be an integer")
+		}
+		config.contactMaxContacts = parsed
+	}
+	if config.contactHMACKeyFile != "" && config.providerMode != "firebase" || config.contactSnapshotTTL < 15*time.Minute || config.contactSnapshotTTL > 30*24*time.Hour || config.contactMaxContacts < 1 || config.contactMaxContacts > 10000 || len(config.contactKeyID) < 1 || len(config.contactKeyID) > 32 || strings.IndexFunc(config.contactKeyID, func(c rune) bool {
+		return !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-')
+	}) >= 0 {
+		return runtimeConfig{}, fmt.Errorf("contact matching requires Firebase, a valid key ID, bounded TTL and contact budget")
 	}
 	if config.environment != "development" && config.environment != "staging" && config.environment != "production" {
 		return runtimeConfig{}, fmt.Errorf("APP_ENV must be development, staging, or production")

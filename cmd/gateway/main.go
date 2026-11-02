@@ -135,6 +135,17 @@ func run() int {
 
 	handlerConfig := gateway.DefaultConfig(config.upstreamURL)
 	handlerConfig.UpstreamRoutes = config.upstreamRoutes
+	if endpoint := config.upstreamRoutes["/v1/me"]; endpoint != nil {
+		authority, authorityErr := gateway.NewHTTPSessionAuthority(endpoint)
+		if authorityErr != nil {
+			logger.Error("configure session authority", "error", authorityErr)
+			return 2
+		}
+		handlerConfig.AuthenticateLive = authority.Authenticate
+	} else if config.environment != "development" {
+		logger.Error("configure session authority", "error", "UPSTREAM_ROUTES must include the identity /v1/me owner outside development")
+		return 2
+	}
 	for path, methods := range config.anonymousRoutes {
 		handlerConfig.AnonymousRoutes[path] = methods
 	}
@@ -314,8 +325,8 @@ func anonymousRoutes(value string) (map[string]map[string]struct{}, error) {
 		allowed := map[string]struct{}{}
 		for _, method := range methods {
 			method = strings.ToUpper(strings.TrimSpace(method))
-			if method != http.MethodPost {
-				return nil, fmt.Errorf("ANONYMOUS_ROUTES only permits POST routes")
+			if method != http.MethodPost && !(method == http.MethodGet && path == "/v1/startup") {
+				return nil, fmt.Errorf("ANONYMOUS_ROUTES only permits POST routes or GET /v1/startup")
 			}
 			allowed[method] = struct{}{}
 		}

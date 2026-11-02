@@ -107,6 +107,7 @@ type CartLine struct {
 }
 
 type Cart struct {
+	PaymentMethods []string   `json:"payment_methods"`
 	ID             string     `json:"id"`
 	CustomerID     string     `json:"customer_id"`
 	Restaurant     Restaurant `json:"restaurant"`
@@ -127,6 +128,7 @@ type Cart struct {
 type OrderStatus string
 
 const (
+	StatusAwaitingPayment   OrderStatus = "AWAITING_PAYMENT"
 	StatusPendingRestaurant OrderStatus = "PENDING_RESTAURANT"
 	StatusAccepted          OrderStatus = "ACCEPTED"
 	StatusPreparing         OrderStatus = "PREPARING"
