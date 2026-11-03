@@ -60,10 +60,18 @@ func (cleaner *DueVersionCleaner) PurgeDueAsset(ctx context.Context, requestID, 
 	// the cleanup role. Require the separate session login on every attempt,
 	// including idempotent readback, before any owner or S3 operation.
 	var login, role string
-	if err := tx.QueryRow(ctx, `SELECT session_user,current_user`).Scan(&login, &role); err != nil {
+	var canLogin, superuser, createRole, createDB, replication, bypassRLS bool
+	var otherMemberships int
+	if err := tx.QueryRow(ctx, `SELECT session_user,current_user,r.rolcanlogin,r.rolsuper,
+	 r.rolcreaterole,r.rolcreatedb,r.rolreplication,r.rolbypassrls,
+	 (SELECT count(*) FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid
+	  WHERE m.member=r.oid AND granted.rolname<>'planext4u_media_cleanup')
+	 FROM pg_roles r WHERE r.rolname=session_user`).Scan(&login, &role, &canLogin,
+		&superuser, &createRole, &createDB, &replication, &bypassRLS, &otherMemberships); err != nil {
 		return result, fmt.Errorf("check media cleanup identity: %w", err)
 	}
-	if login != "planext4u_media_cleanup_login" || role != "planext4u_media_cleanup" {
+	if login != "planext4u_media_cleanup_login" || role != "planext4u_media_cleanup" ||
+		!canLogin || superuser || createRole || createDB || replication || bypassRLS || otherMemberships != 0 {
 		return result, fmt.Errorf("media cleanup requires a separate database role: %w", ErrDependency)
 	}
 	var key, policy string

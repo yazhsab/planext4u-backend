@@ -258,6 +258,17 @@ func TestDueVersionCleanerDisposableScopeAndEvidence(t *testing.T) {
 	 WHERE request_id=$1 AND released_at IS NULL`, request); err != nil {
 		t.Fatal(err)
 	}
+	// A previously valid login must lose cleanup authority if provisioning
+	// grants it an additional runtime role after the pool was established.
+	if _, err := owner.Exec(ctx, `GRANT planext4u_media_runtime TO planext4u_media_cleanup_login`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cleaner.PurgeDueAsset(ctx, request, asset); err == nil || proof.callCount() != 0 {
+		t.Fatalf("privilege-drifted cleanup login entered object store: calls=%d err=%v", proof.callCount(), err)
+	}
+	if _, err := owner.Exec(ctx, `REVOKE planext4u_media_runtime FROM planext4u_media_cleanup_login`); err != nil {
+		t.Fatal(err)
+	}
 	var otherRequest string
 	if err := owner.QueryRow(ctx, `SELECT d.id FROM identity.account_deletion_requests d WHERE d.id<>$1 LIMIT 1`, request).Scan(&otherRequest); err != nil {
 		t.Fatal(err)
