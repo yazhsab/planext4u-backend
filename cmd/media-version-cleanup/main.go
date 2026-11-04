@@ -185,7 +185,8 @@ func assumeCleanupRole(ctx context.Context, conn *pgx.Conn) error {
 	err := conn.QueryRow(ctx, `SELECT session_user,current_user,r.rolcanlogin,r.rolsuper,
 	 r.rolcreaterole,r.rolcreatedb,r.rolreplication,r.rolbypassrls,
 	 (SELECT count(*) FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid
-	  WHERE m.member=r.oid AND granted.rolname<>'planext4u_media_cleanup')
+	  WHERE (m.member=r.oid AND granted.rolname<>'planext4u_media_cleanup')
+	     OR m.member=(SELECT oid FROM pg_roles WHERE rolname='planext4u_media_cleanup'))
 	 FROM pg_roles r WHERE r.rolname=session_user`).Scan(&login, &current, &canLogin,
 		&superuser, &createRole, &createDB, &replication, &bypassRLS, &otherMemberships)
 	if err != nil || login != cleanupLogin || current != login || !canLogin || superuser ||

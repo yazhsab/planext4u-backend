@@ -68,6 +68,30 @@ func TestDedicatedMediaCleanupLoginDisposablePostgres(t *testing.T) {
 		t.Fatalf("cleanup role boundary was not established: session=%q current=%q err=%v", session, current, err)
 	}
 	pool.Close()
+	if _, err := owner.Exec(ctx, `CREATE ROLE planext4u_cleanup_unexpected NOLOGIN`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, done := context.WithTimeout(context.Background(), 5*time.Second)
+		defer done()
+		_, _ = owner.Exec(cleanupCtx, `REVOKE planext4u_cleanup_unexpected FROM planext4u_media_cleanup`)
+		_, _ = owner.Exec(cleanupCtx, `DROP ROLE IF EXISTS planext4u_cleanup_unexpected`)
+	})
+	if _, err := owner.Exec(ctx, `GRANT planext4u_cleanup_unexpected TO planext4u_media_cleanup`); err != nil {
+		t.Fatal(err)
+	}
+	drifted, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := drifted.Ping(ctx); err == nil {
+		drifted.Close()
+		t.Fatal("cleanup role with unexpected membership was accepted")
+	}
+	drifted.Close()
+	if _, err := owner.Exec(ctx, `REVOKE planext4u_cleanup_unexpected FROM planext4u_media_cleanup`); err != nil {
+		t.Fatal(err)
+	}
 	// A privileged/ordinary login must fail the same callback even if it can
 	// technically SET ROLE through the migration owner's role membership.
 	shared, err := pgxpool.ParseConfig(raw)

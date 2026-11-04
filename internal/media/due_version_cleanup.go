@@ -65,7 +65,8 @@ func (cleaner *DueVersionCleaner) PurgeDueAsset(ctx context.Context, requestID, 
 	if err := tx.QueryRow(ctx, `SELECT session_user,current_user,r.rolcanlogin,r.rolsuper,
 	 r.rolcreaterole,r.rolcreatedb,r.rolreplication,r.rolbypassrls,
 	 (SELECT count(*) FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid
-	  WHERE m.member=r.oid AND granted.rolname<>'planext4u_media_cleanup')
+	  WHERE (m.member=r.oid AND granted.rolname<>'planext4u_media_cleanup')
+	     OR m.member=(SELECT oid FROM pg_roles WHERE rolname='planext4u_media_cleanup'))
 	 FROM pg_roles r WHERE r.rolname=session_user`).Scan(&login, &role, &canLogin,
 		&superuser, &createRole, &createDB, &replication, &bypassRLS, &otherMemberships); err != nil {
 		return result, fmt.Errorf("check media cleanup identity: %w", err)
