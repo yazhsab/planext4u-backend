@@ -285,6 +285,20 @@ func TestDueVersionCleanerDisposableScopeAndEvidence(t *testing.T) {
 	if _, err := owner.Exec(ctx, `REVOKE planext4u_media_runtime FROM planext4u_media_cleanup`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := owner.Exec(ctx, `ALTER ROLE planext4u_media_cleanup CREATEROLE`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, done := context.WithTimeout(context.Background(), 5*time.Second)
+		defer done()
+		_, _ = owner.Exec(cleanupCtx, `ALTER ROLE planext4u_media_cleanup NOCREATEROLE`)
+	})
+	if _, err := cleaner.PurgeDueAsset(ctx, request, asset); err == nil || proof.callCount() != 0 {
+		t.Fatalf("elevated cleanup role entered object store: calls=%d err=%v", proof.callCount(), err)
+	}
+	if _, err := owner.Exec(ctx, `ALTER ROLE planext4u_media_cleanup NOCREATEROLE`); err != nil {
+		t.Fatal(err)
+	}
 	var otherRequest string
 	if err := owner.QueryRow(ctx, `SELECT d.id FROM identity.account_deletion_requests d WHERE d.id<>$1 LIMIT 1`, request).Scan(&otherRequest); err != nil {
 		t.Fatal(err)

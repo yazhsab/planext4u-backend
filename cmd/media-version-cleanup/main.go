@@ -181,16 +181,20 @@ func loopback(host string) bool {
 func assumeCleanupRole(ctx context.Context, conn *pgx.Conn) error {
 	var login, current string
 	var canLogin, superuser, createRole, createDB, replication, bypassRLS bool
+	var safeCleanupRole bool
 	var otherMemberships int
 	err := conn.QueryRow(ctx, `SELECT session_user,current_user,r.rolcanlogin,r.rolsuper,
 	 r.rolcreaterole,r.rolcreatedb,r.rolreplication,r.rolbypassrls,
 	 (SELECT count(*) FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid
 	  WHERE (m.member=r.oid AND granted.rolname<>'planext4u_media_cleanup')
-	     OR m.member=(SELECT oid FROM pg_roles WHERE rolname='planext4u_media_cleanup'))
+	     OR m.member=(SELECT oid FROM pg_roles WHERE rolname='planext4u_media_cleanup')),
+	 EXISTS (SELECT 1 FROM pg_roles c WHERE c.rolname='planext4u_media_cleanup'
+	  AND NOT c.rolcanlogin AND NOT c.rolsuper AND NOT c.rolcreaterole
+	  AND NOT c.rolcreatedb AND NOT c.rolreplication AND NOT c.rolbypassrls)
 	 FROM pg_roles r WHERE r.rolname=session_user`).Scan(&login, &current, &canLogin,
-		&superuser, &createRole, &createDB, &replication, &bypassRLS, &otherMemberships)
+		&superuser, &createRole, &createDB, &replication, &bypassRLS, &otherMemberships, &safeCleanupRole)
 	if err != nil || login != cleanupLogin || current != login || !canLogin || superuser ||
-		createRole || createDB || replication || bypassRLS || otherMemberships != 0 {
+		createRole || createDB || replication || bypassRLS || otherMemberships != 0 || !safeCleanupRole {
 		return errors.New("dedicated media cleanup database login is required")
 	}
 	if _, err := conn.Exec(ctx, `SET ROLE planext4u_media_cleanup`); err != nil {

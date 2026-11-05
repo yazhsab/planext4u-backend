@@ -61,18 +61,22 @@ func (cleaner *DueVersionCleaner) PurgeDueAsset(ctx context.Context, requestID, 
 	// including idempotent readback, before any owner or S3 operation.
 	var login, role string
 	var canLogin, superuser, createRole, createDB, replication, bypassRLS bool
+	var safeCleanupRole bool
 	var otherMemberships int
 	if err := tx.QueryRow(ctx, `SELECT session_user,current_user,r.rolcanlogin,r.rolsuper,
 	 r.rolcreaterole,r.rolcreatedb,r.rolreplication,r.rolbypassrls,
 	 (SELECT count(*) FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid
 	  WHERE (m.member=r.oid AND granted.rolname<>'planext4u_media_cleanup')
-	     OR m.member=(SELECT oid FROM pg_roles WHERE rolname='planext4u_media_cleanup'))
+	     OR m.member=(SELECT oid FROM pg_roles WHERE rolname='planext4u_media_cleanup')),
+	 EXISTS (SELECT 1 FROM pg_roles c WHERE c.rolname='planext4u_media_cleanup'
+	  AND NOT c.rolcanlogin AND NOT c.rolsuper AND NOT c.rolcreaterole
+	  AND NOT c.rolcreatedb AND NOT c.rolreplication AND NOT c.rolbypassrls)
 	 FROM pg_roles r WHERE r.rolname=session_user`).Scan(&login, &role, &canLogin,
-		&superuser, &createRole, &createDB, &replication, &bypassRLS, &otherMemberships); err != nil {
+		&superuser, &createRole, &createDB, &replication, &bypassRLS, &otherMemberships, &safeCleanupRole); err != nil {
 		return result, fmt.Errorf("check media cleanup identity: %w", err)
 	}
 	if login != "planext4u_media_cleanup_login" || role != "planext4u_media_cleanup" ||
-		!canLogin || superuser || createRole || createDB || replication || bypassRLS || otherMemberships != 0 {
+		!canLogin || superuser || createRole || createDB || replication || bypassRLS || otherMemberships != 0 || !safeCleanupRole {
 		return result, fmt.Errorf("media cleanup requires a separate database role: %w", ErrDependency)
 	}
 	var key, policy string
