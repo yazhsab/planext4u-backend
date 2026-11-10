@@ -137,13 +137,18 @@ func validateOwnership(migration Migration) error {
 	}
 	// The dedicated media cleanup owner needs three read-only capabilities:
 	// one locked due-account scope and two legacy-document reference checks.
-	// Permit only the exact calls inside its reviewed SECURITY DEFINER wrapper.
-	if migration.Service == "media" && migration.Version == 8 && migration.Name == "due_version_cleanup" &&
-		strings.Count(up, "CREATE FUNCTION media.prepare_due_version_purge(") == 1 && strings.Contains(up, "SECURITY DEFINER") {
+	// Permit only the exact calls inside the reviewed SECURITY DEFINER
+	// function, including its narrow avatar update in migration 000009.
+	mediaDuePurgeMigration := migration.Service == "media" &&
+		((migration.Version == 8 && migration.Name == "due_version_cleanup" &&
+			strings.Count(up, "CREATE FUNCTION media.prepare_due_version_purge(") == 1) ||
+			(migration.Version == 9 && migration.Name == "due_avatar_version_cleanup" &&
+				strings.Count(up, "CREATE OR REPLACE FUNCTION media.prepare_due_version_purge(") == 1))
+	if mediaDuePurgeMigration && strings.Contains(up, "SECURITY DEFINER") {
 		calls := []string{
 			`(?m)^[ \t]*SELECT \* INTO scope FROM identity\.privacy_media_erasure_country_scope\(r\);[ \t]*\r?$`,
 			`(?m)^[ \t]*OR supply\.private_identity_evidence_referenced\(asset\.tenant_id,asset\.country,asset\.owner_id,a\)[ \t]*\r?$`,
-			`(?m)^[ \t]*OR fulfillment\.private_identity_evidence_referenced\(asset\.tenant_id,asset\.country,asset\.owner_id,a\) THEN[ \t]*\r?$`,
+			`(?m)^[ \t]*OR fulfillment\.private_identity_evidence_referenced\(asset\.tenant_id,asset\.country,asset\.owner_id,a\)\)? THEN[ \t]*\r?$`,
 		}
 		for _, expression := range calls {
 			call := regexp.MustCompile(expression)

@@ -103,6 +103,7 @@ func dueVersionFixture(t *testing.T) (context.Context, *pgxpool.Pool, *pgxpool.P
 		"../../migrations/supply/000014_media_cleanup_reference_check.up.sql",
 		"../../migrations/fulfillment/000014_media_cleanup_reference_check.up.sql",
 		"../../migrations/media/000008_due_version_cleanup.up.sql",
+		"../../migrations/media/000009_due_avatar_version_cleanup.up.sql",
 	} {
 		migration, err := os.ReadFile(path)
 		if err != nil {
@@ -188,12 +189,21 @@ func insertDueMediaAsset(t *testing.T, ctx context.Context, owner *pgxpool.Pool,
 	t.Helper()
 	id := uuid.NewString()
 	key := objectKey(tenant, subject, id)
+	classification, contentType := "RESTRICTED", "application/pdf"
+	switch purpose {
+	case "AVATAR":
+		classification, contentType = "INTERNAL", "image/png"
+	case "CATALOG_IMAGE":
+		classification, contentType = "PUBLIC", "image/png"
+	case "COMPLETION_PROOF":
+		classification, contentType = "CONFIDENTIAL", "image/png"
+	}
 	if _, err := owner.Exec(ctx, `INSERT INTO media.assets
 	 (id,tenant_id,country,owner_id,object_key,content_type,size_bytes,checksum_sha256,status,classification,
 	  created_at,updated_at,purpose,lifecycle_state,upload_expires_at,version)
-	 VALUES($1,$2,$3,$4,$5,'application/pdf',16,$6,'PENDING','RESTRICTED',
+	 VALUES($1,$2,$3,$4,$5,$8,16,$6,'PENDING',$9,
 	  clock_timestamp()-interval '1 hour',clock_timestamp()-interval '1 hour',$7,'PENDING_UPLOAD',
-	  clock_timestamp()+interval '10 minutes',1)`, id, tenant, country, subject, key, strings.Repeat("a", 64), purpose); err != nil {
+	  clock_timestamp()+interval '10 minutes',1)`, id, tenant, country, subject, key, strings.Repeat("a", 64), purpose, contentType, classification); err != nil {
 		t.Fatal(err)
 	}
 	var grantValue any
@@ -480,6 +490,49 @@ func TestDueVersionCleanerDisposableScopeAndEvidence(t *testing.T) {
 	retry, err := cleaner.PurgeDueAsset(ctx, request, asset)
 	if err != nil || !retry.AlreadyPurged || proof.callCount() != 2 {
 		t.Fatalf("completed purge retry touched S3: retry=%+v calls=%d err=%v", retry, proof.callCount(), err)
+	}
+}
+
+func TestDueVersionCleanerDisposableAvatarOnlyAfterDueScope(t *testing.T) {
+	ctx, owner, cleanup, _, tenant, subject, request := dueVersionFixture(t)
+	closed := time.Now().Add(-15 * time.Minute)
+	avatar := insertDueMediaAsset(t, ctx, owner, tenant, subject, "IN", "AVATAR", "AWS_SIGV4_IF_NONE_MATCH", closed)
+	catalog := insertDueMediaAsset(t, ctx, owner, tenant, subject, "IN", "CATALOG_IMAGE", "AWS_SIGV4_IF_NONE_MATCH", closed)
+	completion := insertDueMediaAsset(t, ctx, owner, tenant, subject, "IN", "COMPLETION_PROOF", "AWS_SIGV4_IF_NONE_MATCH", closed)
+	otherOwner := insertDueMediaAsset(t, ctx, owner, tenant, uuid.NewString(), "IN", "AVATAR", "AWS_SIGV4_IF_NONE_MATCH", closed)
+	otherCountry := insertDueMediaAsset(t, ctx, owner, tenant, subject, "NG", "AVATAR", "AWS_SIGV4_IF_NONE_MATCH", closed)
+	proof := &proofPurger{result: versionPurgeSummary{versions: 1, deleteMarkers: 1}}
+	cleaner := &DueVersionCleaner{pool: cleanup, purger: proof}
+	if _, err := cleaner.PurgeDueAsset(ctx, request, avatar); err == nil || proof.callCount() != 0 {
+		t.Fatalf("avatar entered object store before retention: calls=%d err=%v", proof.callCount(), err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE identity.deletion_country_policies SET retention_interval=interval '0'
+	 WHERE tenant_id=$1 AND country='IN' AND owner='media'`, tenant); err != nil {
+		t.Fatal(err)
+	}
+	for name, id := range map[string]string{"catalog image": catalog, "completion proof": completion,
+		"other owner": otherOwner, "other country": otherCountry} {
+		if _, err := cleaner.PurgeDueAsset(ctx, request, id); err == nil || proof.callCount() != 0 {
+			t.Fatalf("%s entered avatar object store: calls=%d err=%v", name, proof.callCount(), err)
+		}
+	}
+	result, err := cleaner.PurgeDueAsset(ctx, request, avatar)
+	if err != nil || result.AlreadyPurged || result.VersionsDeleted != 1 || result.MarkersDeleted != 1 ||
+		proof.callCount() != 1 || proof.key != objectKey(tenant, subject, avatar) {
+		t.Fatalf("avatar purge result=%+v key=%q calls=%d err=%v", result, proof.key, proof.callCount(), err)
+	}
+	var evidence, receipts int
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM media.object_purge_evidence e
+	 JOIN media.assets a ON a.id=e.asset_id WHERE e.asset_id=$1 AND e.request_id=$2
+	 AND a.purpose='AVATAR' AND e.deleted_versions=1 AND e.deleted_markers=1`, avatar, request).Scan(&evidence); err != nil || evidence != 1 {
+		t.Fatalf("avatar purge evidence count=%d err=%v", evidence, err)
+	}
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM identity.deletion_owner_receipts WHERE request_id=$1 AND owner='media'`, request).Scan(&receipts); err != nil || receipts != 0 {
+		t.Fatalf("avatar purge issued terminal receipt: count=%d err=%v", receipts, err)
+	}
+	retry, err := cleaner.PurgeDueAsset(ctx, request, avatar)
+	if err != nil || !retry.AlreadyPurged || proof.callCount() != 1 {
+		t.Fatalf("avatar retry touched object store: result=%+v calls=%d err=%v", retry, proof.callCount(), err)
 	}
 }
 
