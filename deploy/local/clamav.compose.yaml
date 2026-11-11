@@ -9,11 +9,31 @@ services:
       - clamav-socket:/run/clamav
     labels:
       net.planext4u.environment: local-phase2
+  # Finish the first signature update before clamd loads the database.
+  # The daemon cannot receive NotifyClamd while its socket is still absent.
+  clamav-bootstrap:
+    image: clamav/clamav:1.4.6@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
+    command: ["freshclam", "--config-file=/etc/clamav/planext4u-freshclam.conf", "--stdout"]
+    depends_on:
+      clamav-init:
+        condition: service_completed_successfully
+    volumes:
+      - clamav-signatures:/var/lib/clamav
+      - clamav-socket:/run/clamav
+      - ./clamd.conf:/etc/clamav/planext4u.conf:ro
+      - ./freshclam.conf:/etc/clamav/planext4u-freshclam.conf:ro
+    mem_limit: 2g
+    cpus: 1
+    environment:
+      TZ: UTC
+    restart: "no"
+    labels:
+      net.planext4u.environment: local-phase2
   clamav-update:
     image: clamav/clamav:1.4.6@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
     command: ["freshclam", "--config-file=/etc/clamav/planext4u-freshclam.conf", "--daemon", "--foreground", "--stdout"]
     depends_on:
-      clamav-init:
+      clamav-bootstrap:
         condition: service_completed_successfully
     volumes:
       - clamav-signatures:/var/lib/clamav
@@ -42,7 +62,7 @@ services:
       - clamav-socket:/run/clamav
       - ./clamd.conf:/etc/clamav/planext4u.conf:ro
     depends_on:
-      clamav-init:
+      clamav-bootstrap:
         condition: service_completed_successfully
     mem_limit: 4g
     cpus: 2
