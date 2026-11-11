@@ -20,6 +20,17 @@ import (
 // object-store deletion in one disposable verification run. Neither the local
 // application database nor its persistent bucket is eligible for this fixture.
 func TestDueVersionCleanerDisposableDatabaseAndObjectStore(t *testing.T) {
+	for _, test := range []struct{ name, purpose string }{
+		{"identity-document", "IDENTITY_DOCUMENT"},
+		{"avatar", "AVATAR"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			testDueVersionCleanerDisposableDatabaseAndObjectStore(t, test.purpose)
+		})
+	}
+}
+
+func testDueVersionCleanerDisposableDatabaseAndObjectStore(t *testing.T, purpose string) {
 	if os.Getenv("MEDIA_S3_TEST_ENDPOINT") == "" ||
 		os.Getenv("MEDIA_S3_TEST_BUCKET") != "verification-media" ||
 		os.Getenv("MEDIA_S3_TEST_ACCESS_KEY") != "synthetic-verification" ||
@@ -31,7 +42,7 @@ func TestDueVersionCleanerDisposableDatabaseAndObjectStore(t *testing.T) {
 	 WHERE tenant_id=$1 AND country='IN' AND owner='media'`, tenant); err != nil {
 		t.Fatal(err)
 	}
-	asset := insertDueMediaAsset(t, ctx, owner, tenant, subject, "IN", "IDENTITY_DOCUMENT", "AWS_SIGV4_IF_NONE_MATCH", time.Now().Add(-15*time.Minute))
+	asset := insertDueMediaAsset(t, ctx, owner, tenant, subject, "IN", purpose, "AWS_SIGV4_IF_NONE_MATCH", time.Now().Add(-15*time.Minute))
 	configuration, err := awsconfig.LoadDefaultConfig(ctx,
 		awsconfig.WithRegion("ap-south-1"),
 		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
@@ -91,9 +102,10 @@ func TestDueVersionCleanerDisposableDatabaseAndObjectStore(t *testing.T) {
 	var evidenceCount int
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM media.object_purge_evidence e
 	 JOIN media.object_purge_state s ON s.asset_id=e.asset_id
+	 JOIN media.assets a ON a.id=e.asset_id
 	 WHERE e.asset_id=$1 AND e.request_id=$2 AND s.purged_at=e.recorded_at
-	 AND e.deleted_versions=$3 AND e.deleted_markers=$4`, asset, request,
-		result.VersionsDeleted, result.MarkersDeleted).Scan(&evidenceCount); err != nil || evidenceCount != 1 {
+	 AND e.deleted_versions=$3 AND e.deleted_markers=$4 AND a.purpose=$5`, asset, request,
+		result.VersionsDeleted, result.MarkersDeleted, purpose).Scan(&evidenceCount); err != nil || evidenceCount != 1 {
 		t.Fatalf("matching durable object evidence missing: count=%d err=%v", evidenceCount, err)
 	}
 	retry, err := cleaner.PurgeDueAsset(ctx, request, asset)

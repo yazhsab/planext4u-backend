@@ -32,6 +32,8 @@ case "${1:-}" in
       fi
 	  if [ "$target" = media ]; then
 	    grep -q -- '--- PASS: TestDueVersionCleanerDisposableDatabaseAndObjectStore' /evidence/postgres-media.log
+	    grep -q -- '--- PASS: TestDueVersionCleanerDisposableDatabaseAndObjectStore/identity-document' /evidence/postgres-media.log
+	    grep -q -- '--- PASS: TestDueVersionCleanerDisposableDatabaseAndObjectStore/avatar' /evidence/postgres-media.log
 	    go test -tags=integration -count=1 -timeout=2m -v ./cmd/media-version-cleanup > /evidence/postgres-media-cleanup-command.log 2>&1
 	    grep -q -- '--- PASS: TestDedicatedMediaCleanupLoginDisposablePostgres' /evidence/postgres-media-cleanup-command.log
 	  fi

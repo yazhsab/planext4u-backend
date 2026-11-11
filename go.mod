@@ -2,7 +2,7 @@ module github.com/yazhsab/planext4u-backend
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	firebase.google.com/go/v4 v4.22.0

@@ -43,7 +43,7 @@ try {
       '--mount','type=volume,source=planext4u-phase0-verification-modules,target=/go/pkg/mod',
       '--mount','type=volume,source=planext4u-phase0-verification-build,target=/root/.cache/go-build',
       '--mount','type=volume,source=planext4u-phase2-clamav-socket,target=/run/clamav,readonly',
-      '--env-file',environment,'-w','/src','golang:1.26.10-alpine3.23','go','test','-tags=integration','-count=1','-run','TestClamAVPrivateS3UploadQuarantineAndUnavailableRecovery','-v','./internal/media'],
+      '--env-file',environment,'-w','/src','golang:1.26.11-alpine3.23','go','test','-tags=integration','-count=1','-run','TestClamAVPrivateS3UploadQuarantineAndUnavailableRecovery','-v','./internal/media'],
       {stdio:['ignore',descriptor,descriptor],timeout:300000});
   } finally {closeSync(descriptor);}
   const log=readFileSync(resolve(output,'scanner.log'),'utf8');

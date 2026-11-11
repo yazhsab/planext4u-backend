@@ -1,6 +1,6 @@
 # The previous public minio/minio image cannot currently be pulled. Build the
 # upstream source directly rather than depending on an unverified image mirror.
-FROM golang:1.26.10-alpine3.23 AS build
+FROM golang:1.26.11-alpine3.23 AS build
 RUN apk add --no-cache ca-certificates curl
 WORKDIR /src
 # Upstream release RELEASE.2025-10-15T17-29-55Z, resolved to an immutable commit.

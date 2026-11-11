@@ -2,7 +2,7 @@ module github.com/yazhsab/planext4u-backend/tests/integration
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require github.com/testcontainers/testcontainers-go v0.43.0
 

@@ -46,7 +46,7 @@ rollback evidence.
 
 ## Local development
 
-Prerequisite: Go 1.26.10 or newer. The module toolchain directive prevents
+Prerequisite: Go 1.26.11 or newer. The module toolchain directive prevents
 builds with earlier vulnerable Go 1.25 patch releases.
 
 ```sh
