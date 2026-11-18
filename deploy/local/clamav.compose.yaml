@@ -71,7 +71,7 @@ services:
     restart: unless-stopped
     healthcheck:
       # A ping can succeed while clamd reloads signatures and rejects scans.
-      test: ["CMD", "clamdscan", "--config-file=/etc/clamav/planext4u.conf", "--no-summary", "/etc/clamav/planext4u.conf"]
+      test: ["CMD", "clamdscan", "--config-file=/etc/clamav/planext4u.conf", "--stream", "--no-summary", "/etc/clamav/planext4u.conf"]
       interval: 10s
       timeout: 5s
       retries: 30
