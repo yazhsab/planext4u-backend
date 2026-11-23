@@ -61,6 +61,7 @@ services:
       - clamav-signatures:/var/lib/clamav:ro
       - clamav-socket:/run/clamav
       - ./clamd.conf:/etc/clamav/planext4u.conf:ro
+      - ./clamav-health.sh:/etc/clamav/planext4u-health.sh:ro
     depends_on:
       clamav-bootstrap:
         condition: service_completed_successfully
@@ -70,8 +71,8 @@ services:
       TZ: UTC
     restart: unless-stopped
     healthcheck:
-      # A ping can succeed while clamd reloads signatures and rejects scans.
-      test: ["CMD", "clamdscan", "--config-file=/etc/clamav/planext4u.conf", "--stream", "--no-summary", "/etc/clamav/planext4u.conf"]
+      # Readiness requires both INSTREAM scans and fresh signatures actually loaded by clamd.
+      test: ["CMD", "sh", "/etc/clamav/planext4u-health.sh"]
       interval: 10s
       timeout: 5s
       retries: 30
