@@ -40,18 +40,25 @@ try{
  const initial=await owner.request.get(origin+'/admin/api/v1/cms/pages'),initialDrafts=await initial.json();check('owning-publication-revision-available',initial.status()===200&&Number.isSafeInteger(initialDrafts.published_revision)&&initialDrafts.published_revision>0);
  const initialRevision=initialDrafts.published_revision;report.initial_snapshot_revision=initialRevision;
  for(const role of ['customer','vendor','rider'])for(const locale of ['en','ta']){
+  const selectedVisual=role==='customer'&&locale==='en'?'shopping':null;
   const id=`mobile-splash-${role}-${locale}`,title=`Planext4u ${role[0].toUpperCase()+role.slice(1)}`,message=locale==='ta'?'தொடர உள்நுழையவும் அல்லது கணக்கை உருவாக்கவும்.':'Welcome. Sign in or create your account to continue.';
   // Reruns preserve existing content; unexpected unrelated content is never overwritten.
   const existing=initialDrafts.items.find(value=>value.page.id===id);
-  if(existing){check(`${role}-${locale}-existing-content-preserved`,existing.page.blocks?.[0]?.content?.message===message);}
+  if(existing){check(`${role}-${locale}-existing-content-preserved`,existing.page.blocks?.[0]?.content?.message===message&&existing.page.blocks?.[0]?.content?.title===title);}
   else{
    const creator=page.getByRole('region',{name:'Mobile startup splash drafts',exact:true});
    if(!await creator.getByLabel('Startup application role',{exact:true}).count())await creator.getByRole('button',{name:'Create startup splash',exact:true}).click();
-   await creator.getByLabel('Startup application role',{exact:true}).selectOption(role);await creator.getByLabel('Startup splash language',{exact:true}).selectOption(locale);await creator.getByLabel('Startup splash title',{exact:true}).fill(title);await creator.getByLabel('Startup splash message',{exact:true}).fill(message);
+   await creator.getByLabel('Startup application role',{exact:true}).selectOption(role);await creator.getByLabel('Startup splash language',{exact:true}).selectOption(locale);await creator.getByLabel('Startup image',{exact:true}).selectOption(selectedVisual??'brand');await creator.getByLabel('Startup splash title',{exact:true}).fill(title);await creator.getByLabel('Startup splash message',{exact:true}).fill(message);
    const saving=page.waitForResponse(value=>value.request().method()==='PUT'&&value.url().endsWith(`/cms/pages/${id}/draft`));await creator.getByRole('button',{name:'Save startup splash draft',exact:true}).click();check(`${role}-${locale}-normal-browser-draft`,(await saving).status()===200);
   }
   await page.getByRole('button').filter({hasText:`/app/splash/${role}/${locale}`}).click();
-  const editor=page.getByRole('region',{name:`Edit splash.${role}.${locale}`,exact:true});await editor.getByRole('button',{name:'Refresh publication details',exact:true}).click();
+  const editor=page.getByRole('region',{name:`Edit splash.${role}.${locale}`,exact:true});
+  if(selectedVisual&&existing&&existing.page.blocks?.[0]?.content?.visual!==selectedVisual){
+   const content=editor.locator('textarea.code-input');await content.fill(JSON.stringify({...existing.page.blocks[0].content,visual:selectedVisual},null,2));
+   const saving=page.waitForResponse(value=>value.request().method()==='PUT'&&value.url().endsWith(`/cms/pages/${id}/draft`));await editor.getByRole('button',{name:'Save draft',exact:true}).click();const saved=await saving;
+   check(`${role}-${locale}-normal-browser-visual-revision`,saved.status()===200&&(await saved.json()).page?.blocks?.[0]?.content?.visual===selectedVisual);
+  }
+  await editor.getByRole('button',{name:'Refresh publication details',exact:true}).click();
   await editor.getByLabel('Publication reason',{exact:true}).fill('Publish reviewed public welcome text for local Android acceptance');
   const submitted=page.waitForResponse(value=>value.request().method()==='POST'&&value.url()===origin+'/admin/api/v1/operations');await editor.getByRole('button',{name:'Request publication',exact:true}).click();const response=await submitted,change=await response.json();
   check(`${role}-${locale}-normal-browser-publication-request`,response.status()===201&&change.status==='PENDING_APPROVAL'&&change.command.payload.publication_type==='PAGE'&&change.command.payload.expected_snapshot_revision===initialRevision+report.published_count);
@@ -59,7 +66,8 @@ try{
   const approval=await approver.request.post(origin+`/admin/api/v1/operations/${change.id}/approve`,{headers:checkerHeaders,data:{expected_revision:change.revision}});check(`${role}-${locale}-independent-owner-publication`,approval.status()===200&&(await approval.json()).status==='EXECUTED');
   report.published_count=(report.published_count??0)+1;
   const anonymous=await startup(role,locale),document=await anonymous.json();
-  check(`${role}-${locale}-anonymous-current-public-text`,anonymous.status===200&&document.revision===initialRevision+report.published_count&&document.role===role&&document.locale===locale&&document.splash?.title===title&&document.splash?.message===message&&Object.keys(document).sort().join(',')==='country,locale,published_at,revision,role,splash'&&Object.keys(document.splash).sort().join(',')==='message,title,version'&&anonymous.headers.get('cache-control')==='no-store');
+  const expectedVisual=selectedVisual??existing?.page.blocks?.[0]?.content?.visual??(existing?null:'brand');
+  check(`${role}-${locale}-anonymous-current-public-text`,anonymous.status===200&&document.revision===initialRevision+report.published_count&&document.role===role&&document.locale===locale&&document.splash?.title===title&&document.splash?.message===message&&document.splash?.visual===(expectedVisual??undefined)&&Object.keys(document).sort().join(',')==='country,locale,published_at,revision,role,splash'&&Object.keys(document.splash).sort().join(',')===(expectedVisual?'message,title,version,visual':'message,title,version')&&anonymous.headers.get('cache-control')==='no-store');
  }
  check('anonymous-bootstrap-still-denied',(await fetch('http://127.0.0.1:8082/v1/bootstrap',{signal:AbortSignal.timeout(10000)})).status===401);
  check('caller-tenant-query-denied',(await startup('customer','en','&tenant_id='+randomUUID())).status===422);

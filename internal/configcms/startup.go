@@ -65,10 +65,11 @@ func validStartupVisual(visual string) bool {
 	}
 }
 
-// Reserved splash drafts use the existing text-only ONBOARDING block, with
-// exactly one public panel. Arbitrary content, targeting and redirects cannot
-// enter the anonymous response. Normal drafts/four-eyes publication still own
-// every revision; this endpoint never publishes or creates a default page.
+// Reserved splash drafts use the bounded ONBOARDING block, with text and an
+// optional bundled visual key in exactly one public panel. Arbitrary content,
+// targeting and redirects cannot enter the anonymous response. Normal drafts
+// and four-eyes publication still own every revision; this endpoint never
+// publishes or creates a default page.
 func validStartupPage(page Page) bool {
 	if !strings.HasPrefix(page.ID, "mobile-splash-") {
 		return true
