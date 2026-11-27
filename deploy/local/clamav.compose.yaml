@@ -1,7 +1,7 @@
 name: planext4u-phase2-security
 services:
   clamav-init:
-    image: clamav/clamav:1.4.6@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
+    image: clamav/clamav:1.4.7@sha256:ac15046e610610347c459afabea6683a52cd041c7a10adf5f050ebb05525d62d
     entrypoint: ["sh", "-c", "chown 100:101 /var/lib/clamav /run/clamav && chmod 0770 /run/clamav"]
     network_mode: none
     volumes:
@@ -12,7 +12,7 @@ services:
   # Finish the first signature update before clamd loads the database.
   # The daemon cannot receive NotifyClamd while its socket is still absent.
   clamav-bootstrap:
-    image: clamav/clamav:1.4.6@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
+    image: clamav/clamav:1.4.7@sha256:ac15046e610610347c459afabea6683a52cd041c7a10adf5f050ebb05525d62d
     command: ["freshclam", "--config-file=/etc/clamav/planext4u-freshclam.conf", "--stdout"]
     depends_on:
       clamav-init:
@@ -30,7 +30,7 @@ services:
     labels:
       net.planext4u.environment: local-phase2
   clamav-update:
-    image: clamav/clamav:1.4.6@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
+    image: clamav/clamav:1.4.7@sha256:ac15046e610610347c459afabea6683a52cd041c7a10adf5f050ebb05525d62d
     command: ["freshclam", "--config-file=/etc/clamav/planext4u-freshclam.conf", "--daemon", "--foreground", "--stdout"]
     depends_on:
       clamav-bootstrap:
@@ -50,7 +50,7 @@ services:
     labels:
       net.planext4u.environment: local-phase2
   clamav:
-    image: clamav/clamav:1.4.6@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
+    image: clamav/clamav:1.4.7@sha256:ac15046e610610347c459afabea6683a52cd041c7a10adf5f050ebb05525d62d
     entrypoint: ["clamd", "--config-file=/etc/clamav/planext4u.conf", "--foreground"]
     user: "100:101"
     network_mode: none

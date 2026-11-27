@@ -26,7 +26,7 @@ try {
   const before=manifest();
   writeFileSync(resolve(output,'source.sha256'),before);
   report={check_id:'real-private-media-scanner',started_at:new Date().toISOString(),result:'RUNNING',source_manifest_sha256:createHash('sha256').update(before).digest('hex'),
-    scanner_image:'clamav/clamav:1.4.6@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260',
+    scanner_image:'clamav/clamav:1.4.7@sha256:ac15046e610610347c459afabea6683a52cd041c7a10adf5f050ebb05525d62d',
     note:'Actual private MinIO bytes and ClamAV engine; synthetic test documents only. No KYC/bank/provider approval or production failover is claimed.'};
   const save=()=>writeFileSync(resolve(output,'report.json'),JSON.stringify(report,null,2)+'\n');
   save();
