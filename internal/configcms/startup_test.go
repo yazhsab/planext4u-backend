@@ -101,12 +101,37 @@ func TestPublicStartupMissingDisabledAndUnconfiguredNeverCreatesContent(t *testi
 	}
 }
 
+func TestPublicStartupProjectsOnlyAllowlistedVisual(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	snapshot := validSnapshot(now)
+	page := splashFixture("customer", "en", "Welcome")
+	page.Blocks[0].Content["visual"] = "shopping"
+	snapshot.Pages = []Page{page}
+	repository, err := NewMemoryRepository(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, _ := NewService(repository, func() time.Time { return now })
+	got, err := service.PublicStartup(context.Background(), snapshot.TenantID, "IN", "customer", "en")
+	if err != nil || got.Splash == nil || got.Splash.Visual != "shopping" {
+		t.Fatalf("visual projection: %+v %v", got, err)
+	}
+}
+
 func TestReservedSplashDraftsRejectPrivateTargetingAndUnboundedContent(t *testing.T) {
 	t.Parallel()
 	for _, role := range []string{"customer", "vendor", "rider"} {
 		for _, locale := range platformlocale.All() {
 			if err := validatePages([]Page{splashFixture(role, locale, "Welcome")}); err != nil {
 				t.Fatal(role, locale, err)
+			}
+			for _, visual := range []string{"brand", "shopping", "services", "community", "vendor"} {
+				page := splashFixture(role, locale, "Welcome")
+				page.Blocks[0].Content["visual"] = visual
+				if err := validatePages([]Page{page}); err != nil {
+					t.Fatal(role, locale, visual, err)
+				}
 			}
 		}
 	}
@@ -121,6 +146,9 @@ func TestReservedSplashDraftsRejectPrivateTargetingAndUnboundedContent(t *testin
 		func(p *Page) { p.Blocks[0].Content["redirect"] = "https://untrusted.invalid" },
 		func(p *Page) { p.Blocks[0].Kind = "HTML" },
 		func(p *Page) { p.Blocks[0].Content["version"] = "" },
+		func(p *Page) { p.Blocks[0].Content["visual"] = "https://untrusted.invalid/image.jpg" },
+		func(p *Page) { p.Blocks[0].Content["visual"] = "../../private" },
+		func(p *Page) { p.Blocks[0].Content["visual"] = nil },
 	} {
 		page := splashFixture("customer", "en", "Welcome")
 		mutate(&page)

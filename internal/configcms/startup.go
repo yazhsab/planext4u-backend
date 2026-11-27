@@ -40,6 +40,7 @@ type StartupSplash struct {
 	Version string `json:"version"`
 	Title   string `json:"title"`
 	Message string `json:"message"`
+	Visual  string `json:"visual,omitempty"`
 }
 
 type StartupDocument struct {
@@ -53,6 +54,15 @@ type StartupDocument struct {
 
 func validStartupRole(role string) bool {
 	return role == "customer" || role == "vendor" || role == "rider"
+}
+
+func validStartupVisual(visual string) bool {
+	switch visual {
+	case "brand", "shopping", "services", "community", "vendor":
+		return true
+	default:
+		return false
+	}
 }
 
 // Reserved splash drafts use the existing text-only ONBOARDING block, with
@@ -73,6 +83,20 @@ func validStartupPage(page Page) bool {
 	copy.ID = "mobile-onboarding-" + parts[0] + "-" + parts[1]
 	copy.Route = "/app/onboarding/" + parts[0] + "/" + parts[1]
 	copy.Audience = []string{strings.ToUpper(parts[0])}
+	content := page.Blocks[0].Content
+	if len(content) == 4 {
+		visual, ok := content["visual"].(string)
+		if !ok || !validStartupVisual(visual) {
+			return false
+		}
+		copy.Blocks = append([]PageBlock(nil), page.Blocks...)
+		copy.Blocks[0].Content = make(map[string]any, 3)
+		for key, value := range content {
+			if key != "visual" {
+				copy.Blocks[0].Content[key] = value
+			}
+		}
+	}
 	return validEducationPage(copy)
 }
 
@@ -103,6 +127,9 @@ func (service *Service) PublicStartup(ctx context.Context, tenant, country, role
 			}
 			result.Locale = candidate
 			result.Splash = &StartupSplash{Version: block.Content["version"].(string), Title: block.Content["title"].(string), Message: block.Content["message"].(string)}
+			if visual, ok := block.Content["visual"].(string); ok {
+				result.Splash.Visual = visual
+			}
 			return result, nil
 		}
 	}

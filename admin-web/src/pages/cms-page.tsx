@@ -67,6 +67,7 @@ function OnboardingDraftCreator({session,startup=false}: {session: AdminSession;
   const [version, setVersion] = useState("1");
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
+  const [visual, setVisual] = useState("brand");
   const mutation = useMutation({
     mutationFn: () => {
       if (!/^[A-Za-z0-9._-]{1,32}$/.test(version) || !title.trim() || title.length > 120 || !message.trim() || message.length > 1000) {
@@ -76,7 +77,7 @@ function OnboardingDraftCreator({session,startup=false}: {session: AdminSession;
         id: `mobile-${kind}-${role}-${locale}`, route: `/app/${kind}/${role}/${locale}`,
         title_key: `${kind}.${role}.${locale}`, audience: startup ? ["PUBLIC"] : [role === "customer" ? "CUSTOMER" : role === "vendor" ? "VENDOR" : "RIDER"], enabled: true,
         blocks: [{id: "introduction", kind: "ONBOARDING", enabled: true, priority: 0,
-          content: {version, title: title.trim(), message: message.trim()}}],
+          content: {version, title: title.trim(), message: message.trim(), ...(startup ? {visual} : {})}}],
       };
       return saveCMSPageDraft(page.id, 0, page, session.csrf_token);
     },
@@ -95,6 +96,7 @@ function OnboardingDraftCreator({session,startup=false}: {session: AdminSession;
       <div className="cms-form-field"><label htmlFor={inputPrefix+"-edition"}>{label} edition</label><input id={inputPrefix+"-edition"} value={version} maxLength={32} required disabled={mutation.isPending} onChange={(event) => { setVersion(event.target.value); }} /></div>
       <div className="cms-form-field"><label htmlFor={inputPrefix+"-title"}>{label} title</label><input id={inputPrefix+"-title"} value={title} maxLength={120} required disabled={mutation.isPending} onChange={(event) => { setTitle(event.target.value); }} /></div>
       <div className="cms-form-field cms-field-wide"><label htmlFor={inputPrefix+"-message"}>{label} message</label><textarea id={inputPrefix+"-message"} value={message} maxLength={1000} required disabled={mutation.isPending} onChange={(event) => { setMessage(event.target.value); }} /></div>
+      {startup && <div className="cms-form-field"><label htmlFor="startup-visual">Startup image</label><select id="startup-visual" value={visual} disabled={mutation.isPending} onChange={(event) => { setVisual(event.target.value); }}><option value="brand">Brand mark only</option><option value="shopping">Shopping</option><option value="services">Services</option><option value="community">Community</option><option value="vendor">Vendor</option></select><p>Images are bundled with the mobile app and remain available offline.</p></div>}
       <div className="cms-field-wide"><Button type="submit" disabled={mutation.isPending}>{startup ? "Save startup splash draft" : "Save introduction draft"}</Button></div>
       {mutation.isError && <p className="cms-field-wide" role="alert">{errorMessage(mutation.error)}</p>}
       {mutation.isSuccess && <p className="cms-field-wide" role="status">{label} draft saved. Review it in the page editor before submitting publication.</p>}

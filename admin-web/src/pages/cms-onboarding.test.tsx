@@ -103,9 +103,10 @@ it("creates a public role/language startup splash as an unpublished bounded draf
   return Promise.resolve(Response.json(path.endsWith("/audiences")?{groups:[]}:{items:[]}));
  }));show();await userEvent.click(screen.getByRole("button",{name:"Create startup splash"}));
  await userEvent.selectOptions(screen.getByLabelText("Startup application role"),"vendor");await userEvent.selectOptions(screen.getByLabelText("Startup splash language"),"ta");
+ await userEvent.selectOptions(screen.getByLabelText("Startup image"),"vendor");
  await userEvent.type(screen.getByLabelText("Startup splash title"),"வணக்கம்");await userEvent.type(screen.getByLabelText("Startup splash message"),"Planext4u வரவேற்கிறது");await userEvent.click(screen.getByRole("button",{name:"Save startup splash draft"}));
  await screen.findByText("Startup splash draft saved. Review it in the page editor before submitting publication.");
- expect(writes).toHaveLength(1);expect(writes[0]?.path).toContain("mobile-splash-vendor-ta/draft");expect(writes[0]?.body).toMatchObject({expected_revision:0,page:{route:"/app/splash/vendor/ta",audience:["PUBLIC"],blocks:[{kind:"ONBOARDING",content:{version:"1",title:"வணக்கம்",message:"Planext4u வரவேற்கிறது"}}]}});
+ expect(writes).toHaveLength(1);expect(writes[0]?.path).toContain("mobile-splash-vendor-ta/draft");expect(writes[0]?.body).toMatchObject({expected_revision:0,page:{route:"/app/splash/vendor/ta",audience:["PUBLIC"],blocks:[{kind:"ONBOARDING",content:{version:"1",title:"வணக்கம்",message:"Planext4u வரவேற்கிறது",visual:"vendor"}}]}});
  expect(writes[0]?.body.page.audience_groups).toBeUndefined();
 });
 
