@@ -249,6 +249,24 @@
         }
       }
     },
+    "/v1/reasons": {
+      "get": {
+        "tags": ["Reference data"],
+        "operationId": "searchReasons",
+        "summary": "Search active rider offer decline reasons in the trusted session tenant/country",
+        "description": "Only the five current rider offer decline codes are projected. Owning commands must separately validate their applicable reason codes and current revision.",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {"in": "query", "name": "search", "schema": {"type": "string", "maxLength": 128}},
+          {"in": "query", "name": "after", "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "200": {"description": "Current active reason references; no-store", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReasonPage"}}}},
+          "422": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/v1/geography": {
       "get": {
         "operationId": "configuration.listGeography",
@@ -905,6 +923,28 @@
             "type": "string",
             "format": "uuid"
           }
+        }
+      },
+      "ReasonRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "code", "name_en", "name_ta", "master_revision"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$"},
+          "name_en": {"type": "string", "minLength": 1, "maxLength": 128},
+          "name_ta": {"type": "string", "minLength": 1, "maxLength": 128},
+          "master_revision": {"type": "integer", "format": "int64", "minimum": 1}
+        }
+      },
+      "ReasonPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["country", "items"],
+        "properties": {
+          "country": {"type": "string", "pattern": "^[A-Z]{2}$"},
+          "items": {"type": "array", "maxItems": 50, "items": {"$ref": "#/components/schemas/ReasonRecord"}},
+          "next_after": {"type": "string", "format": "uuid"}
         }
       },
       "GeographyRecord": {

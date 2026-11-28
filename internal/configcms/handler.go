@@ -14,6 +14,7 @@ type Handler struct {
 	startup     PublicStartupConfig
 	occupations OccupationDirectory
 	geography   GeographyDirectory
+	reasons     ReasonDirectory
 }
 
 func NewHandler(service *Service) (http.Handler, error) {
@@ -33,6 +34,10 @@ func NewHandlerWithOccupations(service *Service, audiences AudienceMembershipRes
 }
 
 func NewHandlerWithReferenceDirectories(service *Service, audiences AudienceMembershipResolver, startup PublicStartupConfig, occupations OccupationDirectory, geography GeographyDirectory) (http.Handler, error) {
+	return NewHandlerWithAllReferenceDirectories(service, audiences, startup, occupations, geography, nil)
+}
+
+func NewHandlerWithAllReferenceDirectories(service *Service, audiences AudienceMembershipResolver, startup PublicStartupConfig, occupations OccupationDirectory, geography GeographyDirectory, reasons ReasonDirectory) (http.Handler, error) {
 	if service == nil {
 		return nil, errors.New("configuration service is required")
 	}
@@ -43,11 +48,13 @@ func NewHandlerWithReferenceDirectories(service *Service, audiences AudienceMemb
 	handler := &Handler{service: service, audiences: audiences, startup: startup}
 	handler.occupations = occupations
 	handler.geography = geography
+	handler.reasons = reasons
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/startup", handler.publicStartup)
 	mux.HandleFunc("GET /v1/bootstrap", handler.bootstrap)
 	mux.HandleFunc("GET /v1/occupations", handler.occupationList)
 	mux.HandleFunc("GET /v1/geography", handler.geographyList)
+	mux.HandleFunc("GET /v1/reasons", handler.reasonList)
 	mux.HandleFunc("GET /v1/pages/{page_id}", handler.page)
 	return mux, nil
 }

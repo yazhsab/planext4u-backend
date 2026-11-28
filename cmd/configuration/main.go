@@ -101,7 +101,12 @@ func run() int {
 		return 2
 	}
 	geography, _ := configcms.NewPostgresGeographyDirectory(pool)
-	application, err := configcms.NewHandlerWithReferenceDirectories(service, audiences, runtime.publicStartup, occupations, geography)
+	reasons, err := configcms.NewPostgresReasonDirectory(pool)
+	if err != nil {
+		logger.Error("configure reason directory", "error", err)
+		return 2
+	}
+	application, err := configcms.NewHandlerWithAllReferenceDirectories(service, audiences, runtime.publicStartup, occupations, geography, reasons)
 	if err != nil {
 		logger.Error("configure handler", "error", err)
 		return 2

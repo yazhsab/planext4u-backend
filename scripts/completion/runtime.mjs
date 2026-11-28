@@ -58,7 +58,7 @@ export function prepareLocal(directory = runtimeDirectory) {
       MALWARE_SCANNER_MODE: 'clamav', CLAMAV_SOCKET: '/run/clamav/clamd.sock'},
     gateway: {APP_ENV: 'development', ...jwt, HTTP_ADDRESS: '127.0.0.1:8082', JWT_PUBLIC_KEY_FILE: publicPath,
       REDIS_URL_FILE: create('redis.url', 'redis://127.0.0.1:63790/0'), UPSTREAM_URL: 'http://127.0.0.1:8086',
-      UPSTREAM_ROUTES: JSON.stringify({'/v1/auth': 'http://127.0.0.1:8083', '/v1/me': 'http://127.0.0.1:8083', '/v1/startup': 'http://127.0.0.1:8084', '/v1/bootstrap': 'http://127.0.0.1:8084', '/v1/occupations': 'http://127.0.0.1:8084', '/v1/geography': 'http://127.0.0.1:8084', '/v1/pages': 'http://127.0.0.1:8084', '/v1/home': 'http://127.0.0.1:8085', '/v1/catalog': 'http://127.0.0.1:8085', '/v1/serviceability': 'http://127.0.0.1:8085', '/v1/media': 'http://127.0.0.1:8087'}),
+      UPSTREAM_ROUTES: JSON.stringify({'/v1/auth': 'http://127.0.0.1:8083', '/v1/me': 'http://127.0.0.1:8083', '/v1/startup': 'http://127.0.0.1:8084', '/v1/bootstrap': 'http://127.0.0.1:8084', '/v1/occupations': 'http://127.0.0.1:8084', '/v1/geography': 'http://127.0.0.1:8084', '/v1/reasons': 'http://127.0.0.1:8084', '/v1/pages': 'http://127.0.0.1:8084', '/v1/home': 'http://127.0.0.1:8085', '/v1/catalog': 'http://127.0.0.1:8085', '/v1/serviceability': 'http://127.0.0.1:8085', '/v1/media': 'http://127.0.0.1:8087'}),
       ANONYMOUS_ROUTES: JSON.stringify({'/v1/auth/exchange': ['POST'], '/v1/auth/enroll': ['POST'], '/v1/auth/recover': ['POST'], '/v1/auth/refresh': ['POST'], '/v1/startup': ['GET']})},
     migration: {MIGRATION_DATABASE_URL_FILE: create('migration.database.url', 'postgres://planext4u_local:local-only-password@127.0.0.1:54320/planext4u_local?sslmode=disable')},
   };

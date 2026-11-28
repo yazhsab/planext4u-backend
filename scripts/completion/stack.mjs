@@ -48,7 +48,7 @@ export function createStackDefinition(directory = runtimeDirectory) {
     if (service === 'gateway') {
       result.UPSTREAM_URL = 'http://transaction:8086';
       result.UPSTREAM_ROUTES = JSON.stringify({'/v1/auth': 'http://identity:8083', '/v1/me': 'http://identity:8083',
-        '/v1/startup': 'http://configuration:8084', '/v1/bootstrap': 'http://configuration:8084', '/v1/occupations': 'http://configuration:8084', '/v1/geography': 'http://configuration:8084', '/v1/pages': 'http://configuration:8084', '/v1/home': 'http://catalog:8085',
+        '/v1/startup': 'http://configuration:8084', '/v1/bootstrap': 'http://configuration:8084', '/v1/occupations': 'http://configuration:8084', '/v1/geography': 'http://configuration:8084', '/v1/reasons': 'http://configuration:8084', '/v1/pages': 'http://configuration:8084', '/v1/home': 'http://catalog:8085',
         '/v1/catalog': 'http://catalog:8085', '/v1/serviceability': 'http://catalog:8085', '/v1/media': 'http://media:8087'});
       result.ANONYMOUS_ROUTES = JSON.stringify({...JSON.parse(result.ANONYMOUS_ROUTES), '/v1/startup': ['GET']});
     }
